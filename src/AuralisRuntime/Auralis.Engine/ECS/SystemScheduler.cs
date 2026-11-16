@@ -8,6 +8,7 @@ namespace Auralis.Engine.ECS;
 public sealed class SystemScheduler
 {
     private readonly List<SystemGroup> _groups = new();
+
     public IReadOnlyList<SystemGroup> Groups => _groups;
 
     public SystemGroup CreateGroup(string name)
@@ -21,11 +22,15 @@ public sealed class SystemScheduler
     {
         ArgumentNullException.ThrowIfNull(world);
         world.BeginSystemExecution();
+
         try
         {
             foreach (var group in _groups)
-                foreach (var descriptor in group.Systems)
-                    descriptor.System.Execute(world, deltaTime);
+            {
+                // Indexing avoids the interface-based enumerator from IReadOnlyList<T>.
+                for (var i = 0; i < group.SystemCount; i++)
+                    group.GetSystem(i).System.Execute(world, deltaTime);
+            }
         }
         finally
         {
