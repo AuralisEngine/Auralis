@@ -3,29 +3,26 @@ namespace Auralis.Engine.ECS;
 internal sealed class Chunk : IDisposable
 {
     private readonly IComponentColumn[] _columns;
-    private readonly Dictionary<int, int> _columnIndices;
 
     internal EntityId[] Entities { get; }
     internal int Count { get; private set; }
     internal int Capacity => Entities.Length;
     internal Archetype Archetype { get; }
 
-    internal Chunk(Archetype archetype, int capacity, Func<ComponentDescriptor, IComponentColumn> columnFactory)
+    internal Chunk(Archetype archetype, int capacity)
     {
         Archetype = archetype;
         Entities = new EntityId[capacity];
         var ids = archetype.Signature.ComponentIds;
         _columns = new IComponentColumn[ids.Length];
-        _columnIndices = new Dictionary<int, int>(ids.Length);
         var createdColumns = 0;
         try
         {
             for (var i = 0; i < ids.Length; i++)
             {
                 var descriptor = ComponentTypeRegistry.GetById(ids[i]);
-                _columns[i] = columnFactory(descriptor);
+                _columns[i] = archetype.CreateColumn(descriptor);
                 createdColumns = i + 1;
-                _columnIndices.Add(ids[i], i);
             }
         }
         catch
@@ -60,14 +57,18 @@ internal sealed class Chunk : IDisposable
         for (var i = 0; i < _columns.Length; i++) _columns[i].Clear(last);
     }
 
-    internal IComponentColumn GetColumn(int componentTypeId) =>
-        _columnIndices.TryGetValue(componentTypeId, out var index)
+    internal IComponentColumn GetColumn(int componentTypeId)
+    {
+        var index = Archetype.Signature.IndexOf(componentTypeId);
+        return index >= 0
             ? _columns[index]
             : throw new InvalidOperationException($"Archetype does not contain component type {componentTypeId}.");
+    }
 
     internal bool TryGetColumn(int componentTypeId, out IComponentColumn column)
     {
-        if (_columnIndices.TryGetValue(componentTypeId, out var index))
+        var index = Archetype.Signature.IndexOf(componentTypeId);
+        if (index >= 0)
         {
             column = _columns[index];
             return true;
