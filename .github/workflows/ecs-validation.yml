@@ -1,0 +1,29 @@
+name: ECS validation
+
+on:
+  pull_request:
+    paths:
+      - "src/AuralisRuntime/Auralis.Engine/**"
+      - "src/Auralis.Core/**"
+      - "Tests/Auralis.Engine.Tests/**"
+      - "Auralis.slnx"
+      - ".github/workflows/ecs-validation.yml"
+  push:
+    branches:
+      - master
+      - feature/ecs-architecture-rewrite
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Restore
+        run: dotnet restore Auralis.slnx
+      - name: Build
+        run: dotnet build Tests/Auralis.Engine.Tests/Auralis.Engine.Tests.csproj --configuration Release --no-restore
+      - name: Test ECS
+        run: dotnet test Tests/Auralis.Engine.Tests/Auralis.Engine.Tests.csproj --configuration Release --no-build
