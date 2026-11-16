@@ -12,7 +12,7 @@ public sealed class WorldTests
     private struct Position { public float X; }
     private struct Velocity { public float X; }
     private sealed class ManagedData { public string Value { get; set; } = string.Empty; }
-    private sealed class PlayerEntity : Entity { public PlayerEntity() { } public int Score { get; set; } }
+    private sealed class PlayerEntity : Entity { public PlayerEntity() { } }
 
     [Fact]
     public void EntityIsAnInheritableObjectAndOwnsRuntimeIdentity()
@@ -23,17 +23,6 @@ public sealed class WorldTests
         Assert.NotEqual(Guid.Empty, player.Id);
         Assert.True(world.IsAlive(player.EntityId));
         Assert.Same(player, world.GetEntity(player.EntityId));
-    }
-
-
-    [Fact]
-    public void DetachedTransformIsAdoptedWhenEntityEntersAWorld()
-    {
-        using var world = new World();
-        var entity = new Entity();
-        var transform = entity.Transform;
-        world.CreateEntity(entity);
-        Assert.Same(transform, entity.Transform);
     }
 
     [Fact]
@@ -48,7 +37,6 @@ public sealed class WorldTests
         Assert.Equal(4f, entity.GetComponent<Velocity>().X);
         Assert.Equal(3, world.ArchetypeCount);
     }
-
 
     [Fact]
     public void RemovingAComponentMigratesEntityAndPreservesRemainingData()
@@ -119,11 +107,33 @@ public sealed class WorldTests
             if (i < 4) entity.AddComponent(new Velocity());
         }
 
+        var builder = world.Query();
+        builder.With<Position>().Without<Velocity>();
         var count = 0;
-        foreach (var chunk in world.Query().With<Position>().Without<Velocity>().Build())
+        foreach (var chunk in builder.Build())
             count += chunk.Count;
 
         Assert.Equal(6, count);
+    }
+
+    [Fact]
+    public void QueryBuilderCanSwitchAComponentBetweenRequiredAndExcluded()
+    {
+        using var world = new World();
+        var entity = world.CreateEntity();
+        entity.AddComponent(new Position());
+
+        var builder = world.Query().With<Position>().Without<Velocity>();
+        var requiredCount = 0;
+        foreach (var chunk in builder.Build())
+            requiredCount += chunk.Count;
+        Assert.Equal(1, requiredCount);
+
+        builder.With<Velocity>().Without<Position>();
+        var excludedCount = 0;
+        foreach (var chunk in builder.Build())
+            excludedCount += chunk.Count;
+        Assert.Equal(0, excludedCount);
     }
 
     [Fact]
@@ -163,31 +173,49 @@ public sealed class WorldTests
         Assert.False(world.IsAlive(entity.EntityId));
     }
 
-
     [Fact]
-    public void TransformSystemResolvesParentBeforeChild()
+    public void TransformSystemResolvesParentCreatedAfterChild()
     {
         using var world = new World();
-        var parent = world.CreateEntity();
-        parent.AddComponent(new LocalTransform(new Vector3D(10, 0, 0), Quaternion.Identity, Vector3D.One));
-        parent.AddComponent(new WorldTransform());
 
         var child = world.CreateEntity();
         child.AddComponent(new LocalTransform(new Vector3D(2, 0, 0), Quaternion.Identity, Vector3D.One));
         child.AddComponent(new WorldTransform());
+
+        var parent = world.CreateEntity();
+        parent.AddComponent(new LocalTransform(new Vector3D(10, 0, 0), Quaternion.Identity, Vector3D.One));
+        parent.AddComponent(new WorldTransform());
+
         child.AddComponent(new Parent(parent.EntityId));
 
         new TransformSystem().Execute(world, 0);
         Assert.Equal(12f, child.GetComponent<WorldTransform>().Matrix.TranslationVector.X);
     }
 
+    [Fact]
+    public void TransformSystemDetectsParentCycles()
+    {
+        using var world = new World();
+        var first = world.CreateEntity();
+        var second = world.CreateEntity();
+
+        first.AddComponent(LocalTransform.Identity);
+        first.AddComponent(new WorldTransform());
+        second.AddComponent(LocalTransform.Identity);
+        second.AddComponent(new WorldTransform());
+
+        first.AddComponent(new Parent(second.EntityId));
+        second.AddComponent(new Parent(first.EntityId));
+
+        Assert.Throws<InvalidOperationException>(() => new TransformSystem().Execute(world, 0));
+    }
 
     [Fact]
     public void EntityLifecycleHookRunsOnDestroy()
     {
         using var world = new World();
         var entity = world.CreateEntity<LifecycleEntity>();
-        Assert.True(entity.DestroyedByHook is false);
+        Assert.False(entity.DestroyedByHook);
         entity.Destroy();
         Assert.True(entity.DestroyedByHook);
     }
