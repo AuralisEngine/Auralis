@@ -7,9 +7,20 @@ internal sealed class ArchetypeSignature : IEquatable<ArchetypeSignature>
     internal ReadOnlySpan<int> ComponentIds => _componentIds;
 
     internal ArchetypeSignature(ReadOnlySpan<int> componentIds)
+        : this(componentIds.ToArray(), takeOwnership: true)
     {
-        _componentIds = componentIds.ToArray();
         Array.Sort(_componentIds);
+        ValidateAndCalculateHash();
+    }
+
+    private ArchetypeSignature(int[] componentIds, bool takeOwnership)
+    {
+        _componentIds = takeOwnership ? componentIds : (int[])componentIds.Clone();
+        ValidateAndCalculateHash();
+    }
+
+    private void ValidateAndCalculateHash()
+    {
         for (var i = 1; i < _componentIds.Length; i++)
             if (_componentIds[i] == _componentIds[i - 1])
                 throw new ArgumentException("Duplicate component type in archetype signature.");
@@ -20,22 +31,33 @@ internal sealed class ArchetypeSignature : IEquatable<ArchetypeSignature>
 
     internal bool Contains(int componentId) => Array.BinarySearch(_componentIds, componentId) >= 0;
 
-    internal int[] With(int componentId)
+    internal ArchetypeSignature With(int componentId)
     {
+        var insertionIndex = Array.BinarySearch(_componentIds, componentId);
+        if (insertionIndex >= 0)
+            throw new ArgumentException("Component type already exists in archetype signature.", nameof(componentId));
+        insertionIndex = ~insertionIndex;
+
         var result = new int[_componentIds.Length + 1];
-        _componentIds.CopyTo(result, 0);
-        result[^1] = componentId;
-        return result;
+        _componentIds.AsSpan(0, insertionIndex).CopyTo(result);
+        result[insertionIndex] = componentId;
+        _componentIds.AsSpan(insertionIndex).CopyTo(result.AsSpan(insertionIndex + 1));
+        return new ArchetypeSignature(result, takeOwnership: true);
     }
 
-    internal int[] Without(int componentId)
+    internal ArchetypeSignature Without(int componentId)
     {
+        var removalIndex = Array.BinarySearch(_componentIds, componentId);
+        if (removalIndex < 0)
+            throw new ArgumentException("Component type does not exist in archetype signature.", nameof(componentId));
+
         var result = new int[_componentIds.Length - 1];
-        var target = 0;
-        foreach (var id in _componentIds)
-            if (id != componentId) result[target++] = id;
-        return result;
+        _componentIds.AsSpan(0, removalIndex).CopyTo(result);
+        _componentIds.AsSpan(removalIndex + 1).CopyTo(result.AsSpan(removalIndex));
+        return new ArchetypeSignature(result, takeOwnership: true);
     }
+
+    internal int IndexOf(int componentId) => Array.BinarySearch(_componentIds, componentId);
 
     public bool Equals(ArchetypeSignature? other) =>
         other is not null && _componentIds.AsSpan().SequenceEqual(other._componentIds);
