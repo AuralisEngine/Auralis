@@ -31,6 +31,7 @@ public sealed class QueryBuilder
 
     public EntityQuery Build()
     {
+        _world.ThrowIfDisposed();
         if (_hasBuiltQuery) return _builtQuery;
         _builtQuery = _world.BuildQuery(_include.ToArray(), _exclude.ToArray());
         _hasBuiltQuery = true;
