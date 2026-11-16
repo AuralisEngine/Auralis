@@ -12,6 +12,10 @@ The ECS is an archetype-first runtime with an object-oriented Entity facade.
 - Unmanaged components may be explicitly registered for aligned native columns per World.
 - Structural changes are immediate outside system execution and rejected during execution; record them in an `EntityCommandBuffer` and play it back afterward.
 - Archetypes cache add/remove transition targets, avoiding repeated signature construction after a transition has been warmed.
+- Archetype transitions now create one owned signature array rather than an intermediate array plus a second signature copy.
+- Chunks use the archetype's sorted component IDs to locate columns, avoiding a per-chunk component-index dictionary.
+- Query-builder cache keys are structural value keys rather than allocated strings; a builder also reuses its built query until `With`/`Without` changes the definition.
+- Archetype column creation no longer captures a per-archetype factory delegate; fixed-signature reserve APIs use stack storage instead of temporary arrays.
 - Typed queries use cached archetype matches and value-type enumerators; after warm-up, typed query iteration does not allocate. `ReadOnlyComponents`/`ReadOnlyFirst`/`ReadOnlySecond` expose read-only spans.
 - `ReserveEntities` and `ReserveArchetype<T...>` allow callers to preallocate chunk capacity before simulation.
 - System access declarations are metadata for future scheduling. The current scheduler is deterministic and single-threaded.
