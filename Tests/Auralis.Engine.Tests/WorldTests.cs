@@ -181,12 +181,15 @@ public sealed class WorldTests
         var child = world.CreateEntity();
         child.AddComponent(new LocalTransform(new Vector3D(2, 0, 0), Quaternion.Identity, Vector3D.One));
         child.AddComponent(new WorldTransform());
+        child.AddComponent(new Parent());
 
         var parent = world.CreateEntity();
         parent.AddComponent(new LocalTransform(new Vector3D(10, 0, 0), Quaternion.Identity, Vector3D.One));
         parent.AddComponent(new WorldTransform());
+        parent.AddComponent(new Parent());
 
-        child.AddComponent(new Parent(parent.EntityId));
+        // Both entities occupy the same chunk, with the child first.
+        child.SetComponent(new Parent(parent.EntityId));
 
         new TransformSystem().Execute(world, 0);
         Assert.Equal(12f, child.GetComponent<WorldTransform>().Matrix.TranslationVector.X);
@@ -201,11 +204,13 @@ public sealed class WorldTests
 
         first.AddComponent(LocalTransform.Identity);
         first.AddComponent(new WorldTransform());
+        first.AddComponent(new Parent());
         second.AddComponent(LocalTransform.Identity);
         second.AddComponent(new WorldTransform());
+        second.AddComponent(new Parent());
 
-        first.AddComponent(new Parent(second.EntityId));
-        second.AddComponent(new Parent(first.EntityId));
+        first.SetComponent(new Parent(second.EntityId));
+        second.SetComponent(new Parent(first.EntityId));
 
         Assert.Throws<InvalidOperationException>(() => new TransformSystem().Execute(world, 0));
     }
