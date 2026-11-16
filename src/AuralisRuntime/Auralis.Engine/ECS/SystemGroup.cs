@@ -4,10 +4,15 @@ namespace Auralis.Engine.ECS;
 public sealed class SystemGroup
 {
     private readonly List<SystemDescriptor> _systems = new();
+
     public string Name { get; }
     public IReadOnlyList<SystemDescriptor> Systems => _systems;
 
-    public SystemGroup(string name) => Name = string.IsNullOrWhiteSpace(name) ? "Systems" : name;
+    internal int SystemCount => _systems.Count;
+    internal SystemDescriptor GetSystem(int index) => _systems[index];
+
+    public SystemGroup(string name) =>
+        Name = string.IsNullOrWhiteSpace(name) ? "Systems" : name;
 
     public void Add(SystemDescriptor descriptor)
     {
