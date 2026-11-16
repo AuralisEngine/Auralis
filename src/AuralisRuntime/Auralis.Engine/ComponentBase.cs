@@ -1,6 +1,8 @@
 namespace Auralis.Engine;
 
-/// <summary>Base for higher-level engine objects that need a persistent object identity and name.</summary>
+/// <summary>
+/// Base for engine objects that need persistent identity, a name, and lifecycle hooks.
+/// </summary>
 public abstract class ComponentBase
 {
     public Guid Id { get; set; } = Guid.NewGuid();
@@ -20,6 +22,4 @@ public abstract class ComponentBase
 
     protected virtual void OnNameChanged() { }
     protected virtual void OnDestroy() { }
-
-    public void Destroy(ComponentBase component) => component?.OnDestroy();
 }
