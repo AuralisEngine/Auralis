@@ -6,6 +6,31 @@ namespace Auralis.Engine.ECS;
 /// </summary>
 public sealed class World : IDisposable
 {
+    private readonly struct QuerySignature : IEquatable<QuerySignature>
+    {
+        private readonly int[] _include;
+        private readonly int[] _exclude;
+        private readonly int _hashCode;
+
+        internal QuerySignature(int[] include, int[] exclude)
+        {
+            _include = include;
+            _exclude = exclude;
+            var hash = new HashCode();
+            foreach (var id in include) hash.Add(id);
+            hash.Add(-1);
+            foreach (var id in exclude) hash.Add(id);
+            _hashCode = hash.ToHashCode();
+        }
+
+        public bool Equals(QuerySignature other) =>
+            _include.AsSpan().SequenceEqual(other._include) &&
+            _exclude.AsSpan().SequenceEqual(other._exclude);
+
+        public override bool Equals(object? obj) => obj is QuerySignature other && Equals(other);
+        public override int GetHashCode() => _hashCode;
+    }
+
     private struct EntitySlot
     {
         internal uint Generation;
@@ -22,7 +47,7 @@ public sealed class World : IDisposable
     private readonly Dictionary<int, int> _nativeAlignmentOverrides = new();
     private readonly Dictionary<Type, QueryCache> _singleQueryCaches = new();
     private readonly Dictionary<(Type First, Type Second), QueryCache> _pairQueryCaches = new();
-    private readonly Dictionary<string, QueryCache> _builderQueryCaches = new();
+    private readonly Dictionary<QuerySignature, QueryCache> _builderQueryCaches = new();
     private readonly WorldConfiguration _configuration;
     private readonly int _ownerThreadId;
     private readonly Archetype _emptyArchetype;
@@ -274,8 +299,9 @@ public sealed class World : IDisposable
             throw new ArgumentOutOfRangeException(nameof(alignment), "Alignment must be a power of two and at least pointer-sized.");
 
         var typeId = ComponentType<T>.Id;
-        if (_archetypes.Values.Any(a => a.Signature.Contains(typeId)))
-            throw new InvalidOperationException("Register native storage before the component type is first used in this World.");
+        foreach (var archetype in _archetypes.Values)
+            if (archetype.Signature.Contains(typeId))
+                throw new InvalidOperationException("Register native storage before the component type is first used in this World.");
 
         ComponentTypeRegistry.RegisterNative<T>();
         _storageKinds[typeId] = ComponentStorageKind.Native;
@@ -292,7 +318,8 @@ public sealed class World : IDisposable
     public void ReserveArchetype<T1>(int entityCapacity) where T1 : notnull
     {
         EnsureStructuralMutationAllowed();
-        var archetype = GetOrCreateArchetype(new[] { ComponentType<T1>.Id });
+        Span<int> ids = stackalloc int[1] { ComponentType<T1>.Id };
+        var archetype = GetOrCreateArchetype(ids);
         archetype.Reserve(entityCapacity, GetChunkCapacity(archetype.Signature));
     }
 
@@ -300,7 +327,8 @@ public sealed class World : IDisposable
         where T1 : notnull where T2 : notnull
     {
         EnsureStructuralMutationAllowed();
-        var archetype = GetOrCreateArchetype(new[] { ComponentType<T1>.Id, ComponentType<T2>.Id });
+        Span<int> ids = stackalloc int[2] { ComponentType<T1>.Id, ComponentType<T2>.Id };
+        var archetype = GetOrCreateArchetype(ids);
         archetype.Reserve(entityCapacity, GetChunkCapacity(archetype.Signature));
     }
 
@@ -308,7 +336,8 @@ public sealed class World : IDisposable
         where T1 : notnull where T2 : notnull where T3 : notnull
     {
         EnsureStructuralMutationAllowed();
-        var archetype = GetOrCreateArchetype(new[] { ComponentType<T1>.Id, ComponentType<T2>.Id, ComponentType<T3>.Id });
+        Span<int> ids = stackalloc int[3] { ComponentType<T1>.Id, ComponentType<T2>.Id, ComponentType<T3>.Id };
+        var archetype = GetOrCreateArchetype(ids);
         archetype.Reserve(entityCapacity, GetChunkCapacity(archetype.Signature));
     }
 
@@ -349,7 +378,7 @@ public sealed class World : IDisposable
         ThrowIfDisposed();
         Array.Sort(include);
         Array.Sort(exclude);
-        var key = string.Join(",", include) + "|" + string.Join(",", exclude);
+        var key = new QuerySignature(include, exclude);
         if (!_builderQueryCaches.TryGetValue(key, out var cache))
         {
             cache = new QueryCache(this, include, exclude);
@@ -423,25 +452,30 @@ public sealed class World : IDisposable
         }
     }
 
-    private Archetype GetOrCreateArchetype(ReadOnlySpan<int> ids)
+    private Archetype GetOrCreateArchetype(ReadOnlySpan<int> ids) =>
+        GetOrCreateArchetype(new ArchetypeSignature(ids));
+
+    private Archetype GetOrCreateArchetype(ArchetypeSignature signature)
     {
-        var signature = new ArchetypeSignature(ids);
         if (_archetypes.TryGetValue(signature, out var existing)) return existing;
-        var created = new Archetype(signature, descriptor =>
-        {
-            if (_storageKinds.TryGetValue(descriptor.Id, out var kind) && kind == ComponentStorageKind.Native)
-            {
-                if (descriptor.ContainsManagedReferences || descriptor.NativeColumnFactory is null)
-                    throw new InvalidOperationException($"Component {descriptor.Type} cannot use native storage.");
-                return descriptor.NativeColumnFactory(GetChunkCapacity(signature),
-                    _nativeAlignmentOverrides.TryGetValue(descriptor.Id, out var alignment)
-                        ? alignment : _configuration.NativeColumnAlignment);
-            }
-            return descriptor.ManagedColumnFactory(GetChunkCapacity(signature));
-        });
+        var created = new Archetype(signature, this);
         _archetypes.Add(signature, created);
         _archetypeVersion++;
         return created;
+    }
+
+    internal IComponentColumn CreateColumn(ComponentDescriptor descriptor, ArchetypeSignature signature)
+    {
+        var capacity = GetChunkCapacity(signature);
+        if (_storageKinds.TryGetValue(descriptor.Id, out var kind) && kind == ComponentStorageKind.Native)
+        {
+            if (descriptor.ContainsManagedReferences || descriptor.NativeColumnFactory is null)
+                throw new InvalidOperationException($"Component {descriptor.Type} cannot use native storage.");
+            var alignment = _nativeAlignmentOverrides.TryGetValue(descriptor.Id, out var requestedAlignment)
+                ? requestedAlignment : _configuration.NativeColumnAlignment;
+            return descriptor.NativeColumnFactory(capacity, alignment);
+        }
+        return descriptor.ManagedColumnFactory(capacity);
     }
 
     private int GetChunkCapacity(ArchetypeSignature signature) =>
