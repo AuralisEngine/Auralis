@@ -5,7 +5,7 @@ internal sealed class Archetype : IDisposable
     private readonly List<Chunk> _chunks = new();
     private readonly Dictionary<int, Archetype> _addTransitions = new();
     private readonly Dictionary<int, Archetype> _removeTransitions = new();
-    private readonly Func<ComponentDescriptor, IComponentColumn> _columnFactory;
+    private readonly World _world;
     internal ArchetypeSignature Signature { get; }
     internal IReadOnlyList<Chunk> Chunks => _chunks;
     internal int EntityCount { get; private set; }
@@ -17,11 +17,14 @@ internal sealed class Archetype : IDisposable
         _removeTransitions.TryGetValue(componentTypeId, out target!);
     internal void CacheRemoveTransition(int componentTypeId, Archetype target) => _removeTransitions[componentTypeId] = target;
 
-    internal Archetype(ArchetypeSignature signature, Func<ComponentDescriptor, IComponentColumn> columnFactory)
+    internal Archetype(ArchetypeSignature signature, World world)
     {
         Signature = signature;
-        _columnFactory = columnFactory;
+        _world = world;
     }
+
+    internal IComponentColumn CreateColumn(ComponentDescriptor descriptor) =>
+        _world.CreateColumn(descriptor, Signature);
 
     internal (Chunk Chunk, int Index) Add(EntityId entity, int chunkCapacity)
     {
@@ -61,7 +64,7 @@ internal sealed class Archetype : IDisposable
 
     private Chunk CreateChunk(int capacity)
     {
-        var chunk = new Chunk(this, capacity, _columnFactory);
+        var chunk = new Chunk(this, capacity);
         _chunks.Add(chunk);
         return chunk;
     }
