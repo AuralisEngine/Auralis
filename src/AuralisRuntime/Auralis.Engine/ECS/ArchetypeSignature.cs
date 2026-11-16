@@ -7,26 +7,27 @@ internal sealed class ArchetypeSignature : IEquatable<ArchetypeSignature>
     internal ReadOnlySpan<int> ComponentIds => _componentIds;
 
     internal ArchetypeSignature(ReadOnlySpan<int> componentIds)
-        : this(componentIds.ToArray(), takeOwnership: true)
     {
+        _componentIds = componentIds.ToArray();
         Array.Sort(_componentIds);
-        ValidateAndCalculateHash();
+        _hashCode = ValidateAndCalculateHash();
     }
 
-    private ArchetypeSignature(int[] componentIds, bool takeOwnership)
+    private ArchetypeSignature(int[] componentIds)
     {
-        _componentIds = takeOwnership ? componentIds : (int[])componentIds.Clone();
-        ValidateAndCalculateHash();
+        _componentIds = componentIds;
+        _hashCode = ValidateAndCalculateHash();
     }
 
-    private void ValidateAndCalculateHash()
+    private int ValidateAndCalculateHash()
     {
         for (var i = 1; i < _componentIds.Length; i++)
             if (_componentIds[i] == _componentIds[i - 1])
                 throw new ArgumentException("Duplicate component type in archetype signature.");
+
         var hash = new HashCode();
         foreach (var id in _componentIds) hash.Add(id);
-        _hashCode = hash.ToHashCode();
+        return hash.ToHashCode();
     }
 
     internal bool Contains(int componentId) => Array.BinarySearch(_componentIds, componentId) >= 0;
@@ -42,7 +43,7 @@ internal sealed class ArchetypeSignature : IEquatable<ArchetypeSignature>
         _componentIds.AsSpan(0, insertionIndex).CopyTo(result);
         result[insertionIndex] = componentId;
         _componentIds.AsSpan(insertionIndex).CopyTo(result.AsSpan(insertionIndex + 1));
-        return new ArchetypeSignature(result, takeOwnership: true);
+        return new ArchetypeSignature(result);
     }
 
     internal ArchetypeSignature Without(int componentId)
@@ -54,7 +55,7 @@ internal sealed class ArchetypeSignature : IEquatable<ArchetypeSignature>
         var result = new int[_componentIds.Length - 1];
         _componentIds.AsSpan(0, removalIndex).CopyTo(result);
         _componentIds.AsSpan(removalIndex + 1).CopyTo(result.AsSpan(removalIndex));
-        return new ArchetypeSignature(result, takeOwnership: true);
+        return new ArchetypeSignature(result);
     }
 
     internal int IndexOf(int componentId) => Array.BinarySearch(_componentIds, componentId);
