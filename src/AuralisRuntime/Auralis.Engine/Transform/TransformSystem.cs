@@ -49,8 +49,8 @@ public sealed class TransformSystem : ISystem
         LastErrorEntity = default;
         LastError = TransformHierarchyError.None;
 
-        // Pass 1: read the dense columns sequentially. Parent is the only optional
-        // component lookup; subsequent parent-chain traversal uses these cached arrays.
+        // Pass 1: read dense component columns sequentially. Parent is the only optional
+        // component lookup; parent-chain traversal below uses these cached arrays.
         foreach (var chunk in world.Query<LocalTransform, WorldTransform>())
         {
             var entities = chunk.Entities;
@@ -163,8 +163,6 @@ public sealed class TransformSystem : ISystem
                 if (_visitVersions[parentIndex] != updateVersion ||
                     _visitStates[parentIndex] != 2)
                 {
-                    // This should only occur if the hierarchy was invalidated by
-                    // malformed parent data. Skip the entire unresolved path.
                     _visitStates[index] = 3;
                     MarkPathInvalid(pathCount);
                     ReportError(parent, TransformHierarchyError.ParentMissingTransform);
@@ -182,11 +180,7 @@ public sealed class TransformSystem : ISystem
     private void MarkPathInvalid(int pathCount)
     {
         for (var i = 0; i < pathCount; i++)
-        {
-            var index = (int)_path[i].Index;
-            _visitVersions[index] = _visitVersions[index]; // Keep the current visit stamp.
-            _visitStates[index] = 3;
-        }
+            _visitStates[(int)_path[i].Index] = 3;
     }
 
     private void ReportError(EntityId entity, TransformHierarchyError error)
