@@ -97,6 +97,97 @@ public sealed class WorldTests
     }
 
     [Fact]
+    public void QueryEnumerationAndComponentViewsRejectStructuralMutation()
+    {
+        using var world = new World();
+        var entity = world.CreateEntity();
+        entity.AddComponent(new Position { X = 5 });
+
+        var enumerator = world.Query<Position>().GetEnumerator();
+        Assert.True(enumerator.MoveNext());
+        var staleComponents = enumerator.Current.Components;
+        var staleReference = entity.GetComponentReference<Position>();
+
+        entity.AddComponent(new Velocity());
+
+        Assert.Throws<InvalidOperationException>(() => enumerator.MoveNext());
+        Assert.Throws<InvalidOperationException>(() => _ = staleComponents[0].X);
+        Assert.Throws<InvalidOperationException>(() => _ = staleReference.Value.X);
+    }
+
+    [Fact]
+    public void ExistingComponentAccessorCanReadAndWriteWithoutExposingRawReference()
+    {
+        using var world = new World();
+        var entity = world.CreateEntity();
+        entity.AddComponent(new Position { X = 1 });
+
+        var accessor = entity.GetComponentReference<Position>();
+        var position = accessor.Value;
+        position.X = 9;
+        accessor.Value = position;
+
+        Assert.Equal(9f, entity.GetComponent<Position>().X);
+    }
+
+    [Fact]
+    public void EmptyCommandBufferPlaybackDoesNotConsumeTheBuffer()
+    {
+        using var world = new World();
+        var entity = world.CreateEntity();
+        entity.AddComponent(new Position());
+
+        var commands = new EntityCommandBuffer();
+        commands.Playback(world);
+        commands.Set(entity.EntityId, new Position { X = 3 });
+        commands.Playback(world);
+
+        Assert.Equal(3f, entity.GetComponent<Position>().X);
+    }
+
+    [Fact]
+    public void CommandBufferRecordingDuringDestroyHookDoesNotBlock()
+    {
+        using var world = new World();
+        var target = world.CreateEntity();
+        target.AddComponent(new Position());
+
+        var commands = new EntityCommandBuffer();
+        var destroyer = world.CreateEntity(new RecordDuringDestroyEntity(commands, target.EntityId));
+        commands.Destroy(destroyer.EntityId);
+
+        commands.Playback(world);
+
+        Assert.True(((RecordDuringDestroyEntity)destroyer).WorkerWasRejected);
+        Assert.Equal(0f, target.GetComponent<Position>().X);
+    }
+
+    [Fact]
+    public void EntityNameHookCannotReenterWorldCreation()
+    {
+        using var world = new World();
+        var entity = new ReentrantNameEntity(world);
+
+        Assert.Throws<InvalidOperationException>(() => world.CreateEntity(entity, "Reentrant"));
+        Assert.False(entity.IsAttached);
+        Assert.Equal(0, world.EntityCount);
+    }
+
+    [Fact]
+    public void WorldComponentChecksValidateNullAndDisposedState()
+    {
+        var world = new World();
+        var entity = world.CreateEntity();
+        entity.AddComponent(new Position());
+        var id = entity.EntityId;
+
+        Assert.Throws<ArgumentNullException>(() => world.HasComponent<Position>(null!));
+
+        world.Dispose();
+        Assert.Throws<ObjectDisposedException>(() => world.TryGetComponent<Position>(id, out _));
+    }
+
+    [Fact]
     public void QueryBuilderSupportsRequiredAndExcludedComponents()
     {
         using var world = new World();
@@ -283,11 +374,12 @@ public sealed class WorldTests
     }
 
     [Fact]
-    public void TransformSystemDetectsParentCycles()
+    public void TransformSystemReportsParentCyclesWithoutAbortingTheUpdate()
     {
         using var world = new World();
         var first = world.CreateEntity();
         var second = world.CreateEntity();
+        var independentRoot = world.CreateEntity();
 
         first.AddComponent(LocalTransform.Identity);
         first.AddComponent(new WorldTransform());
@@ -295,11 +387,39 @@ public sealed class WorldTests
         second.AddComponent(LocalTransform.Identity);
         second.AddComponent(new WorldTransform());
         second.AddComponent(new Parent());
+        independentRoot.AddComponent(new LocalTransform(new Vector3D(7, 0, 0), Quaternion.Identity, Vector3D.One));
+        independentRoot.AddComponent(new WorldTransform());
 
         first.SetComponent(new Parent(second.EntityId));
         second.SetComponent(new Parent(first.EntityId));
 
-        Assert.Throws<InvalidOperationException>(() => new TransformSystem().Execute(world, 0));
+        var system = new TransformSystem();
+        system.Execute(world, 0);
+
+        Assert.Equal(1, system.ErrorCount);
+        Assert.Equal(TransformHierarchyError.CycleDetected, system.LastError);
+        Assert.Equal(7f, independentRoot.GetComponent<WorldTransform>().Matrix.TranslationVector.X);
+    }
+
+    [Fact]
+    public void TransformSystemSkipsEntitiesWithParentsMissingTransformComponents()
+    {
+        using var world = new World();
+        var parent = world.CreateEntity(); // Alive, but deliberately has no transform components.
+        var child = world.CreateEntity();
+        child.AddComponent(LocalTransform.Identity);
+        child.AddComponent(new WorldTransform());
+        child.AddComponent(new Parent(parent.EntityId));
+        var independentRoot = world.CreateEntity();
+        independentRoot.AddComponent(new LocalTransform(new Vector3D(4, 0, 0), Quaternion.Identity, Vector3D.One));
+        independentRoot.AddComponent(new WorldTransform());
+
+        var system = new TransformSystem();
+        system.Execute(world, 0);
+
+        Assert.Equal(1, system.ErrorCount);
+        Assert.Equal(TransformHierarchyError.ParentMissingTransform, system.LastError);
+        Assert.Equal(4f, independentRoot.GetComponent<WorldTransform>().Matrix.TranslationVector.X);
     }
 
     [Fact]
@@ -313,13 +433,19 @@ public sealed class WorldTests
     }
 
     [Fact]
-    public void ScriptSystemExecutesManagedScriptComponents()
+    public void ScriptSystemFindsConcreteScriptsAddedThroughAddComponent()
     {
         using var world = new World();
         var entity = world.CreateEntity();
-        var script = entity.AddScript(new CountingScript());
+        var script = entity.AddComponent(new CountingScript());
+
         new ScriptSystem().Execute(world, 0.25f);
+
         Assert.Equal(0.25f, script.Elapsed);
+        Assert.True(entity.HasComponent<CountingScript>());
+        Assert.Same(script, entity.GetComponent<CountingScript>());
+        Assert.True(entity.RemoveComponent<CountingScript>());
+        Assert.False(entity.HasComponent<Script>());
     }
 
     private sealed class LifecycleEntity : Entity
@@ -327,6 +453,35 @@ public sealed class WorldTests
         public LifecycleEntity() { }
         public bool DestroyedByHook { get; private set; }
         protected override void OnDestroy() => DestroyedByHook = true;
+    }
+
+    private sealed class ReentrantNameEntity(World world) : Entity
+    {
+        protected override void OnNameChanged() => world.CreateEntity();
+    }
+
+    private sealed class RecordDuringDestroyEntity(EntityCommandBuffer commands, EntityId target) : Entity
+    {
+        public bool WorkerWasRejected { get; private set; }
+
+        protected override void OnDestroy()
+        {
+            var worker = Task.Factory.StartNew(
+                () => commands.Set(target, new Position { X = 99 }),
+                CancellationToken.None,
+                TaskCreationOptions.LongRunning,
+                TaskScheduler.Default);
+
+            Assert.True(worker.Wait(TimeSpan.FromSeconds(5)), "Worker was blocked while command playback was executing.");
+            try
+            {
+                worker.GetAwaiter().GetResult();
+            }
+            catch (InvalidOperationException)
+            {
+                WorkerWasRejected = true;
+            }
+        }
     }
 
     private sealed class CountingScript : Script
