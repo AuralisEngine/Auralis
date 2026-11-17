@@ -35,7 +35,9 @@ internal sealed class Chunk : IDisposable
 
     internal int Add(EntityId entity)
     {
-        if (Count == Capacity) throw new InvalidOperationException("Chunk is full.");
+        if (Count == Capacity)
+            throw new InvalidOperationException("Chunk is full.");
+
         var index = Count++;
         Entities[index] = entity;
         return index;
@@ -43,7 +45,9 @@ internal sealed class Chunk : IDisposable
 
     internal void RemoveAtSwapBack(int index, out EntityId movedEntity)
     {
-        if ((uint)index >= (uint)Count) throw new ArgumentOutOfRangeException(nameof(index));
+        if ((uint)index >= (uint)Count)
+            throw new ArgumentOutOfRangeException(nameof(index));
+
         var last = --Count;
         movedEntity = default;
         if (index != last)
@@ -53,16 +57,21 @@ internal sealed class Chunk : IDisposable
             for (var i = 0; i < _columns.Length; i++)
                 _columns[i].CopyElementTo(last, _columns[i], index);
         }
+
         Entities[last] = default;
-        for (var i = 0; i < _columns.Length; i++) _columns[i].Clear(last);
+        for (var i = 0; i < _columns.Length; i++)
+            _columns[i].Clear(last);
     }
 
     internal IComponentColumn GetColumn(int componentTypeId)
     {
         var index = Archetype.Signature.IndexOf(componentTypeId);
-        return index >= 0
-            ? _columns[index]
-            : throw new InvalidOperationException($"Archetype does not contain component type {componentTypeId}.");
+        if (index >= 0)
+            return _columns[index];
+
+        var componentType = ComponentTypeRegistry.GetById(componentTypeId).Type;
+        throw new InvalidOperationException(
+            $"Archetype does not contain component type '{componentType.FullName}'.");
     }
 
     internal bool TryGetColumn(int componentTypeId, out IComponentColumn column)
@@ -73,6 +82,7 @@ internal sealed class Chunk : IDisposable
             column = _columns[index];
             return true;
         }
+
         column = null!;
         return false;
     }
@@ -89,7 +99,9 @@ internal sealed class Chunk : IDisposable
 
     public void Dispose()
     {
-        foreach (var column in _columns) column.Dispose();
+        foreach (var column in _columns)
+            column.Dispose();
+
         Array.Clear(Entities);
         Count = 0;
     }
