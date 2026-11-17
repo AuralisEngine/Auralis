@@ -110,9 +110,21 @@ public sealed class WorldTests
 
         entity.AddComponent(new Velocity());
 
-        Assert.Throws<InvalidOperationException>(() => enumerator.MoveNext());
-        Assert.Throws<InvalidOperationException>(() => _ = staleComponents[0].X);
-        Assert.Throws<InvalidOperationException>(() => _ = staleReference.Value.X);
+        var enumerationRejected = false;
+        try { enumerator.MoveNext(); }
+        catch (InvalidOperationException) { enumerationRejected = true; }
+
+        var componentViewRejected = false;
+        try { _ = staleComponents[0].X; }
+        catch (InvalidOperationException) { componentViewRejected = true; }
+
+        var componentAccessorRejected = false;
+        try { _ = staleReference.Value.X; }
+        catch (InvalidOperationException) { componentAccessorRejected = true; }
+
+        Assert.True(enumerationRejected);
+        Assert.True(componentViewRejected);
+        Assert.True(componentAccessorRejected);
     }
 
     [Fact]
