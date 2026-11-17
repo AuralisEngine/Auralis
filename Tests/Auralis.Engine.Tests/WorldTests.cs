@@ -174,6 +174,68 @@ public sealed class WorldTests
     }
 
     [Fact]
+    public void CommandBufferCannotReplayCommandsAfterPartialPlaybackFailure()
+    {
+        using var world = new World();
+        var existing = world.CreateEntity();
+        existing.AddComponent(new Position());
+
+        var created = new Entity();
+        var commands = new EntityCommandBuffer();
+        commands.Create(created, "Created before failure");
+        commands.Add(existing.EntityId, new Position());
+        commands.Destroy(existing.EntityId);
+
+        Assert.Equal(3, commands.Count);
+        Assert.Throws<InvalidOperationException>(() => commands.Playback(world));
+
+        // The create command ran once. The failing add stopped playback, and the
+        // later destroy was discarded with the rest of the consumed command list.
+        Assert.True(created.IsAttached);
+        Assert.True(world.IsAlive(existing.EntityId));
+        Assert.Equal(2, world.EntityCount);
+        Assert.Equal(0, commands.Count);
+
+        Assert.Throws<InvalidOperationException>(() => commands.Playback(world));
+        Assert.Equal(2, world.EntityCount);
+
+        // Explicitly clearing a consumed buffer is the only way to reuse it.
+        commands.Clear();
+        commands.Destroy(existing.EntityId);
+        commands.Playback(world);
+        Assert.False(world.IsAlive(existing.EntityId));
+    }
+
+    [Fact]
+    public void CommandBufferSupportsConcurrentRecordingFromWorkers()
+    {
+        using var world = new World();
+        const int entityCount = 128;
+        var entities = new Entity[entityCount];
+        var ids = new EntityId[entityCount];
+
+        for (var i = 0; i < entityCount; i++)
+        {
+            entities[i] = world.CreateEntity();
+            entities[i].AddComponent(new Position());
+            ids[i] = entities[i].EntityId;
+        }
+
+        var commands = new EntityCommandBuffer();
+        Parallel.For(0, entityCount, i =>
+            commands.Set(ids[i], new Position { X = i + 1 }));
+
+        Assert.Equal(entityCount, commands.Count);
+
+        // Playback mutates World and therefore runs on the World owner thread.
+        commands.Playback(world);
+
+        for (var i = 0; i < entityCount; i++)
+            Assert.Equal(i + 1, entities[i].GetComponent<Position>().X);
+        Assert.Equal(0, commands.Count);
+    }
+
+    [Fact]
     public void TransformSystemResolvesParentCreatedAfterChild()
     {
         using var world = new World();
