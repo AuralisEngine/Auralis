@@ -52,6 +52,7 @@ public sealed class World : IDisposable
     private readonly int _ownerThreadId;
     private readonly Archetype _emptyArchetype;
     private int _archetypeVersion;
+    private long _structuralVersion;
     private bool _disposed;
     private bool _isDisposing;
     private int _activeSystemDepth;
@@ -85,14 +86,23 @@ public sealed class World : IDisposable
         if (entity.IsDestroyed)
             throw new InvalidOperationException("A destroyed Entity instance cannot be reused.");
 
+        // Name invokes user-overridable OnNameChanged. Run it before publishing the
+        // entity into a slot, while lifecycleDepth prevents reentrant structural changes.
+        if (name is not null)
+        {
+            _lifecycleDepth++;
+            try { entity.Name = name; }
+            finally { _lifecycleDepth--; }
+        }
+
         var index = AllocateSlot();
         var slot = _slots[index];
         var id = new EntityId((uint)index, slot.Generation);
-        var location = _emptyArchetype.Add(id, GetChunkCapacity(_emptyArchetype.Signature));
+        var location = _emptyArchetype.Add(id);
         slot.Entity = entity;
         slot.Location = new EntityLocation(location.Chunk.Archetype, location.Chunk, location.Index);
         _slots[index] = slot;
-        entity.Attach(this, id, name);
+        entity.Attach(this, id);
         EntityCount++;
         return entity;
     }
@@ -194,7 +204,7 @@ public sealed class World : IDisposable
             target = GetOrCreateArchetype(source.Archetype.Signature.With(typeId));
             source.Archetype.CacheAddTransition(typeId, target);
         }
-        var destination = target.Add(id, GetChunkCapacity(target.Signature));
+        var destination = target.Add(id);
         source.Chunk.CopyCommonComponentsTo(source.Index, destination.Chunk, destination.Index);
         ((IComponentColumn<T>)destination.Chunk.GetColumn(typeId)).Span[destination.Index] = component;
 
@@ -234,14 +244,23 @@ public sealed class World : IDisposable
         return ((IComponentColumn<T>)slot.Location.Chunk.GetColumn(ComponentType<T>.Id)).Span[slot.Location.Index];
     }
 
-    public ref T GetComponentReference<T>(EntityId id) where T : notnull
+    /// <summary>
+    /// Returns a version-checked accessor. Unlike a raw ref, the accessor validates that
+    /// no structural change has invalidated the entity location on each use.
+    /// </summary>
+    public ComponentReference<T> GetComponentReference<T>(EntityId id) where T : notnull
     {
-        var slot = GetSlot(id);
-        return ref ((IComponentColumn<T>)slot.Location.Chunk.GetColumn(ComponentType<T>.Id)).GetReference(slot.Location.Index);
+        _ = GetSlot(id).Location.Chunk.GetColumn(ComponentType<T>.Id);
+#if DEBUG
+        if (_activeSystemDepth == 0)
+            throw new InvalidOperationException("GetComponentReference is only available during system execution in Debug builds. Use GetComponent<T> elsewhere.");
+#endif
+        return new ComponentReference<T>(this, id, _structuralVersion);
     }
 
     public bool TryGetComponent<T>(EntityId id, out T component) where T : notnull
     {
+        ThrowIfDisposed();
         if (IsAlive(id))
         {
             var slot = _slots[(int)id.Index];
@@ -255,11 +274,18 @@ public sealed class World : IDisposable
         return false;
     }
 
-    public bool HasComponent<T>(EntityId id) where T : notnull =>
-        IsAlive(id) && _slots[(int)id.Index].Location.Chunk.TryGetColumn(ComponentType<T>.Id, out _);
+    public bool HasComponent<T>(EntityId id) where T : notnull
+    {
+        ThrowIfDisposed();
+        return IsAlive(id) &&
+               _slots[(int)id.Index].Location.Chunk.TryGetColumn(ComponentType<T>.Id, out _);
+    }
 
-    public bool HasComponent<T>(Entity entity) where T : notnull =>
-        ReferenceEquals(entity.World, this) && HasComponent<T>(entity.EntityId);
+    public bool HasComponent<T>(Entity entity) where T : notnull
+    {
+        ArgumentNullException.ThrowIfNull(entity);
+        return ReferenceEquals(entity.World, this) && HasComponent<T>(entity.EntityId);
+    }
 
     public bool RemoveComponent<T>(Entity entity) where T : notnull
     {
@@ -280,7 +306,7 @@ public sealed class World : IDisposable
             target = GetOrCreateArchetype(source.Archetype.Signature.Without(typeId));
             source.Archetype.CacheRemoveTransition(typeId, target);
         }
-        var destination = target.Add(id, GetChunkCapacity(target.Signature));
+        var destination = target.Add(id);
         source.Chunk.CopyCommonComponentsTo(source.Index, destination.Chunk, destination.Index);
 
         source.Archetype.Remove(source.Chunk, source.Index, out var moved);
@@ -312,7 +338,7 @@ public sealed class World : IDisposable
     public void ReserveEntities(int capacity)
     {
         EnsureStructuralMutationAllowed();
-        _emptyArchetype.Reserve(capacity, GetChunkCapacity(_emptyArchetype.Signature));
+        _emptyArchetype.Reserve(capacity);
     }
 
     public void ReserveArchetype<T1>(int entityCapacity) where T1 : notnull
@@ -320,7 +346,7 @@ public sealed class World : IDisposable
         EnsureStructuralMutationAllowed();
         Span<int> ids = stackalloc int[1] { ComponentType<T1>.Id };
         var archetype = GetOrCreateArchetype(ids);
-        archetype.Reserve(entityCapacity, GetChunkCapacity(archetype.Signature));
+        archetype.Reserve(entityCapacity);
     }
 
     public void ReserveArchetype<T1, T2>(int entityCapacity)
@@ -329,7 +355,7 @@ public sealed class World : IDisposable
         EnsureStructuralMutationAllowed();
         Span<int> ids = stackalloc int[2] { ComponentType<T1>.Id, ComponentType<T2>.Id };
         var archetype = GetOrCreateArchetype(ids);
-        archetype.Reserve(entityCapacity, GetChunkCapacity(archetype.Signature));
+        archetype.Reserve(entityCapacity);
     }
 
     public void ReserveArchetype<T1, T2, T3>(int entityCapacity)
@@ -338,7 +364,7 @@ public sealed class World : IDisposable
         EnsureStructuralMutationAllowed();
         Span<int> ids = stackalloc int[3] { ComponentType<T1>.Id, ComponentType<T2>.Id, ComponentType<T3>.Id };
         var archetype = GetOrCreateArchetype(ids);
-        archetype.Reserve(entityCapacity, GetChunkCapacity(archetype.Signature));
+        archetype.Reserve(entityCapacity);
     }
 
     public ComponentQuery<T> Query<T>() where T : notnull
@@ -400,8 +426,9 @@ public sealed class World : IDisposable
 
     private EntitySlot GetSlot(EntityId id)
     {
+        ThrowIfDisposed();
         if (!IsAlive(id))
-            throw new InvalidOperationException($"Entity handle {id} is invalid, stale, or belongs to another World.");
+            throw new InvalidOperationException($"Entity handle {id} is invalid or stale in this World.");
         return _slots[(int)id.Index];
     }
 
@@ -475,12 +502,12 @@ public sealed class World : IDisposable
         var created = new Archetype(signature, this);
         _archetypes.Add(signature, created);
         _archetypeVersion++;
+        MarkStructuralChange();
         return created;
     }
 
-    internal IComponentColumn CreateColumn(ComponentDescriptor descriptor, ArchetypeSignature signature)
+    internal IComponentColumn CreateColumn(ComponentDescriptor descriptor, int capacity)
     {
-        var capacity = GetChunkCapacity(signature);
         if (_storageKinds.TryGetValue(descriptor.Id, out var kind) && kind == ComponentStorageKind.Native)
         {
             if (descriptor.ContainsManagedReferences || descriptor.NativeColumnFactory is null)
@@ -492,8 +519,22 @@ public sealed class World : IDisposable
         return descriptor.ManagedColumnFactory(capacity);
     }
 
-    private int GetChunkCapacity(ArchetypeSignature signature) =>
+    internal int GetChunkCapacity(ArchetypeSignature signature) =>
         ChunkLayout.CalculateCapacity(signature.ComponentIds, _configuration.ChunkTargetBytes, _configuration.MaximumEntitiesPerChunk);
+
+    internal long StructuralVersion => _structuralVersion;
+
+    internal void MarkStructuralChange()
+    {
+        unchecked { _structuralVersion++; }
+    }
+
+    internal void ValidateStructuralVersion(long expectedVersion)
+    {
+        ThrowIfDisposed();
+        if (_structuralVersion != expectedVersion)
+            throw new InvalidOperationException("The World was structurally modified while a query result was in use. Do not add, remove, create, or destroy entities while iterating a query.");
+    }
 
     internal IReadOnlyCollection<Archetype> Archetypes => _archetypes.Values;
     internal int ArchetypeVersion => _archetypeVersion;
