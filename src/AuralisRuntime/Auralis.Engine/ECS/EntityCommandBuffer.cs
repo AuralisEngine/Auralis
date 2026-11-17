@@ -4,8 +4,8 @@ namespace Auralis.Engine.ECS;
 
 /// <summary>
 /// Records structural changes for playback on the World owner thread.
-/// Multiple workers may record concurrently using a lock-free producer path
-/// backed by ConcurrentQueue and Interlocked state coordination.
+/// Multiple workers may record concurrently through ConcurrentQueue and an
+/// atomic multi-producer registration protocol; no application-level lock is used.
 /// </summary>
 /// <remarks>
 /// World mutation is not thread-safe. Workers may record commands into this buffer,
@@ -22,10 +22,13 @@ namespace Auralis.Engine.ECS;
 /// </remarks>
 public sealed class EntityCommandBuffer
 {
+    private const int ModeMask = unchecked((int)0xC0000000);
+    private const int WriterCountMask = 0x3FFFFFFF;
+
     private const int Recording = 0;
-    private const int PlayingBack = 1;
-    private const int Consumed = 2;
-    private const int Clearing = 3;
+    private const int PlayingBack = 0x40000000;
+    private const int Consumed = unchecked((int)0x80000000);
+    private const int Clearing = unchecked((int)0xC0000000);
 
     private interface ICommand { void Apply(World world); }
 
@@ -67,8 +70,9 @@ public sealed class EntityCommandBuffer
     }
 
     private readonly ConcurrentQueue<ICommand> _commands = new();
+    // The high two bits encode lifecycle state; the low bits atomically count
+    // producers that have registered permission to enqueue.
     private int _state;
-    private int _activeWriters;
     private int _pendingCount;
 
     /// <summary>Number of commands currently queued; a concurrent read is a snapshot.</summary>
@@ -99,10 +103,7 @@ public sealed class EntityCommandBuffer
         ArgumentNullException.ThrowIfNull(world);
         world.EnsureCommandBufferPlaybackAllowed();
 
-        var observedState = Interlocked.CompareExchange(ref _state, PlayingBack, Recording);
-        if (observedState != Recording)
-            ThrowForState(observedState);
-
+        TransitionTo(PlayingBack, allowConsumed: false);
         WaitForWriters();
 
         var hadCommands = false;
@@ -133,16 +134,7 @@ public sealed class EntityCommandBuffer
     /// </summary>
     public void Clear()
     {
-        while (true)
-        {
-            var state = Volatile.Read(ref _state);
-            if (state is PlayingBack or Clearing)
-                throw new InvalidOperationException("A command buffer cannot be cleared during playback or another clear operation.");
-
-            if (Interlocked.CompareExchange(ref _state, Clearing, state) == state)
-                break;
-        }
-
+        TransitionTo(Clearing, allowConsumed: true);
         WaitForWriters();
         DrainPendingCommands();
         Volatile.Write(ref _state, Recording);
@@ -150,30 +142,61 @@ public sealed class EntityCommandBuffer
 
     private void Enqueue(ICommand command)
     {
-        if (Volatile.Read(ref _state) != Recording)
-            ThrowForState(Volatile.Read(ref _state));
-
-        Interlocked.Increment(ref _activeWriters);
+        RegisterWriter();
         try
         {
-            // Playback/Clear may have started between the first state check and
-            // registering this writer. Recheck before publishing the command.
-            if (Volatile.Read(ref _state) != Recording)
-                ThrowForState(Volatile.Read(ref _state));
-
             _commands.Enqueue(command);
             Interlocked.Increment(ref _pendingCount);
         }
         finally
         {
-            Interlocked.Decrement(ref _activeWriters);
+            // Decrement only the writer counter, preserving the lifecycle mode bits.
+            Interlocked.Decrement(ref _state);
+        }
+    }
+
+    private void RegisterWriter()
+    {
+        while (true)
+        {
+            var state = Volatile.Read(ref _state);
+            if ((state & ModeMask) != Recording)
+                ThrowForState(state & ModeMask);
+
+            if ((state & WriterCountMask) == WriterCountMask)
+                throw new InvalidOperationException("Too many concurrent command-buffer writers.");
+
+            // State transition and writer registration are one CAS. Clear/Playback
+            // cannot pass this writer without either rejecting it or waiting for it.
+            if (Interlocked.CompareExchange(ref _state, state + 1, state) == state)
+                return;
+        }
+    }
+
+    private void TransitionTo(int targetMode, bool allowConsumed)
+    {
+        while (true)
+        {
+            var state = Volatile.Read(ref _state);
+            var currentMode = state & ModeMask;
+
+            if (currentMode == PlayingBack || currentMode == Clearing ||
+                (!allowConsumed && currentMode == Consumed))
+                ThrowForState(currentMode);
+
+            if (currentMode == Consumed && !allowConsumed)
+                ThrowForState(currentMode);
+
+            var nextState = targetMode | (state & WriterCountMask);
+            if (Interlocked.CompareExchange(ref _state, nextState, state) == state)
+                return;
         }
     }
 
     private void WaitForWriters()
     {
         var spinner = new SpinWait();
-        while (Volatile.Read(ref _activeWriters) != 0)
+        while ((Volatile.Read(ref _state) & WriterCountMask) != 0)
             spinner.SpinOnce();
     }
 
@@ -183,9 +206,9 @@ public sealed class EntityCommandBuffer
             Interlocked.Decrement(ref _pendingCount);
     }
 
-    private static void ThrowForState(int state)
+    private static void ThrowForState(int mode)
     {
-        throw state switch
+        throw mode switch
         {
             PlayingBack => new InvalidOperationException("A command buffer cannot be modified or played back while playback is in progress."),
             Clearing => new InvalidOperationException("A command buffer cannot be modified while it is being cleared."),
