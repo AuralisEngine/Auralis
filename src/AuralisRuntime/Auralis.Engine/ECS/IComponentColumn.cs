@@ -12,4 +12,5 @@ internal interface IComponentColumn<T> : IComponentColumn where T : notnull
 {
     Span<T> Span { get; }
     ref T GetReference(int index);
+    ref readonly T GetReadOnlyReference(int index);
 }
