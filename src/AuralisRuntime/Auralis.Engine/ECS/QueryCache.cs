@@ -9,6 +9,8 @@ internal sealed class QueryCache
     private readonly List<Archetype> _matches = new();
     private int _observedVersion = -1;
 
+    internal World World => _world;
+
     internal IReadOnlyList<Archetype> Matches
     {
         get { Refresh(); return _matches; }
