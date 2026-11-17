@@ -12,9 +12,17 @@ internal sealed unsafe class NativeComponentColumn<T> : IComponentColumn<T> wher
 
     public int ComponentTypeId => ComponentType<T>.Id;
     public int Capacity => _capacity;
-    public Span<T> Span => Volatile.Read(ref _memory) is var memory && memory != 0
-        ? new Span<T>((void*)memory, _capacity)
-        : throw new ObjectDisposedException(nameof(NativeComponentColumn<T>));
+
+    public Span<T> Span
+    {
+        get
+        {
+            var memory = Volatile.Read(ref _memory);
+            return memory != 0
+                ? new Span<T>((void*)memory, _capacity)
+                : throw new ObjectDisposedException(nameof(NativeComponentColumn<T>));
+        }
+    }
 
     internal NativeComponentColumn(int capacity, int alignment)
     {
@@ -29,6 +37,7 @@ internal sealed unsafe class NativeComponentColumn<T> : IComponentColumn<T> wher
     ~NativeComponentColumn() => ReleaseMemory();
 
     public ref T GetReference(int index) => ref Span[index];
+    public ref readonly T GetReadOnlyReference(int index) => ref Span[index];
     public void Clear(int index) => Span[index] = default;
 
     public void CopyElementTo(int sourceIndex, IComponentColumn destination, int destinationIndex)
