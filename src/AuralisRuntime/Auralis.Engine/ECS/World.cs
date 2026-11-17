@@ -126,7 +126,7 @@ public sealed class World : IDisposable
     public Entity GetEntity(EntityId id) =>
         TryGetEntity(id, out var entity)
             ? entity!
-            : throw new KeyNotFoundException($"Entity handle {id} is stale or does not belong to this World.");
+            : throw new KeyNotFoundException($"Entity handle {id} is not alive in this World.");
 
     public bool DestroyEntity(Entity entity)
     {
