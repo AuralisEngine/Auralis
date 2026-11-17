@@ -28,14 +28,21 @@ public readonly ref struct ComponentSpan<T> where T : notnull
         }
     }
 
-    public ref T this[int index]
+    public T this[int index]
     {
         get
         {
             _world.ValidateStructuralVersion(_structuralVersion);
             if ((uint)index >= (uint)_count)
                 throw new ArgumentOutOfRangeException(nameof(index));
-            return ref _column.GetReference(index);
+            return _column.Span[index];
+        }
+        set
+        {
+            _world.ValidateStructuralVersion(_structuralVersion);
+            if ((uint)index >= (uint)_count)
+                throw new ArgumentOutOfRangeException(nameof(index));
+            _column.Span[index] = value;
         }
     }
 }
@@ -65,14 +72,14 @@ public readonly ref struct ReadOnlyComponentSpan<T> where T : notnull
         }
     }
 
-    public ref readonly T this[int index]
+    public T this[int index]
     {
         get
         {
             _world.ValidateStructuralVersion(_structuralVersion);
             if ((uint)index >= (uint)_count)
                 throw new ArgumentOutOfRangeException(nameof(index));
-            return ref _column.GetReadOnlyReference(index);
+            return _column.Span[index];
         }
     }
 }
