@@ -272,7 +272,16 @@ public sealed class World : IDisposable
     /// </summary>
     public ComponentReference<T> GetComponentReference<T>(EntityId id) where T : notnull
     {
-        _ = GetSlot(id).Location.Chunk.GetColumn(ComponentType<T>.Id);
+        if (typeof(Script).IsAssignableFrom(typeof(T)) && typeof(T) != typeof(Script))
+        {
+            if (!TryGetComponent<T>(id, out _))
+                throw new InvalidOperationException($"Entity does not have a Script component of type {typeof(T).FullName}.");
+        }
+        else
+        {
+            _ = GetSlot(id).Location.Chunk.GetColumn(ComponentType<T>.Id);
+        }
+
         return new ComponentReference<T>(this, id, _structuralVersion);
     }
 
@@ -281,6 +290,12 @@ public sealed class World : IDisposable
         ValidateStructuralVersion(expectedVersion);
         if (Environment.CurrentManagedThreadId != _ownerThreadId)
             throw new InvalidOperationException("World component access must run on the World owner thread.");
+
+        if (component is Script script && typeof(T) != typeof(Script))
+        {
+            SetComponentValue<Script>(id, script, expectedVersion);
+            return;
+        }
 
         var slot = GetSlot(id);
         if (!slot.Location.Chunk.TryGetColumn(ComponentType<T>.Id, out var column))
