@@ -110,7 +110,7 @@ public readonly ref struct ComponentReference<T> where T : notnull
         set
         {
             _world.ValidateStructuralVersion(_structuralVersion);
-            _world.SetComponent(_entity, value);
+            _world.SetComponentValue(_entity, value, _structuralVersion);
         }
     }
 }
