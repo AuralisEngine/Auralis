@@ -425,6 +425,20 @@ public sealed class World : IDisposable
             throw new InvalidOperationException("Structural changes are not allowed from Entity lifecycle callbacks.");
     }
 
+    internal void EnsureCommandBufferPlaybackAllowed()
+    {
+        ThrowIfDisposed();
+
+        if (Environment.CurrentManagedThreadId != _ownerThreadId)
+            throw new InvalidOperationException("Entity command buffers must be played back on the World owner thread.");
+        if (_activeSystemDepth != 0)
+            throw new InvalidOperationException("Command buffers can only be played back outside system execution.");
+        if (_isDisposing)
+            throw new InvalidOperationException("World is currently disposing.");
+        if (_lifecycleDepth != 0)
+            throw new InvalidOperationException("Command buffers cannot be played back from Entity lifecycle callbacks.");
+    }
+
     internal void BeginSystemExecution()
     {
         ThrowIfDisposed();
