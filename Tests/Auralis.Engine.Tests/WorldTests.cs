@@ -239,7 +239,11 @@ public sealed class WorldTests
     public void CommandBufferPlaybackMustRunOnWorldOwnerThread()
     {
         using var world = new World();
+        var entity = world.CreateEntity();
+        entity.AddComponent(new Position());
+
         var commands = new EntityCommandBuffer();
+        commands.Set(entity.EntityId, new Position { X = 42 });
 
         Assert.Throws<InvalidOperationException>(() =>
             Task.Factory.StartNew(
@@ -248,9 +252,12 @@ public sealed class WorldTests
                 TaskCreationOptions.LongRunning,
                 TaskScheduler.Default).GetAwaiter().GetResult());
 
-        // Rejected playback must not consume the buffer.
-        Assert.Equal(0, commands.Count);
+        // Rejected playback must leave the queued commands available to the owner.
+        Assert.Equal(1, commands.Count);
+        Assert.Equal(0f, entity.GetComponent<Position>().X);
+
         commands.Playback(world);
+        Assert.Equal(42f, entity.GetComponent<Position>().X);
     }
 
     [Fact]
