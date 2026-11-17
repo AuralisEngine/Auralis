@@ -242,7 +242,11 @@ public sealed class WorldTests
         var commands = new EntityCommandBuffer();
 
         Assert.Throws<InvalidOperationException>(() =>
-            Task.Run(() => commands.Playback(world)).GetAwaiter().GetResult());
+            Task.Factory.StartNew(
+                () => commands.Playback(world),
+                CancellationToken.None,
+                TaskCreationOptions.LongRunning,
+                TaskScheduler.Default).GetAwaiter().GetResult());
 
         // Rejected playback must not consume the buffer.
         Assert.Equal(0, commands.Count);
