@@ -273,11 +273,20 @@ public sealed class World : IDisposable
     public ComponentReference<T> GetComponentReference<T>(EntityId id) where T : notnull
     {
         _ = GetSlot(id).Location.Chunk.GetColumn(ComponentType<T>.Id);
-#if DEBUG
-        if (_activeSystemDepth == 0)
-            throw new InvalidOperationException("GetComponentReference is only available during system execution in Debug builds. Use GetComponent<T> elsewhere.");
-#endif
         return new ComponentReference<T>(this, id, _structuralVersion);
+    }
+
+    internal void SetComponentValue<T>(EntityId id, T component, long expectedVersion) where T : notnull
+    {
+        ValidateStructuralVersion(expectedVersion);
+        if (Environment.CurrentManagedThreadId != _ownerThreadId)
+            throw new InvalidOperationException("World component access must run on the World owner thread.");
+
+        var slot = GetSlot(id);
+        if (!slot.Location.Chunk.TryGetColumn(ComponentType<T>.Id, out var column))
+            throw new InvalidOperationException($"Entity no longer has component {typeof(T).FullName}.");
+
+        ((IComponentColumn<T>)column).Span[slot.Location.Index] = component;
     }
 
     public bool TryGetComponent<T>(EntityId id, out T component) where T : notnull
