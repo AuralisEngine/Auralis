@@ -66,7 +66,7 @@ The current chunk layout uses a configurable target byte budget and maximum row 
 
 - World structural mutation is owner-thread-only.
 - The scheduler does not yet run jobs in parallel or perform work stealing. Access declarations currently describe conflicts but are not yet used to build parallel batches.
-- The World is not thread-safe. Structural changes are owner-thread-only; workers should record commands into separate command buffers and let the owner thread play them back.
+- The World is not thread-safe. Structural changes and command-buffer playback must run on the World owner thread. `EntityCommandBuffer` supports concurrent recording from multiple workers through an internal lock; recording is serialized, and concurrent command order follows lock acquisition, so it is not deterministic across runs. Use one buffer per worker and play them back in a fixed order when deterministic ordering matters.
 - Query component spans are writable by default; read-only span views are available, but the scheduler does not yet enforce access modes.
 - Command buffers currently allocate one command object per recorded operation.
 - Shared components, dynamic buffers, singleton components, prefabs, serialization, snapshots, replication, and source generation are future extensions.
