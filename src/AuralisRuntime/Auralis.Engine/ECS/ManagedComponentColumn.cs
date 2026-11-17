@@ -11,12 +11,10 @@ internal sealed class ManagedComponentColumn<T> : IComponentColumn<T> where T : 
     public int Capacity => _items.Length;
     public Span<T> Span => _items;
 
-    internal ManagedComponentColumn(int capacity)
-    {
-        _items = new T[capacity];
-    }
+    internal ManagedComponentColumn(int capacity) => _items = new T[capacity];
 
     public ref T GetReference(int index) => ref _items[index];
+    public ref readonly T GetReadOnlyReference(int index) => ref _items[index];
 
     public void Clear(int index) => _items[index] = default!;
 
