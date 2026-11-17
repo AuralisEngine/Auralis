@@ -193,6 +193,14 @@ public sealed class World : IDisposable
     {
         if (component is null) throw new ArgumentNullException(nameof(component));
         EnsureStructuralMutationAllowed();
+
+        // Script instances are stored under the Script base type so ScriptSystem
+        // discovers them even when callers use AddComponent<ConcreteScript>.
+        if (component is Script script && typeof(T) != typeof(Script))
+        {
+            AddComponent<Script>(id, script);
+            return;
+        }
         var slot = GetSlot(id);
         var typeId = ComponentType<T>.Id;
         var source = slot.Location;
@@ -224,6 +232,12 @@ public sealed class World : IDisposable
     {
         if (component is null) throw new ArgumentNullException(nameof(component));
         EnsureStructuralMutationAllowed();
+
+        if (component is Script script && typeof(T) != typeof(Script))
+        {
+            SetComponent<Script>(id, script);
+            return;
+        }
         var slot = GetSlot(id);
         var typeId = ComponentType<T>.Id;
         if (slot.Location.Chunk.TryGetColumn(typeId, out var column))
@@ -240,6 +254,14 @@ public sealed class World : IDisposable
 
     public T GetComponent<T>(EntityId id) where T : notnull
     {
+        if (typeof(Script).IsAssignableFrom(typeof(T)) && typeof(T) != typeof(Script))
+        {
+            var script = GetComponent<Script>(id);
+            return script is T typedScript
+                ? typedScript
+                : throw new InvalidCastException($"The entity's Script component is not a {typeof(T).FullName}.");
+        }
+
         var slot = GetSlot(id);
         return ((IComponentColumn<T>)slot.Location.Chunk.GetColumn(ComponentType<T>.Id)).Span[slot.Location.Index];
     }
@@ -261,6 +283,19 @@ public sealed class World : IDisposable
     public bool TryGetComponent<T>(EntityId id, out T component) where T : notnull
     {
         ThrowIfDisposed();
+
+        if (typeof(Script).IsAssignableFrom(typeof(T)) && typeof(T) != typeof(Script))
+        {
+            if (TryGetComponent<Script>(id, out var script) && script is T typedScript)
+            {
+                component = typedScript;
+                return true;
+            }
+
+            component = default!;
+            return false;
+        }
+
         if (IsAlive(id))
         {
             var slot = _slots[(int)id.Index];
@@ -277,6 +312,10 @@ public sealed class World : IDisposable
     public bool HasComponent<T>(EntityId id) where T : notnull
     {
         ThrowIfDisposed();
+
+        if (typeof(Script).IsAssignableFrom(typeof(T)) && typeof(T) != typeof(Script))
+            return TryGetComponent<T>(id, out _);
+
         return IsAlive(id) &&
                _slots[(int)id.Index].Location.Chunk.TryGetColumn(ComponentType<T>.Id, out _);
     }
@@ -296,6 +335,14 @@ public sealed class World : IDisposable
     public bool RemoveComponent<T>(EntityId id) where T : notnull
     {
         EnsureStructuralMutationAllowed();
+
+        if (typeof(Script).IsAssignableFrom(typeof(T)) && typeof(T) != typeof(Script))
+        {
+            return TryGetComponent<Script>(id, out var script) && script is T
+                ? RemoveComponent<Script>(id)
+                : false;
+        }
+
         var slot = GetSlot(id);
         var source = slot.Location;
         var typeId = ComponentType<T>.Id;
