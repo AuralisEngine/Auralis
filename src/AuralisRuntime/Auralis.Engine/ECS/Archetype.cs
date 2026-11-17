@@ -6,27 +6,40 @@ internal sealed class Archetype : IDisposable
     private readonly Dictionary<int, Archetype> _addTransitions = new();
     private readonly Dictionary<int, Archetype> _removeTransitions = new();
     private readonly World _world;
+    private readonly int _chunkCapacity;
+
     internal ArchetypeSignature Signature { get; }
     internal IReadOnlyList<Chunk> Chunks => _chunks;
     internal int EntityCount { get; private set; }
+    internal int ChunkCapacity => _chunkCapacity;
+    internal World World => _world;
 
     internal bool TryGetAddTransition(int componentTypeId, out Archetype target) =>
         _addTransitions.TryGetValue(componentTypeId, out target!);
-    internal void CacheAddTransition(int componentTypeId, Archetype target) => _addTransitions[componentTypeId] = target;
+
+    internal void CacheAddTransition(int componentTypeId, Archetype target) =>
+        _addTransitions[componentTypeId] = target;
+
     internal bool TryGetRemoveTransition(int componentTypeId, out Archetype target) =>
         _removeTransitions.TryGetValue(componentTypeId, out target!);
-    internal void CacheRemoveTransition(int componentTypeId, Archetype target) => _removeTransitions[componentTypeId] = target;
+
+    internal void CacheRemoveTransition(int componentTypeId, Archetype target) =>
+        _removeTransitions[componentTypeId] = target;
 
     internal Archetype(ArchetypeSignature signature, World world)
     {
         Signature = signature;
         _world = world;
+        // A signature never changes, so chunk capacity is invariant for this archetype.
+        // Compute it once rather than taking the global component-registry lock on every
+        // entity add/remove/reserve operation.
+        _chunkCapacity = world.GetChunkCapacity(signature);
     }
 
     internal IComponentColumn CreateColumn(ComponentDescriptor descriptor) =>
-        _world.CreateColumn(descriptor, Signature);
+        _world.CreateColumn(descriptor, _chunkCapacity);
 
-    internal (Chunk Chunk, int Index) Add(EntityId entity, int chunkCapacity)
+    internal (Chunk Chunk, int Index) Add(EntityId entity)
     {
         Chunk? chunk = null;
         for (var i = _chunks.Count - 1; i >= 0; i--)
@@ -37,41 +50,57 @@ internal sealed class Archetype : IDisposable
                 break;
             }
         }
-        chunk ??= CreateChunk(chunkCapacity);
+
+        chunk ??= CreateChunk();
         var index = chunk.Add(entity);
         EntityCount++;
+        _world.MarkStructuralChange();
         return (chunk, index);
     }
 
-    internal void Reserve(int entityCapacity, int chunkCapacity)
+    internal void Reserve(int entityCapacity)
     {
-        if (entityCapacity < 0) throw new ArgumentOutOfRangeException(nameof(entityCapacity));
-        var requiredChunks = (int)(((long)entityCapacity + chunkCapacity - 1) / chunkCapacity);
+        if (entityCapacity < 0)
+            throw new ArgumentOutOfRangeException(nameof(entityCapacity));
+
+        var requiredChunks = (int)(((long)entityCapacity + _chunkCapacity - 1) / _chunkCapacity);
         while (_chunks.Count < requiredChunks)
-            CreateChunk(chunkCapacity);
+            CreateChunk();
     }
 
     internal void Remove(Chunk chunk, int index, out EntityId movedEntity)
     {
         chunk.RemoveAtSwapBack(index, out movedEntity);
         EntityCount--;
-        if (chunk.Count == 0 && _chunks.Count > 1 && ReferenceEquals(_chunks[^1], chunk))
+        _world.MarkStructuralChange();
+
+        // Empty chunks are no longer useful. Remove them wherever they are in the
+        // list so they cannot retain native allocations or fragment archetype storage.
+        if (chunk.Count == 0)
         {
-            _chunks.RemoveAt(_chunks.Count - 1);
-            chunk.Dispose();
+            var chunkIndex = _chunks.IndexOf(chunk);
+            if (chunkIndex >= 0)
+            {
+                _chunks.RemoveAt(chunkIndex);
+                chunk.Dispose();
+                _world.MarkStructuralChange();
+            }
         }
     }
 
-    private Chunk CreateChunk(int capacity)
+    private Chunk CreateChunk()
     {
-        var chunk = new Chunk(this, capacity);
+        var chunk = new Chunk(this, _chunkCapacity);
         _chunks.Add(chunk);
+        _world.MarkStructuralChange();
         return chunk;
     }
 
     public void Dispose()
     {
-        foreach (var chunk in _chunks) chunk.Dispose();
+        foreach (var chunk in _chunks)
+            chunk.Dispose();
+
         _chunks.Clear();
         _addTransitions.Clear();
         _removeTransitions.Clear();
