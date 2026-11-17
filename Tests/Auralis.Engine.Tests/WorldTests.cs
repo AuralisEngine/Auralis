@@ -236,6 +236,20 @@ public sealed class WorldTests
     }
 
     [Fact]
+    public void CommandBufferPlaybackMustRunOnWorldOwnerThread()
+    {
+        using var world = new World();
+        var commands = new EntityCommandBuffer();
+
+        Assert.Throws<InvalidOperationException>(() =>
+            Task.Run(() => commands.Playback(world)).GetAwaiter().GetResult());
+
+        // Rejected playback must not consume the buffer.
+        Assert.Equal(0, commands.Count);
+        commands.Playback(world);
+    }
+
+    [Fact]
     public void TransformSystemResolvesParentCreatedAfterChild()
     {
         using var world = new World();
