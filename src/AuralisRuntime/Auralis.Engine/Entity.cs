@@ -41,8 +41,8 @@ public class Entity : ComponentBase
         return false;
     }
 
-    public ref T GetComponentReference<T>() where T : notnull =>
-        ref RequireWorld().GetComponentReference<T>(_entityId);
+    public ComponentReference<T> GetComponentReference<T>() where T : notnull =>
+        RequireWorld().GetComponentReference<T>(_entityId);
 
     public bool HasComponent<T>() where T : notnull =>
         _world is not null && _world.HasComponent<T>(this);
@@ -55,14 +55,11 @@ public class Entity : ComponentBase
 
     public bool Destroy() => RequireWorld().DestroyEntity(this);
 
-    internal void Attach(World world, EntityId id, string? name)
+    internal void Attach(World world, EntityId id)
     {
         _world = world;
         _entityId = id;
         IsDestroyed = false;
-
-        if (name is not null)
-            Name = name;
     }
 
     internal void Detach()
