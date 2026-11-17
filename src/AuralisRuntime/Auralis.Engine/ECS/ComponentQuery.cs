@@ -10,6 +10,8 @@ public readonly struct ComponentQuery<T> where T : notnull
     public ref struct Enumerator
     {
         private readonly QueryCache _cache;
+        private readonly World _world;
+        private readonly long _structuralVersion;
         private IReadOnlyList<Archetype> _archetypes;
         private int _archetypeIndex;
         private int _chunkIndex;
@@ -18,6 +20,9 @@ public readonly struct ComponentQuery<T> where T : notnull
         internal Enumerator(QueryCache cache)
         {
             _cache = cache;
+            _world = cache.World;
+            _structuralVersion = _world.StructuralVersion;
+            _world.ValidateStructuralVersion(_structuralVersion);
             _archetypes = cache.Matches;
             _archetypeIndex = 0;
             _chunkIndex = -1;
@@ -26,7 +31,9 @@ public readonly struct ComponentQuery<T> where T : notnull
 
         public bool MoveNext()
         {
+            _world.ValidateStructuralVersion(_structuralVersion);
             _archetypes = _cache.Matches;
+
             while (_archetypeIndex < _archetypes.Count)
             {
                 var chunks = _archetypes[_archetypeIndex].Chunks;
@@ -34,12 +41,15 @@ public readonly struct ComponentQuery<T> where T : notnull
                 {
                     var chunk = chunks[_chunkIndex];
                     if (chunk.Count == 0) continue;
-                    Current = new ComponentChunk<T>(chunk);
+                    Current = new ComponentChunk<T>(chunk, _world, _structuralVersion);
                     return true;
                 }
+
                 _archetypeIndex++;
                 _chunkIndex = -1;
             }
+
+            Current = default;
             return false;
         }
     }
@@ -56,6 +66,8 @@ public readonly struct ComponentQuery<T1, T2>
     public ref struct Enumerator
     {
         private readonly QueryCache _cache;
+        private readonly World _world;
+        private readonly long _structuralVersion;
         private IReadOnlyList<Archetype> _archetypes;
         private int _archetypeIndex;
         private int _chunkIndex;
@@ -64,6 +76,9 @@ public readonly struct ComponentQuery<T1, T2>
         internal Enumerator(QueryCache cache)
         {
             _cache = cache;
+            _world = cache.World;
+            _structuralVersion = _world.StructuralVersion;
+            _world.ValidateStructuralVersion(_structuralVersion);
             _archetypes = cache.Matches;
             _archetypeIndex = 0;
             _chunkIndex = -1;
@@ -72,7 +87,9 @@ public readonly struct ComponentQuery<T1, T2>
 
         public bool MoveNext()
         {
+            _world.ValidateStructuralVersion(_structuralVersion);
             _archetypes = _cache.Matches;
+
             while (_archetypeIndex < _archetypes.Count)
             {
                 var chunks = _archetypes[_archetypeIndex].Chunks;
@@ -80,12 +97,15 @@ public readonly struct ComponentQuery<T1, T2>
                 {
                     var chunk = chunks[_chunkIndex];
                     if (chunk.Count == 0) continue;
-                    Current = new ComponentChunk<T1, T2>(chunk);
+                    Current = new ComponentChunk<T1, T2>(chunk, _world, _structuralVersion);
                     return true;
                 }
+
                 _archetypeIndex++;
                 _chunkIndex = -1;
             }
+
+            Current = default;
             return false;
         }
     }
@@ -101,6 +121,8 @@ public readonly struct EntityQuery
     public ref struct Enumerator
     {
         private readonly QueryCache _cache;
+        private readonly World _world;
+        private readonly long _structuralVersion;
         private IReadOnlyList<Archetype> _archetypes;
         private int _archetypeIndex;
         private int _chunkIndex;
@@ -109,6 +131,9 @@ public readonly struct EntityQuery
         internal Enumerator(QueryCache cache)
         {
             _cache = cache;
+            _world = cache.World;
+            _structuralVersion = _world.StructuralVersion;
+            _world.ValidateStructuralVersion(_structuralVersion);
             _archetypes = cache.Matches;
             _archetypeIndex = 0;
             _chunkIndex = -1;
@@ -117,7 +142,9 @@ public readonly struct EntityQuery
 
         public bool MoveNext()
         {
+            _world.ValidateStructuralVersion(_structuralVersion);
             _archetypes = _cache.Matches;
+
             while (_archetypeIndex < _archetypes.Count)
             {
                 var chunks = _archetypes[_archetypeIndex].Chunks;
@@ -125,12 +152,15 @@ public readonly struct EntityQuery
                 {
                     var chunk = chunks[_chunkIndex];
                     if (chunk.Count == 0) continue;
-                    Current = new EntityChunk(chunk);
+                    Current = new EntityChunk(chunk, _world, _structuralVersion);
                     return true;
                 }
+
                 _archetypeIndex++;
                 _chunkIndex = -1;
             }
+
+            Current = default;
             return false;
         }
     }
