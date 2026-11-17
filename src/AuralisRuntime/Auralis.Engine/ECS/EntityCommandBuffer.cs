@@ -104,8 +104,7 @@ public sealed class EntityCommandBuffer
         {
             EnsureRecording();
 
-            if (world.IsSystemExecutionActive)
-                throw new InvalidOperationException("Command buffers can only be played back outside system execution.");
+            world.EnsureCommandBufferPlaybackAllowed();
 
             _state = BufferState.PlayingBack;
             try
