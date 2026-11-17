@@ -1,27 +1,31 @@
+using System.Collections.Concurrent;
+
 namespace Auralis.Engine.ECS;
 
 /// <summary>
 /// Records structural changes for playback on the World owner thread.
-/// Recording is thread-safe; concurrent commands are ordered by the order in which
-/// writers acquire the internal lock, which is not deterministic across worker runs.
-/// Playback is exclusive and consumes the buffer even when a command throws.
+/// Multiple workers may record concurrently using a lock-free producer path
+/// backed by ConcurrentQueue and Interlocked state coordination.
 /// </summary>
 /// <remarks>
 /// World mutation is not thread-safe. Workers may record commands into this buffer,
 /// but only the World owner thread may call <see cref="Playback"/>.
-/// If deterministic cross-worker ordering is required, use one buffer per worker
-/// and play those buffers back in a fixed order.
-/// Playback is not transactional: commands applied before a failure remain applied.
-/// The failed command and all remaining commands are discarded to prevent replay.
+/// Concurrent producer ordering is not deterministic. Use one buffer per worker
+/// and play those buffers back in a fixed order when deterministic ordering matters.
+///
+/// Playback is not transactional. Commands applied before a failure remain applied;
+/// the failing command and all remaining commands are discarded and the buffer is
+/// consumed to prevent accidental replay.
+/// Add throws when the target already has that component. Create throws when the
+/// entity instance is already attached or has been destroyed. Set adds the component
+/// when missing; Remove and Destroy ignore stale entity IDs.
 /// </remarks>
 public sealed class EntityCommandBuffer
 {
-    private enum BufferState : byte
-    {
-        Recording,
-        PlayingBack,
-        Consumed
-    }
+    private const int Recording = 0;
+    private const int PlayingBack = 1;
+    private const int Consumed = 2;
+    private const int Clearing = 3;
 
     private interface ICommand { void Apply(World world); }
 
@@ -62,18 +66,13 @@ public sealed class EntityCommandBuffer
         }
     }
 
-    private readonly object _gate = new();
-    private readonly List<ICommand> _commands = new();
-    private BufferState _state;
+    private readonly ConcurrentQueue<ICommand> _commands = new();
+    private int _state;
+    private int _activeWriters;
+    private int _pendingCount;
 
-    public int Count
-    {
-        get
-        {
-            lock (_gate)
-                return _commands.Count;
-        }
-    }
+    /// <summary>Number of commands currently queued; a concurrent read is a snapshot.</summary>
+    public int Count => Math.Max(0, Volatile.Read(ref _pendingCount));
 
     public void Create(Entity entity, string? name = null) =>
         Enqueue(new CreateCommand(entity, name));
@@ -91,69 +90,107 @@ public sealed class EntityCommandBuffer
         Enqueue(new SetCommand<T>(entity, component));
 
     /// <summary>
-    /// Applies commands in recorded order on the World owner thread.
-    /// The buffer is consumed whether playback succeeds or throws.
+    /// Applies queued commands in queue order. Must run on the World owner thread.
+    /// An empty playback is a no-op and leaves the buffer ready for recording.
+    /// A non-empty playback consumes the buffer, even when a command throws.
     /// </summary>
     public void Playback(World world)
     {
         ArgumentNullException.ThrowIfNull(world);
+        world.EnsureCommandBufferPlaybackAllowed();
 
-        // Keep the lock for the complete playback. Other writers cannot race the
-        // command list and will observe the consumed state after playback finishes.
-        lock (_gate)
+        var observedState = Interlocked.CompareExchange(ref _state, PlayingBack, Recording);
+        if (observedState != Recording)
+            ThrowForState(observedState);
+
+        WaitForWriters();
+
+        var hadCommands = false;
+        try
         {
-            EnsureRecording();
-
-            world.EnsureCommandBufferPlaybackAllowed();
-
-            _state = BufferState.PlayingBack;
-            try
+            while (_commands.TryDequeue(out var command))
             {
-                for (var i = 0; i < _commands.Count; i++)
-                    _commands[i].Apply(world);
-            }
-            finally
-            {
-                // Playback is deliberately not retryable: earlier commands may
-                // already have changed the World when a later command fails.
-                _commands.Clear();
-                _state = BufferState.Consumed;
+                hadCommands = true;
+                Interlocked.Decrement(ref _pendingCount);
+                command.Apply(world);
             }
         }
+        catch
+        {
+            // The failed command was already dequeued. Discard every command after it.
+            DrainPendingCommands();
+            Volatile.Write(ref _state, Consumed);
+            throw;
+        }
+
+        // Do not force callers to Clear an empty buffer every frame.
+        Volatile.Write(ref _state, hadCommands ? Consumed : Recording);
     }
 
     /// <summary>
-    /// Discards pending commands and makes the buffer available for recording again.
-    /// Cannot be called reentrantly while playback is in progress.
+    /// Discards queued commands and makes the buffer available for recording again.
+    /// Commands already executing in Playback cannot be cleared.
     /// </summary>
     public void Clear()
     {
-        lock (_gate)
+        while (true)
         {
-            if (_state == BufferState.PlayingBack)
-                throw new InvalidOperationException("A command buffer cannot be cleared during playback.");
+            var state = Volatile.Read(ref _state);
+            if (state is PlayingBack or Clearing)
+                throw new InvalidOperationException("A command buffer cannot be cleared during playback or another clear operation.");
 
-            _commands.Clear();
-            _state = BufferState.Recording;
+            if (Interlocked.CompareExchange(ref _state, Clearing, state) == state)
+                break;
         }
+
+        WaitForWriters();
+        DrainPendingCommands();
+        Volatile.Write(ref _state, Recording);
     }
 
     private void Enqueue(ICommand command)
     {
-        lock (_gate)
+        if (Volatile.Read(ref _state) != Recording)
+            ThrowForState(Volatile.Read(ref _state));
+
+        Interlocked.Increment(ref _activeWriters);
+        try
         {
-            EnsureRecording();
-            _commands.Add(command);
+            // Playback/Clear may have started between the first state check and
+            // registering this writer. Recheck before publishing the command.
+            if (Volatile.Read(ref _state) != Recording)
+                ThrowForState(Volatile.Read(ref _state));
+
+            _commands.Enqueue(command);
+            Interlocked.Increment(ref _pendingCount);
+        }
+        finally
+        {
+            Interlocked.Decrement(ref _activeWriters);
         }
     }
 
-    // Must be called while _gate is held.
-    private void EnsureRecording()
+    private void WaitForWriters()
     {
-        if (_state == BufferState.PlayingBack)
-            throw new InvalidOperationException("A command buffer cannot be modified during playback.");
+        var spinner = new SpinWait();
+        while (Volatile.Read(ref _activeWriters) != 0)
+            spinner.SpinOnce();
+    }
 
-        if (_state == BufferState.Consumed)
-            throw new InvalidOperationException("Call Clear before reusing a played-back command buffer.");
+    private void DrainPendingCommands()
+    {
+        while (_commands.TryDequeue(out _))
+            Interlocked.Decrement(ref _pendingCount);
+    }
+
+    private static void ThrowForState(int state)
+    {
+        throw state switch
+        {
+            PlayingBack => new InvalidOperationException("A command buffer cannot be modified or played back while playback is in progress."),
+            Clearing => new InvalidOperationException("A command buffer cannot be modified while it is being cleared."),
+            Consumed => new InvalidOperationException("Call Clear before reusing a played-back command buffer."),
+            _ => new InvalidOperationException("The command buffer is not available for recording.")
+        };
     }
 }
