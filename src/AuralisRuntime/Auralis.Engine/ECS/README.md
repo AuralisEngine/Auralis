@@ -10,7 +10,7 @@ The ECS is an archetype-first runtime with an object-oriented Entity facade.
 - Component data is stored in archetypes and dense chunks, not as per-Entity object fields.
 - Components default to GC-tracked typed arrays. This safely supports reference-containing component types.
 - Unmanaged components may be explicitly registered for aligned native columns per World.
-- Structural changes are immediate outside system execution and rejected during execution; record them in an EntityCommandBuffer and play it back afterward.
+- Structural changes are immediate outside system execution and rejected during execution; workers record changes in an EntityCommandBuffer, which the World owner thread plays back afterward.
 - Archetypes cache add/remove transition targets, avoiding repeated signature construction after a transition has been warmed.
 - Archetype transitions create one owned signature array rather than an intermediate array plus a second signature copy.
 - Chunks use the archetype's sorted component IDs to locate columns, avoiding a per-chunk component-index dictionary.
@@ -68,6 +68,7 @@ The current chunk layout uses a configurable target byte budget and maximum row 
 - The scheduler does not yet run jobs in parallel or perform work stealing. Access declarations currently describe conflicts but are not yet used to build parallel batches.
 - The World is not thread-safe. Structural changes and command-buffer playback must run on the World owner thread. `EntityCommandBuffer` supports concurrent recording from multiple workers through an internal lock; recording is serialized, and concurrent command order follows lock acquisition, so it is not deterministic across runs. Use one buffer per worker and play them back in a fixed order when deterministic ordering matters.
 - Query component spans are writable by default; read-only span views are available, but the scheduler does not yet enforce access modes.
+- EntityCommandBuffer playback is single-use: if a command throws, already-applied changes remain, but the failing command and all remaining commands are discarded and the buffer is consumed. Call Clear before reusing it; playback is intentionally not transactional, so failed batches must be reconstructed explicitly if they are to be retried.
 - Command buffers currently allocate one command object per recorded operation.
 - Shared components, dynamic buffers, singleton components, prefabs, serialization, snapshots, replication, and source generation are future extensions.
 - The first version prioritizes correctness and a stable extension surface over claiming unmeasured performance.
