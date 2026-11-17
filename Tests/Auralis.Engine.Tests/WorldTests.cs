@@ -484,7 +484,11 @@ public sealed class WorldTests
                 TaskCreationOptions.LongRunning,
                 TaskScheduler.Default);
 
-            Assert.True(worker.Wait(TimeSpan.FromSeconds(5)), "Worker was blocked while command playback was executing.");
+            var completed = Task.WhenAny(worker, Task.Delay(TimeSpan.FromSeconds(5)))
+                .GetAwaiter().GetResult() == worker;
+            if (!completed)
+                throw new TimeoutException("Worker was blocked while command playback was executing.");
+
             try
             {
                 worker.GetAwaiter().GetResult();
