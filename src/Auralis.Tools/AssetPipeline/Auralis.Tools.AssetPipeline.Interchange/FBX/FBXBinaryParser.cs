@@ -12,8 +12,15 @@ internal static class FBXBinaryParser
 
     public static FBXDocument Parse(ReadOnlyMemory<byte> data, FBXParserOptions options)
     {
-        var reader = new Reader(data.Span, options);
-        return reader.ReadDocument();
+        try
+        {
+            var reader = new Reader(data.Span, options);
+            return reader.ReadDocument();
+        }
+        catch (OverflowException ex)
+        {
+            throw new FBXFormatException("The binary FBX document contains an out-of-range offset or length.", innerException: ex);
+        }
     }
 
     private ref struct Reader
