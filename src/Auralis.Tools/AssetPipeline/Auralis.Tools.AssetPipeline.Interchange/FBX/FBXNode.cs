@@ -129,8 +129,10 @@ public sealed class FBXNode
         if (value is int[] integers) return integers;
 
         var result = new int[value.Length];
-        switch (value)
+        try
         {
+            switch (value)
+            {
             case short[] shorts:
                 for (int i = 0; i < result.Length; i++) result[i] = shorts[i];
                 return result;
@@ -160,6 +162,11 @@ public sealed class FBXNode
                     { throw new FBXFormatException($"Property '{propertyName}' contains a non-integer array value."); }
                 }
                 return result;
+            }
+        }
+        catch (OverflowException ex)
+        {
+            throw new FBXFormatException($"Property '{propertyName}' contains an integer outside the supported 32-bit range.", innerException: ex);
         }
     }
 }
