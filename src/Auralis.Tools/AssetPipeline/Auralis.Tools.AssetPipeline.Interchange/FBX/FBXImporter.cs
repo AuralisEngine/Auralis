@@ -732,7 +732,11 @@ public static class FBXImporter
             area += (double)a.X * b.Y - (double)b.X * a.Y;
         }
 
-        if (Math.Abs(area) < MathUtilities.ZeroToleranceDouble)
+        // Keep the triangulation degeneracy threshold aligned with the previous
+        // double-precision implementation; ZeroToleranceDouble currently represents
+        // double.Epsilon * 8 rather than machine epsilon.
+        const double areaTolerance = 1e-12d;
+        if (Math.Abs(area) < areaTolerance)
             return FanTriangulate(count, destination);
 
         float orientation = area > 0d ? 1f : -1f;
@@ -832,9 +836,22 @@ public static class FBXImporter
         Vector3D[] positions, int[] indices, int[] sourceControlPoints,
         int controlPointCount, Vector3D[] normals)
     {
+        // Avoid even renting scratch memory when all source normals are present.
+        float zeroLengthSquared = MathUtilities.ZeroTolerance * MathUtilities.ZeroTolerance;
+        bool hasMissingNormals = false;
+        for (int i = 0; i < normals.Length; i++)
+        {
+            if (normals[i].LengthSquared() < zeroLengthSquared)
+            {
+                hasMissingNormals = true;
+                break;
+            }
+        }
+        if (!hasMissingNormals)
+            return;
+
         // Imported vertices are split at polygon corners to preserve attribute seams.
-        // Accumulate by source control point to produce smooth shared normals without
-        // allocating a managed accumulator array for every large mesh.
+        // Accumulate by source control point in a pooled buffer.
         Vector3D[] rented = ArrayPool<Vector3D>.Shared.Rent(Math.Max(1, controlPointCount));
         try
         {
@@ -855,7 +872,6 @@ public static class FBXImporter
                 accumulated[sourceControlPoints[c]] += faceNormal;
             }
 
-            float zeroLengthSquared = MathUtilities.ZeroTolerance * MathUtilities.ZeroTolerance;
             for (int i = 0; i < normals.Length; i++)
             {
                 if (normals[i].LengthSquared() < zeroLengthSquared)
@@ -873,6 +889,22 @@ public static class FBXImporter
         Vector2D[]? uvs, Vector4D[] tangents)
     {
         if (uvs is null || uvs.Length != positions.Length)
+            return;
+
+        // Most meshes arrive with usable tangents; don't rent two full vertex-sized
+        // buffers just to discover that no tangent generation is necessary.
+        float zeroLengthSquared = MathUtilities.ZeroTolerance * MathUtilities.ZeroTolerance;
+        bool hasMissingTangents = false;
+        for (int i = 0; i < tangents.Length; i++)
+        {
+            Vector3D existing = new(tangents[i].X, tangents[i].Y, tangents[i].Z);
+            if (existing.LengthSquared() <= zeroLengthSquared)
+            {
+                hasMissingTangents = true;
+                break;
+            }
+        }
+        if (!hasMissingTangents)
             return;
 
         Vector3D[] rentedTangents = ArrayPool<Vector3D>.Shared.Rent(Math.Max(1, positions.Length));
@@ -912,7 +944,6 @@ public static class FBXImporter
                 bitangentSums[i2] += bitangent;
             }
 
-            float zeroLengthSquared = MathUtilities.ZeroTolerance * MathUtilities.ZeroTolerance;
             for (int i = 0; i < tangents.Length; i++)
             {
                 Vector3D existing = new(tangents[i].X, tangents[i].Y, tangents[i].Z);
@@ -1711,10 +1742,14 @@ public static class FBXImporter
     private static bool IsFinite(Vector3D value) =>
         float.IsFinite(value.X) && float.IsFinite(value.Y) && float.IsFinite(value.Z);
 
-    private static Vector3D NormalizeOrZero(Vector3D value) =>
-        value.LengthSquared() > 1e-12f && float.IsFinite(value.LengthSquared())
+    private static Vector3D NormalizeOrZero(Vector3D value)
+    {
+        float lengthSquared = value.LengthSquared();
+        return lengthSquared > MathUtilities.ZeroTolerance * MathUtilities.ZeroTolerance &&
+               float.IsFinite(lengthSquared)
             ? Vector3D.Normalize(value)
             : Vector3D.Zero;
+    }
 
     private static string GetObjectName(string? name, string fallback)
     {
