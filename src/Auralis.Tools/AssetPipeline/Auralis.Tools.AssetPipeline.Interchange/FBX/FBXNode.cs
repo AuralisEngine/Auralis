@@ -121,6 +121,45 @@ public sealed class FBXNode
         }
     }
 
+    /// <summary>Returns a single-precision numeric array without copying an existing float array.</summary>
+    public float[]? GetSingleArray(string propertyName)
+    {
+        Array? value = GetArray(propertyName);
+        if (value is null) return null;
+        if (value is float[] floats) return floats;
+
+        var result = new float[value.Length];
+        switch (value)
+        {
+            case double[] doubles:
+                for (int i = 0; i < result.Length; i++) result[i] = (float)doubles[i];
+                return result;
+            case int[] integers:
+                for (int i = 0; i < result.Length; i++) result[i] = integers[i];
+                return result;
+            case long[] longs:
+                for (int i = 0; i < result.Length; i++) result[i] = longs[i];
+                return result;
+            case short[] shorts:
+                for (int i = 0; i < result.Length; i++) result[i] = shorts[i];
+                return result;
+            case sbyte[] signedBytes:
+                for (int i = 0; i < result.Length; i++) result[i] = signedBytes[i];
+                return result;
+            case byte[] bytes:
+                for (int i = 0; i < result.Length; i++) result[i] = bytes[i];
+                return result;
+            default:
+                for (int i = 0; i < result.Length; i++)
+                {
+                    try { result[i] = Convert.ToSingle(value.GetValue(i), CultureInfo.InvariantCulture); }
+                    catch (Exception ex) when (ex is FormatException or InvalidCastException or OverflowException)
+                    { throw new FBXFormatException($"Property '{propertyName}' contains a non-numeric array value."); }
+                }
+                return result;
+        }
+    }
+
     /// <summary>Returns an integer array, converting the source FBX numeric representation if necessary.</summary>
     public int[]? GetInt32Array(string propertyName)
     {
