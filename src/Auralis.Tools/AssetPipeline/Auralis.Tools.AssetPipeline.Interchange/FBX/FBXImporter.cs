@@ -310,10 +310,15 @@ public static class FBXImporter
         var controlPoints = new Vector3[controlPointCount];
         for (int i = 0; i < controlPointCount; i++)
         {
-            controlPoints[i] = coordinates.Position(new Vector3(
-                sourceVertices[i * 3],
-                sourceVertices[i * 3 + 1],
-                sourceVertices[i * 3 + 2]));
+            float x = sourceVertices[i * 3];
+            float y = sourceVertices[i * 3 + 1];
+            float z = sourceVertices[i * 3 + 2];
+            if (!float.IsFinite(x) || !float.IsFinite(y) || !float.IsFinite(z))
+                throw new FBXFormatException($"Mesh '{geometry.GetString(1)}' contains a non-finite control point.");
+            Vector3 converted = coordinates.Position(new Vector3(x, y, z));
+            if (!IsFinite(converted))
+                throw new FBXFormatException($"Mesh '{geometry.GetString(1)}' overflows while converting its coordinate system.");
+            controlPoints[i] = converted;
         }
 
         LayerData? normals = LayerData.Create(geometry.GetChild("LayerElementNormal"), "Normals", "NormalsIndex", 3);
@@ -489,7 +494,7 @@ public static class FBXImporter
             string reference = ReadNodeString(layer.GetChild("ReferenceInformationType")) ?? "Direct";
             // Material layers contain direct per-polygon integer indices and do not
             // have a separate MaterialsIndex array.
-            bool indexed = indexName is not null && reference is "IndexToDirect" or "Index";
+            bool indexed = indexName is not null && (reference is "IndexToDirect" or "Index");
             return new LayerData(values, indices, components, mapping, indexed);
         }
 
@@ -1406,6 +1411,9 @@ public static class FBXImporter
         for (int i = 0; i < nodes.Length; i++)
             nodes[i].Children = children[i].ToArray();
     }
+
+    private static bool IsFinite(Vector3 value) =>
+        float.IsFinite(value.X) && float.IsFinite(value.Y) && float.IsFinite(value.Z);
 
     private static Vector3 NormalizeOrZero(Vector3 value) =>
         value.LengthSquared() > 1e-12f && float.IsFinite(value.LengthSquared())
