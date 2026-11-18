@@ -912,7 +912,7 @@ public static class FBXImporter
                     }
                     if (axisCurves.Count == 0) continue;
 
-                    SortedSet<long> allTimes = [];
+                    SortedSet<long> allTimes = new();
                     foreach (CurveData curve in axisCurves.Values)
                         foreach (long time in curve.Times) allTimes.Add(time);
                     if (!tracks.TryGetValue(nodeIndex, out AnimationTrackBuilder? builder))
@@ -1119,7 +1119,9 @@ public static class FBXImporter
                 y.X, y.Y, y.Z, 0,
                 z.X, z.Y, z.Z, 0,
                 0, 0, 0, 1);
-            Matrix4x4.Invert(_basis, out _inverseBasis);
+            if (!Matrix4x4.Invert(_basis, out Matrix4x4 inverseBasis))
+                throw new InvalidOperationException("The FBX axis conversion basis is not invertible.");
+            _inverseBasis = inverseBasis;
             float determinant = _basis.GetDeterminant();
             FlipsWinding = determinant < 0;
         }
@@ -1202,31 +1204,61 @@ public static class FBXImporter
 
     private static void ComputeWorldTransforms(FBXImportedNode[] nodes, List<FBXImportDiagnostic> diagnostics)
     {
+        // Use an iterative parent walk: malformed deep hierarchies must not exhaust the call stack.
         var state = new byte[nodes.Length];
-        void Visit(int index)
+        var path = new List<int>();
+
+        for (int startIndex = 0; startIndex < nodes.Length; startIndex++)
         {
-            if (state[index] == 2) return;
-            if (state[index] == 1)
+            if (state[startIndex] == 2)
+                continue;
+
+            path.Clear();
+            int current = startIndex;
+            while ((uint)current < (uint)nodes.Length && state[current] == 0)
             {
-                diagnostics.Add(new FBXImportDiagnostic(FBXDiagnosticSeverity.Warning,
-                    "A cyclic model hierarchy was detected; the affected node uses its local transform.", nodes[index].SourceId));
-                nodes[index].WorldTransform = nodes[index].LocalTransform;
-                state[index] = 2;
-                return;
+                state[current] = 1;
+                path.Add(current);
+                current = nodes[current].ParentIndex;
             }
 
-            state[index] = 1;
-            int parent = nodes[index].ParentIndex;
-            if (parent >= 0 && parent < nodes.Length)
+            // Break the edge that closes a detected cycle. This leaves the hierarchy usable
+            // and lets the reverse pass compute transforms without recursion.
+            if ((uint)current < (uint)nodes.Length && state[current] == 1 && path.Count > 0)
             {
-                Visit(parent);
-                nodes[index].WorldTransform = nodes[index].LocalTransform * nodes[parent].WorldTransform;
+                int cycleEdgeChild = path[^1];
+                nodes[cycleEdgeChild].ParentIndex = -1;
+                diagnostics.Add(new FBXImportDiagnostic(
+                    FBXDiagnosticSeverity.Warning,
+                    "A cyclic model hierarchy was detected; one parent link was removed.",
+                    nodes[cycleEdgeChild].SourceId));
             }
-            else nodes[index].WorldTransform = nodes[index].LocalTransform;
-            state[index] = 2;
+
+            for (int i = path.Count - 1; i >= 0; i--)
+            {
+                int index = path[i];
+                int parent = nodes[index].ParentIndex;
+                if ((uint)parent < (uint)nodes.Length && state[parent] == 2)
+                    nodes[index].WorldTransform = nodes[index].LocalTransform * nodes[parent].WorldTransform;
+                else
+                    nodes[index].WorldTransform = nodes[index].LocalTransform;
+
+                state[index] = 2;
+            }
         }
 
-        for (int i = 0; i < nodes.Length; i++) Visit(i);
+        // Rebuild child lists after invalid cyclic links may have been removed.
+        var children = new List<int>[nodes.Length];
+        for (int i = 0; i < children.Length; i++)
+            children[i] = [];
+        for (int i = 0; i < nodes.Length; i++)
+        {
+            int parent = nodes[i].ParentIndex;
+            if ((uint)parent < (uint)nodes.Length)
+                children[parent].Add(i);
+        }
+        for (int i = 0; i < nodes.Length; i++)
+            nodes[i].Children = children[i].ToArray();
     }
 
     private static Vector3 NormalizeOrZero(Vector3 value) =>
