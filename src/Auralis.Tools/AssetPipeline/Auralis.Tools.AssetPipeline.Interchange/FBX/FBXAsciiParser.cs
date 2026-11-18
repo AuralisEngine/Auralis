@@ -143,8 +143,13 @@ internal static class FBXAsciiParser
             while (true)
             {
                 Token token = _lexer.Peek();
-                if (token.Kind is TokenKind.End or TokenKind.NewLine or TokenKind.OpenBrace or TokenKind.CloseBrace)
+                if (token.Kind is TokenKind.End or TokenKind.OpenBrace or TokenKind.CloseBrace)
                     break;
+                if (token.Kind == TokenKind.NewLine)
+                {
+                    _lexer.Read();
+                    continue;
+                }
                 if (token.Kind == TokenKind.Comma)
                 {
                     _lexer.Read();
