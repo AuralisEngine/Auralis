@@ -95,6 +95,9 @@ internal static class FBXAsciiParser
 
                 var node = new FBXNode(nameToken.Value);
                 ReadProperties(node);
+                // FBX exporters may place the opening brace on the following line.
+                while (_lexer.Peek().Kind == TokenKind.NewLine)
+                    _lexer.Read();
 
                 if (_lexer.Peek().Kind == TokenKind.OpenBrace)
                 {
@@ -170,8 +173,10 @@ internal static class FBXAsciiParser
                     other.Add(value);
                 }
 
-                if (numbers.Count + other.Count > _options.MaxArrayElements)
-                    throw new FBXFormatException("ASCII FBX array exceeds the configured element limit.", token.Offset);
+                int elementCount = numbers.Count + other.Count;
+                int byteLimitedCount = _options.MaxArrayBytes / sizeof(double);
+                if (elementCount > _options.MaxArrayElements || elementCount > byteLimitedCount)
+                    throw new FBXFormatException("ASCII FBX array exceeds the configured element or decoded-byte limit.", token.Offset);
             }
 
             node.AddProperty(numeric ? numbers.ToArray() : other.ToArray());
