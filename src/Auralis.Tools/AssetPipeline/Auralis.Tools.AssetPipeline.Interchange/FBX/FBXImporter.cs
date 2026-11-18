@@ -41,7 +41,7 @@ public static class FBXImporter
         List<Connection> connections = ReadConnections(document.GetRootNode("Connections"));
         var diagnostics = new List<FBXImportDiagnostic>();
         var coordinates = CoordinateSystem.Read(document.GetRootNode("GlobalSettings"), diagnostics);
-        scene.Name = GetObjectName(document.GetRootNode("DocumentInfo")?.GetChild("Title"), "Scene");
+        scene.Name = GetObjectName(ReadNodeString(document.GetRootNode("DocumentInfo")?.GetChild("Title")), "Scene");
 
         var textures = ImportTextures(objects, connections, objectById, options);
         scene.Textures = textures;
