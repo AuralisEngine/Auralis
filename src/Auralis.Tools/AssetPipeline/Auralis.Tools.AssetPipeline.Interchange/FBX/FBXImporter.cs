@@ -166,7 +166,7 @@ public static class FBXImporter
             for (int i = 0; i < meshes.Count; i++)
             {
                 FBXImportedSkeleton? skeleton = ImportSkin(
-                    meshes[i], objects, connections, objectById, nodeIndexById,
+                    meshes[i], connections, objectById, nodeIndexById,
                     importedNodes, coordinates, diagnostics);
                 if (skeleton is not null)
                     skeletons.Add(skeleton);
@@ -936,7 +936,7 @@ public static class FBXImporter
     private static FBXImportedSkeleton? ImportSkin(
         FBXImportedMesh mesh, List<Connection> connections,
         Dictionary<long, FBXNode> objectById, Dictionary<long, int> nodeIndexById,
-        FBXImportedNode[] importedNodes,
+        FBXImportedNode[] importedNodes, CoordinateSystem coordinates,
         List<FBXImportDiagnostic> diagnostics)
     {
         long geometryId = mesh.SourceId;
@@ -969,7 +969,6 @@ public static class FBXImporter
             }
 
             // FBX connection direction: Bone Model -> Cluster -> Skin Deformer -> Geometry.
-            long boneModelId = 0;
             int nodeIndex = -1;
             for (int i = 0; i < connections.Count; i++)
             {
@@ -978,7 +977,6 @@ public static class FBXImporter
                     boneConnection.Destination == skinConnection.Source &&
                     nodeIndexById.TryGetValue(boneConnection.Source, out nodeIndex))
                 {
-                    boneModelId = boneConnection.Source;
                     break;
                 }
             }
@@ -986,7 +984,7 @@ public static class FBXImporter
                 continue;
 
             int boneIndex = bones.Count;
-            Matrix bind = ReadMatrix(cluster.GetDoubleArray("TransformLink"), coordinates: null);
+            Matrix bind = ReadMatrix(cluster.GetDoubleArray("TransformLink"), coordinates);
             if (!Matrix.Invert(bind, out Matrix inverseBind))
             {
                 inverseBind = Matrix.Identity;
