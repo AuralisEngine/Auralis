@@ -215,8 +215,8 @@ internal static class FBXAsciiParser
                 {
                     if (numeric)
                     {
-                        foreach (double number in numbers)
-                            other.Add(number);
+                        foreach (double existingNumber in numbers)
+                            other.Add(existingNumber);
                         numbers.Clear();
                         numeric = false;
                     }
