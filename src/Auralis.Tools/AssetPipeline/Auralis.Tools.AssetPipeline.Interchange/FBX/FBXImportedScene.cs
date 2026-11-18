@@ -118,6 +118,7 @@ public sealed class FBXImportedAnimationClip
     public string Name { get; internal set; } = string.Empty;
     public double DurationSeconds { get; internal set; }
     public IReadOnlyList<FBXImportedAnimationTrack> Tracks { get; internal set; } = Array.Empty<FBXImportedAnimationTrack>();
+    public IReadOnlyList<FBXImportedBlendShapeAnimationTrack> BlendShapeTracks { get; internal set; } = Array.Empty<FBXImportedBlendShapeAnimationTrack>();
 }
 
 public sealed class FBXImportedAnimationTrack
@@ -128,6 +129,14 @@ public sealed class FBXImportedAnimationTrack
     public FBXVectorKeyframe[] ScaleKeys { get; internal set; } = Array.Empty<FBXVectorKeyframe>();
 }
 
+public sealed class FBXImportedBlendShapeAnimationTrack
+{
+    public int MeshIndex { get; internal set; } = -1;
+    public long ChannelId { get; internal set; }
+    public FBXScalarKeyframe[] Keyframes { get; internal set; } = Array.Empty<FBXScalarKeyframe>();
+}
+
+public readonly record struct FBXScalarKeyframe(double TimeSeconds, float Value);
 public readonly record struct FBXVectorKeyframe(double TimeSeconds, Vector3 Value);
 public readonly record struct FBXQuaternionKeyframe(double TimeSeconds, Quaternion Value);
 
