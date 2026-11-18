@@ -356,10 +356,12 @@ internal static class FBXAsciiParser
             while (_position < _bytes.Length)
             {
                 byte current = _bytes[_position];
-                if (current == (byte)'\n')
+                if (current is (byte)'\n' or (byte)'\r')
                 {
                     int start = _position++;
-                    return new Token(TokenKind.NewLine, start, 1, start);
+                    if (current == (byte)'\r' && _position < _bytes.Length && _bytes[_position] == (byte)'\n')
+                        _position++;
+                    return new Token(TokenKind.NewLine, start, _position - start, start);
                 }
                 if (current == (byte)';')
                 {
@@ -407,7 +409,6 @@ internal static class FBXAsciiParser
         private Token ReadQuoted(int offset)
         {
             int start = _position;
-            bool escaped = false;
             while (_position < _bytes.Length)
             {
                 byte value = _bytes[_position++];
@@ -421,7 +422,6 @@ internal static class FBXAsciiParser
 
                 if (value == (byte)'\\')
                 {
-                    escaped = true;
                     if (_position >= _bytes.Length)
                         throw new FBXFormatException("Unterminated escape sequence in ASCII FBX string.", offset);
                     _position++;
