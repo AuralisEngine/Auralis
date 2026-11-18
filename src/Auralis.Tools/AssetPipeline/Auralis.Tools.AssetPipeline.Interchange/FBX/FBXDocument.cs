@@ -45,6 +45,8 @@ public sealed class FBXDocument
     {
         options ??= new FBXParserOptions();
         options.Validate();
+        if (data.Length > options.MaxFileBytes)
+            throw new FBXFormatException($"The FBX input exceeds the configured {options.MaxFileBytes}-byte limit.");
         if (!data.Span.StartsWith(BinaryMagic))
             throw new FBXFormatException("The input does not have the binary FBX signature.");
         return FBXBinaryParser.Parse(data, options);
@@ -54,6 +56,8 @@ public sealed class FBXDocument
     {
         options ??= new FBXParserOptions();
         options.Validate();
+        if (data.Length > options.MaxFileBytes)
+            throw new FBXFormatException($"The FBX input exceeds the configured {options.MaxFileBytes}-byte limit.");
         if (data.Span.StartsWith(BinaryMagic))
             throw new FBXFormatException("A binary FBX document was supplied to the ASCII parser.");
         return FBXAsciiParser.Parse(data, options);
