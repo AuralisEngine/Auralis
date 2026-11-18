@@ -177,6 +177,10 @@ public static class FBXImporter
                 mesh.BlendShapes = ImportBlendShapes(mesh, objects, connections, coordinates);
         }
 
+        // Source control points are needed only while calculating absolute morph-target deltas.
+        foreach (FBXImportedMesh mesh in meshes)
+            mesh.SourceControlPoints = Array.Empty<Vector3>();
+
         if (options.ImportAnimation)
             scene.Animations = ImportAnimations(objects, connections, nodeIndexById, modelObjects, importedNodes, meshes, coordinates);
 
