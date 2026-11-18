@@ -28,7 +28,8 @@ public sealed class FBXAsciiImportTests
             Geometry: 1001, "Geometry::Triangle", "Mesh" {
                 GeometryVersion: 124
                 Vertices: *9 {
-                    a: 0,0,0, 100,0,0,\n                    0,100,0
+                    a: 0,0,0, 100,0,0,
+                    0,100,0
                 }
                 PolygonVertexIndex: *3 {
                     a: 0,1,-3
