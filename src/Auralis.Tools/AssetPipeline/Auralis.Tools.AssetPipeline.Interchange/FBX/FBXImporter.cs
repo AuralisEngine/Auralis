@@ -471,7 +471,7 @@ public static class FBXImporter
         if (options.GenerateMissingNormals)
             GenerateNormals(positions, indices, outputControlPoints, controlPointCount, normalArray);
         if (options.GenerateMissingTangents)
-            GenerateTangents(positions, normalArray, indices, outputUvs.Count > 0 ? outputUvs[0].ToArray() : null, tangentArray);
+            GenerateTangents(positions, normalArray, indices, outputUvs.Length > 0 ? outputUvs[0].ToArray() : null, tangentArray);
 
         if (normals is null)
             diagnostics.Add(new FBXImportDiagnostic(FBXDiagnosticSeverity.Info, $"Generated normals for mesh '{geometry.GetString(1)}'.", geometry.GetInt64(0)));
@@ -1041,9 +1041,9 @@ public static class FBXImporter
                         foreach (long time in allTimes)
                         {
                             Vector3 source = new(
-                                Evaluate(axisCurves, 'X', time, fallback.X),
-                                Evaluate(axisCurves, 'Y', time, fallback.Y),
-                                Evaluate(axisCurves, 'Z', time, fallback.Z));
+                                (float)Evaluate(axisCurves, 'X', time, fallback.X),
+                                (float)Evaluate(axisCurves, 'Y', time, fallback.Y),
+                                (float)Evaluate(axisCurves, 'Z', time, fallback.Z));
                             keys.Add(new FBXVectorKeyframe(time / FbxTicksPerSecond, coordinates.Position(source)));
                         }
                         builder.Translation.AddRange(keys);
@@ -1055,9 +1055,9 @@ public static class FBXImporter
                         foreach (long time in allTimes)
                         {
                             Vector3 source = new(
-                                Evaluate(axisCurves, 'X', time, fallback.X),
-                                Evaluate(axisCurves, 'Y', time, fallback.Y),
-                                Evaluate(axisCurves, 'Z', time, fallback.Z));
+                                (float)Evaluate(axisCurves, 'X', time, fallback.X),
+                                (float)Evaluate(axisCurves, 'Y', time, fallback.Y),
+                                (float)Evaluate(axisCurves, 'Z', time, fallback.Z));
                             keys.Add(new FBXVectorKeyframe(time / FbxTicksPerSecond, coordinates.Scale(source)));
                         }
                         builder.Scale.AddRange(keys);
@@ -1070,9 +1070,9 @@ public static class FBXImporter
                         foreach (long time in allTimes)
                         {
                             Vector3 source = new(
-                                Evaluate(axisCurves, 'X', time, fallback.X),
-                                Evaluate(axisCurves, 'Y', time, fallback.Y),
-                                Evaluate(axisCurves, 'Z', time, fallback.Z));
+                                (float)Evaluate(axisCurves, 'X', time, fallback.X),
+                                (float)Evaluate(axisCurves, 'Y', time, fallback.Y),
+                                (float)Evaluate(axisCurves, 'Z', time, fallback.Z));
                             keys.Add(new FBXQuaternionKeyframe(time / FbxTicksPerSecond, coordinates.Rotation(source, rotationOrder)));
                         }
                         builder.Rotation.AddRange(keys);
