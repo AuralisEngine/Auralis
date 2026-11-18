@@ -137,7 +137,6 @@ public enum FBXDiagnosticSeverity : byte
 
 public sealed record FBXImporterOptions
 {
-    public bool TriangulatePolygons { get; init; } = true;
     public bool GenerateMissingNormals { get; init; } = true;
     public bool GenerateMissingTangents { get; init; } = true;
     public bool ImportSkinning { get; init; } = true;
@@ -147,4 +146,5 @@ public sealed record FBXImporterOptions
     public bool ImportTextures { get; init; } = true;
     public int MaxImportedVertices { get; init; } = 20_000_000;
     public int MaxImportedPolygons { get; init; } = 20_000_000;
+    public int MaxPolygonVertices { get; init; } = 4_096;
 }
