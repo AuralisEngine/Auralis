@@ -53,6 +53,7 @@ public sealed class FBXImportedMesh
     public int[] Indices { get; internal set; } = Array.Empty<int>();
     public int[] SourceControlPointIndices { get; internal set; } = Array.Empty<int>();
     public int ControlPointCount { get; internal set; }
+    internal Vector3[] SourceControlPoints { get; set; } = Array.Empty<Vector3>();
     public FBXImportedSubmesh[] Submeshes { get; internal set; } = Array.Empty<FBXImportedSubmesh>();
     public FBXVertexInfluence[][] BoneInfluences { get; internal set; } = Array.Empty<FBXVertexInfluence[]>();
     public FBXImportedSkeleton? Skeleton { get; internal set; }
