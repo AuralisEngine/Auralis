@@ -178,7 +178,7 @@ public static class FBXImporter
         }
 
         if (options.ImportAnimation)
-            scene.Animations = ImportAnimations(objects, connections, nodeIndexById, modelObjects, importedNodes, coordinates);
+            scene.Animations = ImportAnimations(objects, connections, nodeIndexById, modelObjects, importedNodes, meshes, coordinates);
 
         ComputeWorldTransforms(importedNodes, diagnostics);
 
@@ -904,9 +904,13 @@ public static class FBXImporter
     private static IReadOnlyList<FBXImportedAnimationClip> ImportAnimations(
         List<FBXNode> objects, List<Connection> connections,
         Dictionary<long, int> nodeIndexById, List<FBXNode> modelObjects,
-        FBXImportedNode[] importedNodes, CoordinateSystem coordinates)
+        FBXImportedNode[] importedNodes, List<FBXImportedMesh> meshes, CoordinateSystem coordinates)
     {
         var objectById = objects.ToDictionary(node => node.GetInt64(0), node => node);
+        var meshByChannelId = new Dictionary<long, int>();
+        for (int meshIndex = 0; meshIndex < meshes.Count; meshIndex++)
+            foreach (FBXImportedBlendShape shape in meshes[meshIndex].BlendShapes)
+                meshByChannelId.TryAdd(shape.ChannelId, meshIndex);
         var clips = new List<FBXImportedAnimationClip>();
         var stacks = objects.Where(static node => node.Name == "AnimationStack").ToList();
 
@@ -919,6 +923,7 @@ public static class FBXImporter
             if (layerIds.Length == 0) continue;
 
             var tracks = new Dictionary<int, AnimationTrackBuilder>();
+            var blendShapeTracks = new List<FBXImportedBlendShapeAnimationTrack>();
             double duration = 0;
 
             foreach (long layerId in layerIds)
@@ -931,6 +936,40 @@ public static class FBXImporter
                 {
                     Connection modelLink = connections.FirstOrDefault(c => c.Type == "OP" &&
                         c.Source == curveNodeId && nodeIndexById.ContainsKey(c.Destination));
+                    Connection blendShapeLink = connections.FirstOrDefault(c => c.Type == "OP" &&
+                        c.Source == curveNodeId && meshByChannelId.ContainsKey(c.Destination) &&
+                        c.Property == "DeformPercent");
+
+                    if (modelLink.Type is null && blendShapeLink.Type is not null)
+                    {
+                        var scalarCurves = new Dictionary<char, CurveData>();
+                        foreach (Connection curveLink in connections.Where(c => c.Type == "OP" && c.Destination == curveNodeId))
+                        {
+                            if (curveLink.Property is not ("d|X" or "d|Y" or "d|Z") ||
+                                !objectById.TryGetValue(curveLink.Source, out FBXNode? curve) ||
+                                curve.Name != "AnimationCurve")
+                                continue;
+                            char axis = curveLink.Property[^1];
+                            scalarCurves[axis] = CurveData.Read(curve);
+                        }
+
+                        if (scalarCurves.TryGetValue('X', out CurveData? scalarCurve) && scalarCurve.Times.Length > 0)
+                        {
+                            FBXScalarKeyframe[] keys = scalarCurve.Times
+                                .Select((time, index) => new FBXScalarKeyframe(
+                                    time / FbxTicksPerSecond, (float)scalarCurve.Values[index]))
+                                .ToArray();
+                            blendShapeTracks.Add(new FBXImportedBlendShapeAnimationTrack
+                            {
+                                MeshIndex = meshByChannelId[blendShapeLink.Destination],
+                                ChannelId = blendShapeLink.Destination,
+                                Keyframes = keys
+                            });
+                            duration = Math.Max(duration, keys[^1].TimeSeconds);
+                        }
+                        continue;
+                    }
+
                     if (modelLink.Type is null) continue;
                     int nodeIndex = nodeIndexById[modelLink.Destination];
                     string property = modelLink.Property ?? string.Empty;
@@ -1007,13 +1046,14 @@ public static class FBXImporter
                 }
             }
 
-            if (tracks.Count == 0) continue;
+            if (tracks.Count == 0 && blendShapeTracks.Count == 0) continue;
             clips.Add(new FBXImportedAnimationClip
             {
                 SourceId = stackId,
                 Name = GetObjectName(stack.GetString(1), $"Animation_{stackId}"),
                 DurationSeconds = duration,
-                Tracks = tracks.Values.Select(static builder => builder.Build()).ToArray()
+                Tracks = tracks.Values.Select(static builder => builder.Build()).ToArray(),
+                BlendShapeTracks = blendShapeTracks
             });
         }
         return clips;
