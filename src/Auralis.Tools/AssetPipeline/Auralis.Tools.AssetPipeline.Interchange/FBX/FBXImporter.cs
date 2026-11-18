@@ -1,5 +1,6 @@
 using System.Globalization;
-using System.Numerics;
+using Auralis.Core.Mathematics;
+using Matrix4x4 = System.Numerics.Matrix4x4;
 
 namespace Auralis.Tools.AssetPipeline.Interchange.FBX;
 
@@ -67,12 +68,12 @@ public static class FBXImporter
             FBXNode model = modelObjects[i];
             childLists[i] = [];
             Matrix4x4 local = BuildLocalTransform(model, coordinates);
-            bool decomposed = Matrix4x4.Decompose(local, out Vector3 scale, out Quaternion rotation, out Vector3 translation);
+            bool decomposed = Matrix4x4.Decompose(local, out Vector3D scale, out Quaternion rotation, out Vector3D translation);
             if (!decomposed)
             {
-                scale = Vector3.One;
+                scale = Vector3D.One;
                 rotation = Quaternion.Identity;
-                translation = new Vector3(local.M41, local.M42, local.M43);
+                translation = new Vector3D(local.M41, local.M42, local.M43);
             }
             importedNodes[i] = new FBXImportedNode
             {
@@ -179,7 +180,7 @@ public static class FBXImporter
 
         // Source control points are needed only while calculating absolute morph-target deltas.
         foreach (FBXImportedMesh mesh in meshes)
-            mesh.SourceControlPoints = Array.Empty<Vector3>();
+            mesh.SourceControlPoints = Array.Empty<Vector3D>();
 
         if (options.ImportAnimation)
             scene.Animations = ImportAnimations(objects, objectById, connections, nodeIndexById, modelObjects, importedNodes, meshes, coordinates);
@@ -277,11 +278,11 @@ public static class FBXImporter
         foreach (FBXNode material in objects.Where(static node => node.Name == "Material"))
         {
             FBXNode? props = material.GetChild("Properties70") ?? material.GetChild("Properties60");
-            Vector3 diffuse = ReadVectorProperty(props, "DiffuseColor",
-                ReadVectorProperty(props, "BaseColor", Vector3.One));
-            Vector3 specular = ReadVectorProperty(props, "SpecularColor", new Vector3(0.04f));
-            Vector3 emissive = ReadVectorProperty(props, "EmissiveColor",
-                ReadVectorProperty(props, "Emissive", Vector3.Zero));
+            Vector3D diffuse = ReadVectorProperty(props, "DiffuseColor",
+                ReadVectorProperty(props, "BaseColor", Vector3D.One));
+            Vector3D specular = ReadVectorProperty(props, "SpecularColor", new Vector3D(0.04f));
+            Vector3D emissive = ReadVectorProperty(props, "EmissiveColor",
+                ReadVectorProperty(props, "Emissive", Vector3D.Zero));
             diffuse *= ReadFloatProperty(props, "DiffuseFactor", 1f);
             specular *= ReadFloatProperty(props, "SpecularFactor", 1f);
             emissive *= ReadFloatProperty(props, "EmissiveFactor", 1f);
@@ -334,16 +335,49 @@ public static class FBXImporter
         int controlPointCount = sourceVertices.Length / 3;
         if (controlPointCount > options.MaxImportedVertices)
             throw new FBXFormatException($"Mesh '{geometry.GetString(1)}' exceeds the configured vertex limit.");
+        if (polygonVertexIndices.Length > options.MaxImportedVertices)
+            throw new FBXFormatException($"Mesh '{geometry.GetString(1)}' exceeds the configured imported-vertex limit.");
 
-        var controlPoints = new Vector3[controlPointCount];
+        // Validate face boundaries and calculate exact output sizes before allocating mesh streams.
+        int polygonCount = 0;
+        int faceVertexCount = 0;
+        long indexCountLong = 0;
+        for (int i = 0; i < polygonVertexIndices.Length; i++)
+        {
+            int encoded = polygonVertexIndices[i];
+            int controlPoint = encoded < 0 ? ~encoded : encoded;
+            if ((uint)controlPoint >= (uint)controlPointCount)
+                throw new FBXFormatException($"Mesh '{geometry.GetString(1)}' references an out-of-range control point.");
+
+            if (++faceVertexCount > options.MaxPolygonVertices)
+                throw new FBXFormatException($"Mesh '{geometry.GetString(1)}' contains a polygon that exceeds the configured triangulation limit.");
+
+            if (encoded < 0)
+            {
+                if (faceVertexCount < 3)
+                    throw new FBXFormatException($"Mesh '{geometry.GetString(1)}' contains a polygon with fewer than three vertices.");
+                if (++polygonCount > options.MaxImportedPolygons)
+                    throw new FBXFormatException($"Mesh '{geometry.GetString(1)}' exceeds the configured polygon limit.");
+                indexCountLong += (long)(faceVertexCount - 2) * 3;
+                if (indexCountLong > int.MaxValue)
+                    throw new FBXFormatException($"Mesh '{geometry.GetString(1)}' has too many triangulated indices.");
+                faceVertexCount = 0;
+            }
+        }
+        if (faceVertexCount != 0)
+            throw new FBXFormatException($"Mesh '{geometry.GetString(1)}' has a polygon that is not terminated by a negative index.");
+
+        var controlPoints = new Vector3D[controlPointCount];
         for (int i = 0; i < controlPointCount; i++)
         {
-            float x = sourceVertices[i * 3];
-            float y = sourceVertices[i * 3 + 1];
-            float z = sourceVertices[i * 3 + 2];
+            int offset = i * 3;
+            float x = sourceVertices[offset];
+            float y = sourceVertices[offset + 1];
+            float z = sourceVertices[offset + 2];
             if (!float.IsFinite(x) || !float.IsFinite(y) || !float.IsFinite(z))
                 throw new FBXFormatException($"Mesh '{geometry.GetString(1)}' contains a non-finite control point.");
-            Vector3 converted = coordinates.Position(new Vector3(x, y, z));
+
+            Vector3D converted = coordinates.Position(new Vector3D(x, y, z));
             if (!IsFinite(converted))
                 throw new FBXFormatException($"Mesh '{geometry.GetString(1)}' overflows while converting its coordinate system.");
             controlPoints[i] = converted;
@@ -354,142 +388,213 @@ public static class FBXImporter
         LayerData? binormals = LayerData.Create(geometry.GetChild("LayerElementBinormal"), "Binormals", "BinormalsIndex", 3);
         LayerData? colors = LayerData.Create(geometry.GetChild("LayerElementColor"), "Colors", "ColorIndex", 4);
         LayerData? materials = LayerData.Create(geometry.GetChild("LayerElementMaterial"), "Materials", null, 1);
-        List<LayerData> uvLayers = geometry.GetChildren("LayerElementUV")
-            .Select(node => LayerData.Create(node, "UV", "UVIndex", 2))
-            .Where(static layer => layer is not null).Cast<LayerData>().ToList();
 
-        var outputPositions = new List<Vector3>();
-        var outputNormals = new List<Vector3>();
-        var outputTangents = new List<Vector4>();
-        var outputColors = new List<Vector4>();
-        var outputUvs = uvLayers.Select(static _ => new List<Vector2>()).ToArray();
-        var outputControlPoints = new List<int>();
-        var outputIndices = new List<int>();
-        var submeshes = new List<FBXImportedSubmesh>();
+        var uvLayers = new List<LayerData>(4);
+        foreach (FBXNode uvNode in geometry.GetChildren("LayerElementUV"))
+        {
+            LayerData? uvLayer = LayerData.Create(uvNode, "UV", "UVIndex", 2);
+            if (uvLayer is not null)
+                uvLayers.Add(uvLayer);
+        }
+
+        int importedVertexCount = polygonVertexIndices.Length;
+        int importedIndexCount = (int)indexCountLong;
+        var positions = new Vector3D[importedVertexCount];
+        var outputNormals = new Vector3D[importedVertexCount];
+        var outputTangents = new Vector4D[importedVertexCount];
+        var outputColors = new Vector4D[importedVertexCount];
+        var sourceControlPointIndices = new int[importedVertexCount];
+        var outputUvs = new Vector2D[uvLayers.Count][];
+        for (int i = 0; i < outputUvs.Length; i++)
+            outputUvs[i] = new Vector2D[importedVertexCount];
+
+        var indices = new int[importedIndexCount];
+        var submeshBuffer = new FBXImportedSubmesh[polygonCount];
+
+        // Scratch storage is reused for every polygon in this mesh; the per-polygon
+        // triangulator does not allocate Lists, arrays, or iterator objects.
+        int scratchCapacity = Math.Min(options.MaxPolygonVertices, Math.Max(3, polygonVertexIndices.Length));
+        Corner[] rentedCorners = ArrayPool<Corner>.Shared.Rent(scratchCapacity);
+        Vector2D[] rentedProjected = ArrayPool<Vector2D>.Shared.Rent(scratchCapacity);
+        int[] rentedRemaining = ArrayPool<int>.Shared.Rent(scratchCapacity);
+
+        int outputVertex = 0;
+        int outputIndex = 0;
+        int submeshCount = 0;
+        int polygonOrdinal = 0;
+        int polygonLength = 0;
+        int globalPolygonVertex = 0;
         int currentMaterial = int.MinValue;
         int currentSubmeshStart = 0;
-        int polygonCount = 0;
-        int polygonVertex = 0;
-        var polygon = new List<Corner>(8);
 
-        void FlushPolygon()
+        try
         {
-            if (polygon.Count < 3)
-                throw new FBXFormatException($"Mesh '{geometry.GetString(1)}' contains a polygon with fewer than three vertices.");
-            if (++polygonCount > options.MaxImportedPolygons)
-                throw new FBXFormatException($"Mesh '{geometry.GetString(1)}' exceeds the configured polygon limit.");
-            if (polygon.Count > options.MaxPolygonVertices)
-                throw new FBXFormatException($"Mesh '{geometry.GetString(1)}' contains a polygon that exceeds the configured triangulation limit.");
-            if (polygon.Count > options.MaxImportedVertices - outputPositions.Count)
-                throw new FBXFormatException($"Mesh '{geometry.GetString(1)}' exceeds the configured imported-vertex limit.");
-
-            int materialIndex = materials?.ResolveInt(polygon[0].ControlPoint, polygon[0].PolygonVertex, polygonCount - 1) ?? 0;
-            if (materialIndex != currentMaterial)
+            for (int i = 0; i < polygonVertexIndices.Length; i++)
             {
-                if (currentMaterial != int.MinValue)
-                    submeshes.Add(new FBXImportedSubmesh(currentSubmeshStart, outputIndices.Count - currentSubmeshStart, currentMaterial));
-                currentMaterial = materialIndex;
-                currentSubmeshStart = outputIndices.Count;
-            }
+                int encoded = polygonVertexIndices[i];
+                int controlPoint = encoded < 0 ? ~encoded : encoded;
+                rentedCorners[polygonLength++] = new Corner(controlPoint, globalPolygonVertex++);
 
-            int vertexBase = outputPositions.Count;
-            for (int i = 0; i < polygon.Count; i++)
-            {
-                Corner corner = polygon[i];
-                outputPositions.Add(controlPoints[corner.ControlPoint]);
-                outputControlPoints.Add(corner.ControlPoint);
+                if (encoded >= 0)
+                    continue;
 
-                Vector3 normal = Vector3.Zero;
-                if (normals is not null && normals.TryResolve(corner.ControlPoint, corner.PolygonVertex, polygonCount - 1, out Vector4 normalValue))
-                    normal = coordinates.Direction(new Vector3(normalValue.X, normalValue.Y, normalValue.Z));
-                outputNormals.Add(NormalizeOrZero(normal));
+                int materialIndex = materials?.ResolveInt(
+                    rentedCorners[0].ControlPoint,
+                    rentedCorners[0].PolygonVertex,
+                    polygonOrdinal) ?? 0;
 
-                Vector4 tangent = Vector4.Zero;
-                if (tangents is not null && tangents.TryResolve(corner.ControlPoint, corner.PolygonVertex, polygonCount - 1, out Vector4 tangentValue))
+                if (materialIndex != currentMaterial)
                 {
-                    Vector3 tangentDirection = coordinates.Direction(new Vector3(tangentValue.X, tangentValue.Y, tangentValue.Z));
-                    float sign = 1f;
-                    if (binormals is not null && binormals.TryResolve(corner.ControlPoint, corner.PolygonVertex, polygonCount - 1, out Vector4 binormalValue))
+                    if (currentMaterial != int.MinValue)
                     {
-                        Vector3 binormal = coordinates.Direction(new Vector3(binormalValue.X, binormalValue.Y, binormalValue.Z));
-                        if (normal.LengthSquared() > 1e-12f && Vector3.Dot(Vector3.Cross(normal, tangentDirection), binormal) < 0f)
-                            sign = -1f;
+                        submeshBuffer[submeshCount++] = new FBXImportedSubmesh(
+                            currentSubmeshStart, outputIndex - currentSubmeshStart, currentMaterial);
                     }
-                    tangent = new Vector4(NormalizeOrZero(tangentDirection), sign);
+                    currentMaterial = materialIndex;
+                    currentSubmeshStart = outputIndex;
                 }
-                outputTangents.Add(tangent);
 
-                if (colors is not null && colors.TryResolve(corner.ControlPoint, corner.PolygonVertex, polygonCount - 1, out Vector4 color))
-                    outputColors.Add(color);
-                else
-                    outputColors.Add(Vector4.One);
-
-                for (int uvIndex = 0; uvIndex < uvLayers.Count; uvIndex++)
+                int vertexBase = outputVertex;
+                for (int cornerIndex = 0; cornerIndex < polygonLength; cornerIndex++)
                 {
-                    Vector2 uv = Vector2.Zero;
-                    if (uvLayers[uvIndex].TryResolve(corner.ControlPoint, corner.PolygonVertex, polygonCount - 1, out Vector4 uvValue))
-                        uv = new Vector2(uvValue.X, uvValue.Y);
-                    outputUvs[uvIndex].Add(uv);
+                    Corner corner = rentedCorners[cornerIndex];
+                    positions[outputVertex] = controlPoints[corner.ControlPoint];
+                    sourceControlPointIndices[outputVertex] = corner.ControlPoint;
+
+                    Vector3D normal = Vector3D.Zero;
+                    if (normals is not null &&
+                        normals.TryResolve(corner.ControlPoint, corner.PolygonVertex, polygonOrdinal, out Vector4D normalValue))
+                    {
+                        normal = coordinates.Direction(new Vector3D(normalValue.X, normalValue.Y, normalValue.Z));
+                    }
+                    outputNormals[outputVertex] = NormalizeOrZero(normal);
+
+                    Vector4D tangent = Vector4D.Zero;
+                    if (tangents is not null &&
+                        tangents.TryResolve(corner.ControlPoint, corner.PolygonVertex, polygonOrdinal, out Vector4D tangentValue))
+                    {
+                        Vector3D tangentDirection = coordinates.Direction(
+                            new Vector3D(tangentValue.X, tangentValue.Y, tangentValue.Z));
+                        float sign = 1f;
+
+                        if (binormals is not null &&
+                            binormals.TryResolve(corner.ControlPoint, corner.PolygonVertex, polygonOrdinal, out Vector4D binormalValue))
+                        {
+                            Vector3D binormal = coordinates.Direction(
+                                new Vector3D(binormalValue.X, binormalValue.Y, binormalValue.Z));
+                            if (normal.LengthSquared() > MathUtilities.ZeroTolerance * MathUtilities.ZeroTolerance &&
+                                Vector3D.Dot(Vector3D.Cross(normal, tangentDirection), binormal) < 0f)
+                            {
+                                sign = -1f;
+                            }
+                        }
+
+                        tangent = new Vector4D(NormalizeOrZero(tangentDirection).X,
+                            NormalizeOrZero(tangentDirection).Y,
+                            NormalizeOrZero(tangentDirection).Z, sign);
+                    }
+                    outputTangents[outputVertex] = tangent;
+
+                    if (colors is not null &&
+                        colors.TryResolve(corner.ControlPoint, corner.PolygonVertex, polygonOrdinal, out Vector4D color))
+                    {
+                        outputColors[outputVertex] = color;
+                    }
+                    else
+                    {
+                        outputColors[outputVertex] = Vector4D.One;
+                    }
+
+                    for (int uvIndex = 0; uvIndex < uvLayers.Count; uvIndex++)
+                    {
+                        if (uvLayers[uvIndex].TryResolve(
+                            corner.ControlPoint, corner.PolygonVertex, polygonOrdinal, out Vector4D uvValue))
+                        {
+                            outputUvs[uvIndex][outputVertex] = new Vector2D(uvValue.X, uvValue.Y);
+                        }
+                        else
+                        {
+                            outputUvs[uvIndex][outputVertex] = Vector2D.Zero;
+                        }
+                    }
+
+                    outputVertex++;
                 }
+
+                int faceIndexCount = (polygonLength - 2) * 3;
+                Span<int> faceIndices = indices.AsSpan(outputIndex, faceIndexCount);
+                int written = Triangulate(
+                    rentedCorners.AsSpan(0, polygonLength),
+                    controlPoints,
+                    rentedProjected.AsSpan(0, polygonLength),
+                    rentedRemaining.AsSpan(0, polygonLength),
+                    faceIndices);
+
+                if (written != faceIndexCount)
+                    throw new FBXFormatException($"Mesh '{geometry.GetString(1)}' triangulation produced an invalid index count.");
+
+                for (int triangle = 0; triangle < written; triangle += 3)
+                {
+                    int a = vertexBase + faceIndices[triangle];
+                    int b = vertexBase + faceIndices[triangle + 1];
+                    int c = vertexBase + faceIndices[triangle + 2];
+                    faceIndices[triangle] = a;
+                    faceIndices[triangle + 1] = coordinates.FlipsWinding ? c : b;
+                    faceIndices[triangle + 2] = coordinates.FlipsWinding ? b : c;
+                }
+
+                outputIndex += written;
+                polygonOrdinal++;
+                polygonLength = 0;
             }
 
-            int[] triangles = Triangulate(polygon, controlPoints);
-            for (int i = 0; i < triangles.Length; i += 3)
+            if (currentMaterial != int.MinValue)
             {
-                int a = vertexBase + triangles[i];
-                int b = vertexBase + triangles[i + 1];
-                int c = vertexBase + triangles[i + 2];
-                outputIndices.Add(a);
-                outputIndices.Add(coordinates.FlipsWinding ? c : b);
-                outputIndices.Add(coordinates.FlipsWinding ? b : c);
+                submeshBuffer[submeshCount++] = new FBXImportedSubmesh(
+                    currentSubmeshStart, outputIndex - currentSubmeshStart, currentMaterial);
             }
-            polygon.Clear();
         }
-
-        for (int i = 0; i < polygonVertexIndices.Length; i++)
+        finally
         {
-            int encoded = polygonVertexIndices[i];
-            int controlPoint = encoded < 0 ? ~encoded : encoded;
-            if ((uint)controlPoint >= (uint)controlPoints.Length)
-                throw new FBXFormatException($"Mesh '{geometry.GetString(1)}' references an out-of-range control point.");
-            if (polygon.Count >= options.MaxPolygonVertices)
-                throw new FBXFormatException($"Mesh '{geometry.GetString(1)}' contains a polygon that exceeds the configured triangulation limit.");
-            polygon.Add(new Corner(controlPoint, polygonVertex++));
-            if (encoded < 0) FlushPolygon();
+            ArrayPool<Corner>.Shared.Return(rentedCorners, clearArray: false);
+            ArrayPool<Vector2D>.Shared.Return(rentedProjected, clearArray: false);
+            ArrayPool<int>.Shared.Return(rentedRemaining, clearArray: false);
         }
-        if (polygon.Count != 0)
-            throw new FBXFormatException($"Mesh '{geometry.GetString(1)}' has a polygon that is not terminated by a negative index.");
 
-        if (currentMaterial != int.MinValue)
-            submeshes.Add(new FBXImportedSubmesh(currentSubmeshStart, outputIndices.Count - currentSubmeshStart, currentMaterial));
-
-        Vector3[] positions = outputPositions.ToArray();
-        Vector3[] normalArray = outputNormals.ToArray();
-        Vector4[] tangentArray = outputTangents.ToArray();
-        int[] indices = outputIndices.ToArray();
+        if (outputVertex != importedVertexCount || outputIndex != importedIndexCount)
+            throw new FBXFormatException($"Mesh '{geometry.GetString(1)}' produced an inconsistent output stream.");
 
         if (options.GenerateMissingNormals)
-            GenerateNormals(positions, indices, outputControlPoints, controlPointCount, normalArray);
+            GenerateNormals(positions, indices, sourceControlPointIndices, controlPointCount, outputNormals);
         if (options.GenerateMissingTangents)
-            GenerateTangents(positions, normalArray, indices, outputUvs.Length > 0 ? outputUvs[0].ToArray() : null, tangentArray);
+            GenerateTangents(positions, outputNormals, indices,
+                outputUvs.Length > 0 ? outputUvs[0] : null, outputTangents);
 
         if (normals is null)
-            diagnostics.Add(new FBXImportDiagnostic(FBXDiagnosticSeverity.Info, $"Generated normals for mesh '{geometry.GetString(1)}'.", geometry.GetInt64(0)));
+        {
+            diagnostics.Add(new FBXImportDiagnostic(
+                FBXDiagnosticSeverity.Info,
+                $"Generated normals for mesh '{geometry.GetString(1)}'.",
+                geometry.GetInt64(0)));
+        }
+
+        if (submeshCount != submeshBuffer.Length)
+            Array.Resize(ref submeshBuffer, submeshCount);
 
         return new FBXImportedMesh
         {
             SourceId = geometry.GetInt64(0),
             Name = GetObjectName(geometry.GetString(1), $"Mesh_{geometry.GetInt64(0)}"),
             Positions = positions,
-            Normals = normalArray,
-            Tangents = tangentArray,
-            TextureCoordinates = outputUvs.Select(static list => list.ToArray()).ToArray(),
-            Colors = outputColors.ToArray(),
+            Normals = outputNormals,
+            Tangents = outputTangents,
+            TextureCoordinates = outputUvs,
+            Colors = outputColors,
             Indices = indices,
-            SourceControlPointIndices = outputControlPoints.ToArray(),
+            SourceControlPointIndices = sourceControlPointIndices,
             ControlPointCount = controlPointCount,
             SourceControlPoints = controlPoints,
-            Submeshes = submeshes.ToArray()
+            Submeshes = submeshBuffer
         };
     }
 
@@ -514,9 +619,13 @@ public static class FBXImporter
 
         public static LayerData? Create(FBXNode? layer, string dataName, string? indexName, int components)
         {
-            if (layer is null) return null;
+            if (layer is null)
+                return null;
+
             float[]? values = layer.GetSingleArray(dataName);
-            if (values is null || values.Length == 0) return null;
+            if (values is null || values.Length == 0)
+                return null;
+
             int[]? indices = indexName is null ? null : layer.GetInt32Array(indexName);
             string mapping = ReadNodeString(layer.GetChild("MappingInformationType")) ?? "ByPolygonVertex";
             string reference = ReadNodeString(layer.GetChild("ReferenceInformationType")) ?? "Direct";
@@ -526,9 +635,9 @@ public static class FBXImporter
             return new LayerData(values, indices, components, mapping, indexed);
         }
 
-        public bool TryResolve(int controlPoint, int polygonVertex, int polygon, out Vector4 value)
+        public bool TryResolve(int controlPoint, int polygonVertex, int polygon, out Vector4D value)
         {
-            value = Vector4.Zero;
+            value = Vector4D.Zero;
             int sample = _mapping switch
             {
                 "ByVertice" or "ByVertex" => controlPoint,
@@ -536,17 +645,23 @@ public static class FBXImporter
                 "AllSame" => 0,
                 _ => polygonVertex
             };
-            if (sample < 0) return false;
+            if (sample < 0)
+                return false;
+
             int direct = sample;
             if (_indexed)
             {
-                if (_indices is null || (uint)sample >= (uint)_indices.Length) return false;
+                if (_indices is null || (uint)sample >= (uint)_indices.Length)
+                    return false;
                 direct = _indices[sample];
             }
+
             long offsetLong = (long)direct * _components;
-            if (direct < 0 || offsetLong < 0 || offsetLong > _values.Length - _components) return false;
+            if (direct < 0 || offsetLong < 0 || offsetLong > _values.Length - _components)
+                return false;
+
             int offset = (int)offsetLong;
-            value = new Vector4(
+            value = new Vector4D(
                 _values[offset],
                 _components > 1 ? _values[offset + 1] : 0f,
                 _components > 2 ? _values[offset + 2] : 0f,
@@ -556,34 +671,38 @@ public static class FBXImporter
 
         public int ResolveInt(int controlPoint, int polygonVertex, int polygon)
         {
-            if (!TryResolve(controlPoint, polygonVertex, polygon, out Vector4 value)) return 0;
-            return (int)value.X;
+            return TryResolve(controlPoint, polygonVertex, polygon, out Vector4D value)
+                ? (int)value.X
+                : 0;
         }
     }
 
-    private static int[] FanTriangulate(int count)
+    /// <summary>
+    /// Ear-clips a polygon into a triangle list using caller-provided scratch spans.
+    /// Returns exactly (polygon.Length - 2) * 3 local corner indices.
+    /// </summary>
+    private static int Triangulate(
+        ReadOnlySpan<Corner> polygon,
+        ReadOnlySpan<Vector3D> positions,
+        Span<Vector2D> projected,
+        Span<int> remaining,
+        Span<int> destination)
     {
-        var indices = new int[(count - 2) * 3];
-        int cursor = 0;
-        for (int i = 1; i < count - 1; i++)
+        int count = polygon.Length;
+        int required = (count - 2) * 3;
+        if (count == 3)
         {
-            indices[cursor++] = 0;
-            indices[cursor++] = i;
-            indices[cursor++] = i + 1;
+            destination[0] = 0;
+            destination[1] = 1;
+            destination[2] = 2;
+            return 3;
         }
-        return indices;
-    }
 
-    private static int[] Triangulate(List<Corner> polygon, Vector3[] positions)
-    {
-        int count = polygon.Count;
-        if (count == 3) return [0, 1, 2];
-
-        Vector3 normal = Vector3.Zero;
+        Vector3D normal = Vector3D.Zero;
         for (int i = 0; i < count; i++)
         {
-            Vector3 current = positions[polygon[i].ControlPoint];
-            Vector3 next = positions[polygon[(i + 1) % count].ControlPoint];
+            Vector3D current = positions[polygon[i].ControlPoint];
+            Vector3D next = positions[polygon[(i + 1) % count].ControlPoint];
             normal.X += (current.Y - next.Y) * (current.Z + next.Z);
             normal.Y += (current.Z - next.Z) * (current.X + next.X);
             normal.Z += (current.X - next.X) * (current.Y + next.Y);
@@ -592,145 +711,225 @@ public static class FBXImporter
         int dropAxis = MathF.Abs(normal.X) > MathF.Abs(normal.Y)
             ? (MathF.Abs(normal.X) > MathF.Abs(normal.Z) ? 0 : 2)
             : (MathF.Abs(normal.Y) > MathF.Abs(normal.Z) ? 1 : 2);
-        var projected = new Vector2[count];
+
         for (int i = 0; i < count; i++)
         {
-            Vector3 p = positions[polygon[i].ControlPoint];
+            Vector3D point = positions[polygon[i].ControlPoint];
             projected[i] = dropAxis switch
             {
-                0 => new Vector2(p.Y, p.Z),
-                1 => new Vector2(p.X, p.Z),
-                _ => new Vector2(p.X, p.Y)
+                0 => new Vector2D(point.Y, point.Z),
+                1 => new Vector2D(point.X, point.Z),
+                _ => new Vector2D(point.X, point.Y)
             };
         }
 
-        double area = 0;
+        double area = 0d;
         for (int i = 0; i < count; i++)
         {
-            Vector2 a = projected[i], b = projected[(i + 1) % count];
+            Vector2D a = projected[i];
+            Vector2D b = projected[(i + 1) % count];
             area += (double)a.X * b.Y - (double)b.X * a.Y;
         }
-        if (Math.Abs(area) < 1e-12)
-            return FanTriangulate(count);
 
-        float orientation = area > 0 ? 1f : -1f;
-        var remaining = new List<int>(count);
-        for (int i = 0; i < count; i++) remaining.Add(i);
-        var triangles = new List<int>((count - 2) * 3);
+        if (Math.Abs(area) < MathUtilities.ZeroToleranceDouble)
+            return FanTriangulate(count, destination);
+
+        float orientation = area > 0d ? 1f : -1f;
+        for (int i = 0; i < count; i++)
+            remaining[i] = i;
+
+        int remainingCount = count;
+        int written = 0;
         int attempts = 0;
+        int maxAttempts = count * count;
 
-        while (remaining.Count > 3 && attempts < count * count)
+        while (remainingCount > 3 && attempts < maxAttempts)
         {
             bool clipped = false;
-            for (int i = 0; i < remaining.Count; i++)
+            for (int i = 0; i < remainingCount; i++)
             {
-                int previous = remaining[(i + remaining.Count - 1) % remaining.Count];
+                int previous = remaining[(i + remainingCount - 1) % remainingCount];
                 int current = remaining[i];
-                int next = remaining[(i + 1) % remaining.Count];
-                float cross = Cross2(projected[current] - projected[previous], projected[next] - projected[current]);
-                if (cross * orientation <= 1e-8f) continue;
+                int next = remaining[(i + 1) % remainingCount];
+
+                Vector2D edge1 = projected[current] - projected[previous];
+                Vector2D edge2 = projected[next] - projected[current];
+                if (Cross2(edge1, edge2) * orientation <= MathUtilities.ZeroTolerance)
+                    continue;
 
                 bool contains = false;
-                for (int j = 0; j < remaining.Count; j++)
+                for (int j = 0; j < remainingCount; j++)
                 {
                     int test = remaining[j];
-                    if (test == previous || test == current || test == next) continue;
-                    if (PointInTriangle(projected[test], projected[previous], projected[current], projected[next], orientation))
+                    if (test == previous || test == current || test == next)
+                        continue;
+                    if (PointInTriangle(projected[test], projected[previous],
+                        projected[current], projected[next], orientation))
                     {
                         contains = true;
                         break;
                     }
                 }
-                if (contains) continue;
 
-                triangles.Add(previous);
-                triangles.Add(current);
-                triangles.Add(next);
-                remaining.RemoveAt(i);
+                if (contains)
+                    continue;
+
+                destination[written++] = previous;
+                destination[written++] = current;
+                destination[written++] = next;
+
+                remaining.Slice(i + 1, remainingCount - i - 1)
+                    .CopyTo(remaining.Slice(i, remainingCount - i - 1));
+                remainingCount--;
                 clipped = true;
                 break;
             }
 
-            if (!clipped) break;
+            if (!clipped)
+                break;
             attempts++;
         }
 
-        if (remaining.Count == 3)
+        if (remainingCount == 3)
         {
-            triangles.Add(remaining[0]);
-            triangles.Add(remaining[1]);
-            triangles.Add(remaining[2]);
-            return triangles.ToArray();
+            destination[written++] = remaining[0];
+            destination[written++] = remaining[1];
+            destination[written++] = remaining[2];
+            return written;
         }
 
-        // Degenerate or self-intersecting polygons still yield a deterministic fallback.
-        return FanTriangulate(count);
+        // Degenerate or self-intersecting polygons retain the importer’s deterministic fan fallback.
+        return FanTriangulate(count, destination);
     }
 
-    private static float Cross2(Vector2 a, Vector2 b) => a.X * b.Y - a.Y * b.X;
-
-    private static bool PointInTriangle(Vector2 p, Vector2 a, Vector2 b, Vector2 c, float orientation)
+    private static int FanTriangulate(int count, Span<int> destination)
     {
-        const float epsilon = 1e-7f;
-        float ab = Cross2(b - a, p - a) * orientation;
-        float bc = Cross2(c - b, p - b) * orientation;
-        float ca = Cross2(a - c, p - c) * orientation;
-        return ab >= -epsilon && bc >= -epsilon && ca >= -epsilon;
+        int cursor = 0;
+        for (int i = 1; i < count - 1; i++)
+        {
+            destination[cursor++] = 0;
+            destination[cursor++] = i;
+            destination[cursor++] = i + 1;
+        }
+        return cursor;
+    }
+
+    private static float Cross2(Vector2D a, Vector2D b) => a.X * b.Y - a.Y * b.X;
+
+    private static bool PointInTriangle(
+        Vector2D point, Vector2D a, Vector2D b, Vector2D c, float orientation)
+    {
+        float ab = Cross2(b - a, point - a) * orientation;
+        float bc = Cross2(c - b, point - b) * orientation;
+        float ca = Cross2(a - c, point - c) * orientation;
+        return ab >= -MathUtilities.ZeroTolerance &&
+               bc >= -MathUtilities.ZeroTolerance &&
+               ca >= -MathUtilities.ZeroTolerance;
     }
 
     private static void GenerateNormals(
-        Vector3[] positions, int[] indices, List<int> sourceControlPoints,
-        int controlPointCount, Vector3[] normals)
+        Vector3D[] positions, int[] indices, int[] sourceControlPoints,
+        int controlPointCount, Vector3D[] normals)
     {
-        // The imported vertex stream is split at polygon corners to retain FBX layer seams.
-        // Accumulate generated normals by original control point so adjacent faces can still smooth.
-        var accumulated = new Vector3[controlPointCount];
-        for (int i = 0; i < indices.Length; i += 3)
+        // Imported vertices are split at polygon corners to preserve attribute seams.
+        // Accumulate by source control point to produce smooth shared normals without
+        // allocating a managed accumulator array for every large mesh.
+        Vector3D[] rented = ArrayPool<Vector3D>.Shared.Rent(Math.Max(1, controlPointCount));
+        try
         {
-            int a = indices[i], b = indices[i + 1], c = indices[i + 2];
-            Vector3 normal = Vector3.Cross(positions[b] - positions[a], positions[c] - positions[a]);
-            accumulated[sourceControlPoints[a]] += normal;
-            accumulated[sourceControlPoints[b]] += normal;
-            accumulated[sourceControlPoints[c]] += normal;
+            Span<Vector3D> accumulated = rented.AsSpan(0, controlPointCount);
+            accumulated.Clear();
+
+            for (int i = 0; i < indices.Length; i += 3)
+            {
+                int a = indices[i];
+                int b = indices[i + 1];
+                int c = indices[i + 2];
+                Vector3D faceNormal = Vector3D.Cross(
+                    positions[b] - positions[a],
+                    positions[c] - positions[a]);
+
+                accumulated[sourceControlPoints[a]] += faceNormal;
+                accumulated[sourceControlPoints[b]] += faceNormal;
+                accumulated[sourceControlPoints[c]] += faceNormal;
+            }
+
+            float zeroLengthSquared = MathUtilities.ZeroTolerance * MathUtilities.ZeroTolerance;
+            for (int i = 0; i < normals.Length; i++)
+            {
+                if (normals[i].LengthSquared() < zeroLengthSquared)
+                    normals[i] = NormalizeOrZero(accumulated[sourceControlPoints[i]]);
+            }
         }
-        for (int i = 0; i < normals.Length; i++)
+        finally
         {
-            if (normals[i].LengthSquared() < 1e-12f)
-                normals[i] = NormalizeOrZero(accumulated[sourceControlPoints[i]]);
+            ArrayPool<Vector3D>.Shared.Return(rented, clearArray: false);
         }
     }
 
     private static void GenerateTangents(
-        Vector3[] positions, Vector3[] normals, int[] indices, Vector2[]? uvs, Vector4[] tangents)
+        Vector3D[] positions, Vector3D[] normals, int[] indices,
+        Vector2D[]? uvs, Vector4D[] tangents)
     {
-        if (uvs is null || uvs.Length != positions.Length) return;
-        var tangentSum = new Vector3[positions.Length];
-        var bitangentSum = new Vector3[positions.Length];
+        if (uvs is null || uvs.Length != positions.Length)
+            return;
 
-        for (int i = 0; i < indices.Length; i += 3)
+        Vector3D[] rentedTangents = ArrayPool<Vector3D>.Shared.Rent(Math.Max(1, positions.Length));
+        Vector3D[] rentedBitangents = ArrayPool<Vector3D>.Shared.Rent(Math.Max(1, positions.Length));
+        try
         {
-            int i0 = indices[i], i1 = indices[i + 1], i2 = indices[i + 2];
-            Vector3 edge1 = positions[i1] - positions[i0];
-            Vector3 edge2 = positions[i2] - positions[i0];
-            Vector2 delta1 = uvs[i1] - uvs[i0];
-            Vector2 delta2 = uvs[i2] - uvs[i0];
-            float determinant = delta1.X * delta2.Y - delta1.Y * delta2.X;
-            if (MathF.Abs(determinant) < 1e-12f) continue;
-            float inverse = 1f / determinant;
-            Vector3 tangent = (edge1 * delta2.Y - edge2 * delta1.Y) * inverse;
-            Vector3 bitangent = (edge2 * delta1.X - edge1 * delta2.X) * inverse;
-            tangentSum[i0] += tangent; tangentSum[i1] += tangent; tangentSum[i2] += tangent;
-            bitangentSum[i0] += bitangent; bitangentSum[i1] += bitangent; bitangentSum[i2] += bitangent;
+            Span<Vector3D> tangentSums = rentedTangents.AsSpan(0, positions.Length);
+            Span<Vector3D> bitangentSums = rentedBitangents.AsSpan(0, positions.Length);
+            tangentSums.Clear();
+            bitangentSums.Clear();
+
+            float determinantTolerance = MathUtilities.ZeroTolerance * MathUtilities.ZeroTolerance;
+            for (int i = 0; i < indices.Length; i += 3)
+            {
+                int i0 = indices[i];
+                int i1 = indices[i + 1];
+                int i2 = indices[i + 2];
+
+                Vector3D edge1 = positions[i1] - positions[i0];
+                Vector3D edge2 = positions[i2] - positions[i0];
+                Vector2D delta1 = uvs[i1] - uvs[i0];
+                Vector2D delta2 = uvs[i2] - uvs[i0];
+
+                float determinant = delta1.X * delta2.Y - delta1.Y * delta2.X;
+                if (MathF.Abs(determinant) < determinantTolerance)
+                    continue;
+
+                float inverse = 1f / determinant;
+                Vector3D tangent = (edge1 * delta2.Y - edge2 * delta1.Y) * inverse;
+                Vector3D bitangent = (edge2 * delta1.X - edge1 * delta2.X) * inverse;
+
+                tangentSums[i0] += tangent;
+                tangentSums[i1] += tangent;
+                tangentSums[i2] += tangent;
+                bitangentSums[i0] += bitangent;
+                bitangentSums[i1] += bitangent;
+                bitangentSums[i2] += bitangent;
+            }
+
+            float zeroLengthSquared = MathUtilities.ZeroTolerance * MathUtilities.ZeroTolerance;
+            for (int i = 0; i < tangents.Length; i++)
+            {
+                Vector3D existing = new(tangents[i].X, tangents[i].Y, tangents[i].Z);
+                if (existing.LengthSquared() > zeroLengthSquared)
+                    continue;
+
+                Vector3D normal = normals[i];
+                Vector3D tangent = tangentSums[i] -
+                    normal * Vector3D.Dot(normal, tangentSums[i]);
+                tangent = NormalizeOrZero(tangent);
+                float sign = Vector3D.Dot(Vector3D.Cross(normal, tangent), bitangentSums[i]) < 0f ? -1f : 1f;
+                tangents[i] = new Vector4D(tangent.X, tangent.Y, tangent.Z, sign);
+            }
         }
-
-        for (int i = 0; i < tangents.Length; i++)
+        finally
         {
-            if (new Vector3(tangents[i].X, tangents[i].Y, tangents[i].Z).LengthSquared() > 1e-12f) continue;
-            Vector3 normal = normals[i];
-            Vector3 tangent = tangentSum[i] - normal * Vector3.Dot(normal, tangentSum[i]);
-            tangent = NormalizeOrZero(tangent);
-            float sign = Vector3.Dot(Vector3.Cross(normal, tangent), bitangentSum[i]) < 0f ? -1f : 1f;
-            tangents[i] = new Vector4(tangent, sign);
+            ArrayPool<Vector3D>.Shared.Return(rentedTangents, clearArray: false);
+            ArrayPool<Vector3D>.Shared.Return(rentedBitangents, clearArray: false);
         }
     }
 
@@ -842,7 +1041,7 @@ public static class FBXImporter
         List<Connection> connections, CoordinateSystem coordinates)
     {
         var result = new List<FBXImportedBlendShape>();
-        var baseNormalSums = new Vector3[mesh.ControlPointCount];
+        var baseNormalSums = new Vector3D[mesh.ControlPointCount];
         var baseNormalCounts = new int[mesh.ControlPointCount];
         for (int i = 0; i < mesh.Normals.Length; i++)
         {
@@ -884,8 +1083,8 @@ public static class FBXImporter
                     float[] sourceNormalDeltas = shape.GetSingleArray("Normals") ?? [];
                     bool absoluteMode = TryReadProperty(shape.GetChild("Properties70"), "AbsoluteMode", out double absoluteValue) &&
                                         absoluteValue != 0d;
-                    var deltaMap = new Dictionary<int, Vector3>(controlPointIndices.Length);
-                    var normalMap = new Dictionary<int, Vector3>(controlPointIndices.Length);
+                    var deltaMap = new Dictionary<int, Vector3D>(controlPointIndices.Length);
+                    var normalMap = new Dictionary<int, Vector3D>(controlPointIndices.Length);
                     int deltaCount = Math.Min(controlPointIndices.Length, sourceDeltas.Length / 3);
                     for (int i = 0; i < deltaCount; i++)
                     {
@@ -893,17 +1092,17 @@ public static class FBXImporter
                         if ((uint)controlPoint >= (uint)mesh.ControlPointCount)
                             continue;
 
-                        Vector3 targetPosition = coordinates.Position(new Vector3(
+                        Vector3D targetPosition = coordinates.Position(new Vector3D(
                             sourceDeltas[i * 3], sourceDeltas[i * 3 + 1], sourceDeltas[i * 3 + 2]));
-                        Vector3 positionDelta = absoluteMode
+                        Vector3D positionDelta = absoluteMode
                             ? targetPosition - mesh.SourceControlPoints[controlPoint]
-                            : coordinates.Direction(new Vector3(
+                            : coordinates.Direction(new Vector3D(
                                 sourceDeltas[i * 3], sourceDeltas[i * 3 + 1], sourceDeltas[i * 3 + 2])) * coordinates.UnitScale;
                         deltaMap[controlPoint] = positionDelta;
 
                         if (sourceNormalDeltas.Length >= (i + 1) * 3)
                         {
-                            Vector3 targetNormal = coordinates.Direction(new Vector3(
+                            Vector3D targetNormal = coordinates.Direction(new Vector3D(
                                 sourceNormalDeltas[i * 3], sourceNormalDeltas[i * 3 + 1], sourceNormalDeltas[i * 3 + 2]));
                             if (absoluteMode && baseNormalCounts[controlPoint] > 0)
                                 targetNormal -= baseNormalSums[controlPoint];
@@ -911,13 +1110,13 @@ public static class FBXImporter
                         }
                     }
 
-                    var positionDeltas = new Vector3[mesh.Positions.Length];
-                    var normalDeltas = new Vector3[mesh.Positions.Length];
+                    var positionDeltas = new Vector3D[mesh.Positions.Length];
+                    var normalDeltas = new Vector3D[mesh.Positions.Length];
                     for (int i = 0; i < positionDeltas.Length; i++)
                     {
                         int cp = mesh.SourceControlPointIndices[i];
-                        if (deltaMap.TryGetValue(cp, out Vector3 delta)) positionDeltas[i] = delta;
-                        if (normalMap.TryGetValue(cp, out Vector3 normalDelta)) normalDeltas[i] = normalDelta;
+                        if (deltaMap.TryGetValue(cp, out Vector3D delta)) positionDeltas[i] = delta;
+                        if (normalMap.TryGetValue(cp, out Vector3D normalDelta)) normalDeltas[i] = normalDelta;
                     }
 
                     result.Add(new FBXImportedBlendShape
@@ -1036,11 +1235,11 @@ public static class FBXImporter
                     FBXNode model = modelObjects[nodeIndex];
                     if (property == "Lcl Translation")
                     {
-                        Vector3 fallback = ReadVectorProperty(model.GetChild("Properties70"), property, Vector3.Zero);
+                        Vector3D fallback = ReadVectorProperty(model.GetChild("Properties70"), property, Vector3D.Zero);
                         var keys = new List<FBXVectorKeyframe>(allTimes.Count);
                         foreach (long time in allTimes)
                         {
-                            Vector3 source = new(
+                            Vector3D source = new(
                                 (float)Evaluate(axisCurves, 'X', time, fallback.X),
                                 (float)Evaluate(axisCurves, 'Y', time, fallback.Y),
                                 (float)Evaluate(axisCurves, 'Z', time, fallback.Z));
@@ -1050,11 +1249,11 @@ public static class FBXImporter
                     }
                     else if (property == "Lcl Scaling")
                     {
-                        Vector3 fallback = ReadVectorProperty(model.GetChild("Properties70"), property, Vector3.One);
+                        Vector3D fallback = ReadVectorProperty(model.GetChild("Properties70"), property, Vector3D.One);
                         var keys = new List<FBXVectorKeyframe>(allTimes.Count);
                         foreach (long time in allTimes)
                         {
-                            Vector3 source = new(
+                            Vector3D source = new(
                                 (float)Evaluate(axisCurves, 'X', time, fallback.X),
                                 (float)Evaluate(axisCurves, 'Y', time, fallback.Y),
                                 (float)Evaluate(axisCurves, 'Z', time, fallback.Z));
@@ -1064,12 +1263,12 @@ public static class FBXImporter
                     }
                     else
                     {
-                        Vector3 fallback = ReadVectorProperty(model.GetChild("Properties70"), property, Vector3.Zero);
+                        Vector3D fallback = ReadVectorProperty(model.GetChild("Properties70"), property, Vector3D.Zero);
                         var keys = new List<FBXQuaternionKeyframe>(allTimes.Count);
                         int rotationOrder = ReadIntProperty(model.GetChild("Properties70"), "RotationOrder", 0);
                         foreach (long time in allTimes)
                         {
-                            Vector3 source = new(
+                            Vector3D source = new(
                                 (float)Evaluate(axisCurves, 'X', time, fallback.X),
                                 (float)Evaluate(axisCurves, 'Y', time, fallback.Y),
                                 (float)Evaluate(axisCurves, 'Z', time, fallback.Z));
@@ -1197,15 +1396,15 @@ public static class FBXImporter
     private static Matrix4x4 BuildLocalTransform(FBXNode model, CoordinateSystem coordinates)
     {
         FBXNode? properties = model.GetChild("Properties70") ?? model.GetChild("Properties60");
-        Vector3 translation = ReadVectorProperty(properties, "Lcl Translation", Vector3.Zero);
-        Vector3 rotation = ReadVectorProperty(properties, "Lcl Rotation", Vector3.Zero);
-        Vector3 scale = ReadVectorProperty(properties, "Lcl Scaling", Vector3.One);
-        Vector3 preRotation = ReadVectorProperty(properties, "PreRotation", Vector3.Zero);
-        Vector3 postRotation = ReadVectorProperty(properties, "PostRotation", Vector3.Zero);
-        Vector3 rotationPivot = ReadVectorProperty(properties, "RotationPivot", Vector3.Zero);
-        Vector3 scalingPivot = ReadVectorProperty(properties, "ScalingPivot", Vector3.Zero);
-        Vector3 rotationOffset = ReadVectorProperty(properties, "RotationOffset", Vector3.Zero);
-        Vector3 scalingOffset = ReadVectorProperty(properties, "ScalingOffset", Vector3.Zero);
+        Vector3D translation = ReadVectorProperty(properties, "Lcl Translation", Vector3D.Zero);
+        Vector3D rotation = ReadVectorProperty(properties, "Lcl Rotation", Vector3D.Zero);
+        Vector3D scale = ReadVectorProperty(properties, "Lcl Scaling", Vector3D.One);
+        Vector3D preRotation = ReadVectorProperty(properties, "PreRotation", Vector3D.Zero);
+        Vector3D postRotation = ReadVectorProperty(properties, "PostRotation", Vector3D.Zero);
+        Vector3D rotationPivot = ReadVectorProperty(properties, "RotationPivot", Vector3D.Zero);
+        Vector3D scalingPivot = ReadVectorProperty(properties, "ScalingPivot", Vector3D.Zero);
+        Vector3D rotationOffset = ReadVectorProperty(properties, "RotationOffset", Vector3D.Zero);
+        Vector3D scalingOffset = ReadVectorProperty(properties, "ScalingOffset", Vector3D.Zero);
         int rotationOrder = ReadIntProperty(properties, "RotationOrder", 0);
 
         Matrix4x4 scaleMatrix = Matrix4x4.CreateScale(scale);
@@ -1235,9 +1434,9 @@ public static class FBXImporter
     private static Matrix4x4 BuildGeometryTransform(FBXNode model, CoordinateSystem coordinates)
     {
         FBXNode? properties = model.GetChild("Properties70") ?? model.GetChild("Properties60");
-        Vector3 translation = ReadVectorProperty(properties, "GeometricTranslation", Vector3.Zero);
-        Vector3 rotation = ReadVectorProperty(properties, "GeometricRotation", Vector3.Zero);
-        Vector3 scale = ReadVectorProperty(properties, "GeometricScaling", Vector3.One);
+        Vector3D translation = ReadVectorProperty(properties, "GeometricTranslation", Vector3D.Zero);
+        Vector3D rotation = ReadVectorProperty(properties, "GeometricRotation", Vector3D.Zero);
+        Vector3D scale = ReadVectorProperty(properties, "GeometricScaling", Vector3D.One);
         int rotationOrder = ReadIntProperty(properties, "RotationOrder", 0);
 
         // FBX geometric transforms affect only the node attribute, not child nodes.
@@ -1247,7 +1446,7 @@ public static class FBXImporter
         return coordinates.Matrix(source);
     }
 
-    private static Matrix4x4 CreateEulerRotation(Vector3 degrees, int order)
+    private static Matrix4x4 CreateEulerRotation(Vector3D degrees, int order)
     {
         float x = degrees.X * (MathF.PI / 180f);
         float y = degrees.Y * (MathF.PI / 180f);
@@ -1288,9 +1487,9 @@ public static class FBXImporter
             _frontAxis = frontAxis; _frontSign = frontSign;
             UnitScale = unitScale;
 
-            Vector3 x = Direction(Vector3.UnitX);
-            Vector3 y = Direction(Vector3.UnitY);
-            Vector3 z = Direction(Vector3.UnitZ);
+            Vector3D x = Direction(Vector3D.UnitX);
+            Vector3D y = Direction(Vector3D.UnitY);
+            Vector3D z = Direction(Vector3D.UnitZ);
             _basis = new Matrix4x4(
                 x.X, x.Y, x.Z, 0,
                 y.X, y.Y, y.Z, 0,
@@ -1332,25 +1531,25 @@ public static class FBXImporter
             return new CoordinateSystem(coord, coordSign, up, upSign, front, frontSign, unit);
         }
 
-        private static float Component(Vector3 value, int axis) => axis switch
+        private static float Component(Vector3D value, int axis) => axis switch
         {
             0 => value.X, 1 => value.Y, 2 => value.Z,
             _ => throw new ArgumentOutOfRangeException(nameof(axis))
         };
 
-        public Vector3 Direction(Vector3 source) => new(
+        public Vector3D Direction(Vector3D source) => new(
             Component(source, _frontAxis) * _frontSign,
             Component(source, _coordAxis) * _coordSign,
             Component(source, _upAxis) * _upSign);
 
-        public Vector3 Position(Vector3 source) => Direction(source) * UnitScale;
+        public Vector3D Position(Vector3D source) => Direction(source) * UnitScale;
 
-        public Vector3 Scale(Vector3 source) => new(
+        public Vector3D Scale(Vector3D source) => new(
             Component(source, _frontAxis),
             Component(source, _coordAxis),
             Component(source, _upAxis));
 
-        public Quaternion Rotation(Vector3 eulerDegrees, int order)
+        public Quaternion Rotation(Vector3D eulerDegrees, int order)
         {
             Matrix4x4 source = CreateEulerRotation(eulerDegrees, order);
             Matrix4x4 converted = _inverseBasis * source * _basis;
@@ -1438,13 +1637,13 @@ public static class FBXImporter
             nodes[i].Children = children[i].ToArray();
     }
 
-    private static bool IsFinite(Vector3 value) =>
+    private static bool IsFinite(Vector3D value) =>
         float.IsFinite(value.X) && float.IsFinite(value.Y) && float.IsFinite(value.Z);
 
-    private static Vector3 NormalizeOrZero(Vector3 value) =>
+    private static Vector3D NormalizeOrZero(Vector3D value) =>
         value.LengthSquared() > 1e-12f && float.IsFinite(value.LengthSquared())
-            ? Vector3.Normalize(value)
-            : Vector3.Zero;
+            ? Vector3D.Normalize(value)
+            : Vector3D.Zero;
 
     private static string GetObjectName(string? name, string fallback)
     {
@@ -1485,7 +1684,7 @@ public static class FBXImporter
     private static float ReadFloatProperty(FBXNode? properties, string name, float fallback) =>
         TryReadProperty(properties, name, out double value) && double.IsFinite(value) ? (float)value : fallback;
 
-    private static Vector3 ReadVectorProperty(FBXNode? properties, string name, Vector3 fallback)
+    private static Vector3D ReadVectorProperty(FBXNode? properties, string name, Vector3D fallback)
     {
         if (properties is null) return fallback;
         foreach (FBXNode property in properties.GetChildren("P"))
@@ -1502,7 +1701,7 @@ public static class FBXImporter
                 catch (Exception ex) when (ex is FormatException or InvalidCastException or OverflowException) { }
             }
             if (values.Count == 3)
-                return new Vector3(values[0], values[1], values[2]);
+                return new Vector3D(values[0], values[1], values[2]);
         }
         return fallback;
     }
