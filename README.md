@@ -39,7 +39,7 @@ Auralis/
 | `Auralis.Core.Mathematics` | Fully XML-documented math library with vectors, quaternions, matrices, planes, and geometric types. |
 | `Auralis.Core.IO` | Input/output support for the core layer. |
 | `Auralis.Engine` | Entity–component runtime with transforms and scripting hooks. |
-| `Auralis.Tools.AssetPipeline.Interchange` | Interchange-format parsers/writers, currently focused on FBX documents. |
+| `Auralis.Tools.AssetPipeline.Interchange` | Pure-managed binary/ASCII FBX parser and importer producing in-memory scene data; serialization is a separate pipeline stage. |
 | `Aurlais.World` | Placeholder world/scene assembly layer (early stub). |
 
 ## Requirements
