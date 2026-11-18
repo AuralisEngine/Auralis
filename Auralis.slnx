@@ -14,7 +14,7 @@
   <Folder Name="/src/Auralis.Memory/" />
   <Folder Name="/src/Auralis.Physics/" />
   <Folder Name="/src/Auralis.Platform/" />
-  <Folder Name="/src/Auralis.Render/" />
+  <Folder Name="/src/Auralis.Rendering/" />
   <Folder Name="/src/Auralis.Scene/" />
   <Folder Name="/src/Auralis.Simulation/" />
   <Folder Name="/src/Auralis.Tools/" />
