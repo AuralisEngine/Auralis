@@ -295,7 +295,7 @@ public static class FBXImporter
         FBXNode geometry, CoordinateSystem coordinates, FBXImporterOptions options,
         List<FBXImportDiagnostic> diagnostics)
     {
-        double[] sourceVertices = geometry.GetDoubleArray("Vertices") ?? [];
+        float[] sourceVertices = geometry.GetSingleArray("Vertices") ?? [];
         int[] polygonVertexIndices = geometry.GetInt32Array("PolygonVertexIndex") ?? [];
         if (sourceVertices.Length % 3 != 0)
             throw new FBXFormatException($"Mesh '{geometry.GetString(1)}' has a vertex array whose length is not divisible by three.");
@@ -308,9 +308,9 @@ public static class FBXImporter
         for (int i = 0; i < controlPointCount; i++)
         {
             controlPoints[i] = coordinates.Position(new Vector3(
-                (float)sourceVertices[i * 3],
-                (float)sourceVertices[i * 3 + 1],
-                (float)sourceVertices[i * 3 + 2]));
+                sourceVertices[i * 3],
+                sourceVertices[i * 3 + 1],
+                sourceVertices[i * 3 + 2]));
         }
 
         LayerData? normals = LayerData.Create(geometry.GetChild("LayerElementNormal"), "Normals", "NormalsIndex", 3);
@@ -452,6 +452,7 @@ public static class FBXImporter
             Indices = indices,
             SourceControlPointIndices = outputControlPoints.ToArray(),
             ControlPointCount = controlPointCount,
+            SourceControlPoints = controlPoints,
             Submeshes = submeshes.ToArray()
         };
     }
@@ -460,13 +461,13 @@ public static class FBXImporter
 
     private sealed class LayerData
     {
-        private readonly double[] _values;
+        private readonly float[] _values;
         private readonly int[]? _indices;
         private readonly int _components;
         private readonly string _mapping;
         private readonly bool _indexed;
 
-        private LayerData(double[] values, int[]? indices, int components, string mapping, bool indexed)
+        private LayerData(float[] values, int[]? indices, int components, string mapping, bool indexed)
         {
             _values = values;
             _indices = indices;
@@ -478,7 +479,7 @@ public static class FBXImporter
         public static LayerData? Create(FBXNode? layer, string dataName, string? indexName, int components)
         {
             if (layer is null) return null;
-            double[]? values = layer.GetDoubleArray(dataName);
+            float[]? values = layer.GetSingleArray(dataName);
             if (values is null || values.Length == 0) return null;
             int[]? indices = indexName is null ? null : layer.GetInt32Array(indexName);
             string mapping = ReadNodeString(layer.GetChild("MappingInformationType")) ?? "ByPolygonVertex";
@@ -510,10 +511,10 @@ public static class FBXImporter
             if (direct < 0 || offsetLong < 0 || offsetLong > _values.Length - _components) return false;
             int offset = (int)offsetLong;
             value = new Vector4(
-                (float)_values[offset],
-                _components > 1 ? (float)_values[offset + 1] : 0f,
-                _components > 2 ? (float)_values[offset + 2] : 0f,
-                _components > 3 ? (float)_values[offset + 3] : 1f);
+                _values[offset],
+                _components > 1 ? _values[offset + 1] : 0f,
+                _components > 2 ? _values[offset + 2] : 0f,
+                _components > 3 ? _values[offset + 3] : 1f);
             return true;
         }
 
