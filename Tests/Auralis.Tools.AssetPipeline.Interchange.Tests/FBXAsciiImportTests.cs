@@ -70,6 +70,46 @@ public sealed class FBXAsciiImportTests
     }
 
     [Fact]
+    public void ParsesBinaryNodeRecords()
+    {
+        using var stream = new MemoryStream();
+        byte[] signature = Encoding.ASCII.GetBytes(FBXHeader.BinarySignature);
+        stream.Write(signature);
+        WriteUInt32(stream, 7400);
+
+        uint nodeStart = (uint)stream.Position;
+        uint nodeEnd = nodeStart + 13 + 4 + 5 + 13;
+        WriteUInt32(stream, nodeEnd);
+        WriteUInt32(stream, 1);
+        WriteUInt32(stream, 5);
+        stream.WriteByte(4);
+        stream.Write(Encoding.ASCII.GetBytes("Test"));
+        stream.WriteByte((byte)'I');
+        WriteInt32(stream, 42);
+        stream.Write(new byte[13]);
+        stream.Write(new byte[13]);
+
+        FBXDocument document = FBXDocument.Parse(stream.ToArray());
+        Assert.True(document.Header.IsBinary);
+        Assert.Equal(7400u, document.Header.Version);
+        Assert.Equal(42, document.GetRootNode("Test")!.GetInt64(0));
+    }
+
+    private static void WriteUInt32(Stream stream, uint value)
+    {
+        Span<byte> bytes = stackalloc byte[4];
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(bytes, value);
+        stream.Write(bytes);
+    }
+
+    private static void WriteInt32(Stream stream, int value)
+    {
+        Span<byte> bytes = stackalloc byte[4];
+        System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(bytes, value);
+        stream.Write(bytes);
+    }
+
+    [Fact]
     public void RejectsUnterminatedAsciiBlocks()
     {
         byte[] malformed = Encoding.UTF8.GetBytes("Objects: { Geometry: 1, \"Geometry::Bad\", \"Mesh\" {");
