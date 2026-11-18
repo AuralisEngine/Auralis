@@ -225,8 +225,11 @@ public static class FBXImporter
             {
                 if (connection.Destination != id || !objectById.TryGetValue(connection.Source, out FBXNode? video) || video.Name != "Video")
                     continue;
-                object? content = video.GetChild("Content")?.Properties.FirstOrDefault();
-                if (content is byte[] bytes) embedded = bytes;
+                Array? content = video.GetArray("Content");
+                if (content is byte[] bytes)
+                    embedded = bytes;
+                else if (content is not null)
+                    embedded = ConvertEmbeddedContent(content);
                 if (fileName.Length == 0)
                     fileName = ReadNodeString(video.GetChild("Filename")) ?? string.Empty;
                 if (relative.Length == 0)
@@ -244,6 +247,27 @@ public static class FBXImporter
             });
         }
         return result;
+    }
+
+    private static byte[] ConvertEmbeddedContent(Array content)
+    {
+        var bytes = new byte[content.Length];
+        for (int i = 0; i < bytes.Length; i++)
+        {
+            object? value = content.GetValue(i);
+            try
+            {
+                int numeric = Convert.ToInt32(value, CultureInfo.InvariantCulture);
+                if ((uint)numeric > byte.MaxValue)
+                    throw new FBXFormatException("Embedded FBX video content contains a value outside the byte range.");
+                bytes[i] = (byte)numeric;
+            }
+            catch (Exception ex) when (ex is FormatException or InvalidCastException or OverflowException)
+            {
+                throw new FBXFormatException("Embedded FBX video content is not a byte array.", innerException: ex);
+            }
+        }
+        return bytes;
     }
 
     private static List<FBXImportedMaterial> ImportMaterials(
