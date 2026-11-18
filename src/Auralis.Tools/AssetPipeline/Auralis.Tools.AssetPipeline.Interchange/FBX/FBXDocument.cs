@@ -56,6 +56,8 @@ public sealed class FBXDocument
     {
         options ??= new FBXParserOptions();
         options.Validate();
+        if (data.Length == 0)
+            throw new FBXFormatException("The FBX input is empty.");
         if (data.Length > options.MaxFileBytes)
             throw new FBXFormatException($"The FBX input exceeds the configured {options.MaxFileBytes}-byte limit.");
         if (data.Span.StartsWith(BinaryMagic))
