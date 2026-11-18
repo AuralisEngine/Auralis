@@ -31,6 +31,7 @@ internal static class FBXBinaryParser
         private int _nodeCount;
         private uint _version;
         private int _recordWidth;
+        private long _totalArrayBytes;
 
         public Reader(ReadOnlySpan<byte> data, FBXParserOptions options)
         {
@@ -40,6 +41,7 @@ internal static class FBXBinaryParser
             _nodeCount = 0;
             _version = 0;
             _recordWidth = 13;
+            _totalArrayBytes = 0;
         }
 
         public FBXDocument ReadDocument()
@@ -166,8 +168,9 @@ internal static class FBXBinaryParser
                 case (byte)'R':
                 {
                     uint length = ReadUInt32(boundary);
-                    if (length > boundary - _offset || length > int.MaxValue)
-                        throw Error("Invalid FBX raw-data length");
+                    if (length > boundary - _offset || length > int.MaxValue || length > _options.MaxArrayBytes)
+                        throw Error("FBX raw-data length exceeds the configured limit or available data");
+                    AddArrayBudget(length);
                     byte[] bytes = _data.Slice(_offset, (int)length).ToArray();
                     _offset += (int)length;
                     return bytes;
@@ -194,6 +197,7 @@ internal static class FBXBinaryParser
             if (expectedLength > int.MaxValue || expectedLength > _options.MaxArrayBytes ||
                 encodedLength > boundary - _offset)
                 throw Error("FBX array byte length exceeds the configured limit or available data.");
+            AddArrayBudget(expectedLength);
 
             ReadOnlySpan<byte> encoded = _data.Slice(_offset, (int)encodedLength);
             _offset += (int)encodedLength;
@@ -279,6 +283,13 @@ internal static class FBXBinaryParser
             var result = new sbyte[count];
             for (int i = 0; i < count; i++) result[i] = unchecked((sbyte)bytes[i]);
             return result;
+        }
+
+        private void AddArrayBudget(long bytes)
+        {
+            if (bytes < 0 || bytes > _options.MaxTotalArrayBytes - _totalArrayBytes)
+                throw Error("FBX arrays exceed the configured total decoded-byte budget");
+            _totalArrayBytes += bytes;
         }
 
         private byte ReadByte(int boundary)
