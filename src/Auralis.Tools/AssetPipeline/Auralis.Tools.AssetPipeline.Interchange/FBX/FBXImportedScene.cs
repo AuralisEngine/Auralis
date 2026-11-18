@@ -50,6 +50,7 @@ public sealed class FBXImportedMesh
     /// <summary>Triangle indices. The importer emits triangles and corrects winding during handedness conversion.</summary>
     public int[] Indices { get; internal set; } = Array.Empty<int>();
     public int[] SourceControlPointIndices { get; internal set; } = Array.Empty<int>();
+    public int ControlPointCount { get; internal set; }
     public FBXImportedSubmesh[] Submeshes { get; internal set; } = Array.Empty<FBXImportedSubmesh>();
     public FBXVertexInfluence[][] BoneInfluences { get; internal set; } = Array.Empty<FBXVertexInfluence[]>();
     public FBXImportedSkeleton? Skeleton { get; internal set; }
