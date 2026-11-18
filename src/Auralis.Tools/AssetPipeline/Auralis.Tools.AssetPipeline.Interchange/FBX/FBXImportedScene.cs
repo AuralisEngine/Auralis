@@ -29,6 +29,8 @@ public sealed class FBXImportedNode
     public Quaternion Rotation { get; internal set; } = Quaternion.Identity;
     public Vector3 Scale { get; internal set; } = Vector3.One;
     public Matrix4x4 LocalTransform { get; internal set; } = Matrix4x4.Identity;
+    /// <summary>Non-inherited geometry offset applied to this node's mesh attribute.</summary>
+    public Matrix4x4 GeometryTransform { get; internal set; } = Matrix4x4.Identity;
     public Matrix4x4 WorldTransform { get; internal set; } = Matrix4x4.Identity;
     public int MeshIndex { get; internal set; } = -1;
     public IReadOnlyList<int> MeshIndices { get; internal set; } = Array.Empty<int>();
