@@ -92,7 +92,7 @@ public sealed class FBXDocument
 
             if (!buffer.TryGetBuffer(out ArraySegment<byte> segment))
                 throw new InvalidOperationException("The internal FBX stream buffer is unavailable.");
-            return Parse(segment.AsMemory(0, checked((int)buffer.Length)), options);
+            return Parse(new ReadOnlyMemory<byte>(segment.Array!, segment.Offset, checked((int)buffer.Length)), options);
         }
         finally
         {
