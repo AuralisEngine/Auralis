@@ -80,6 +80,7 @@ public static class FBXImporter
                 Name = GetObjectName(model.GetString(1), $"Node_{i}"),
                 AttributeType = model.GetString(2) ?? string.Empty,
                 LocalTransform = local,
+                GeometryTransform = BuildGeometryTransform(model, coordinates),
                 Translation = translation,
                 Rotation = rotation.LengthSquared() > 1e-12f ? Quaternion.Normalize(rotation) : Quaternion.Identity,
                 Scale = scale
@@ -1062,19 +1063,36 @@ public static class FBXImporter
         if (!Matrix4x4.Invert(post, out Matrix4x4 inversePost))
             inversePost = Matrix4x4.Identity;
 
+        // System.Numerics uses row-vector transforms, so this is the reverse of the
+        // FBX SDK's documented column-vector order:
+        // T * Roff * Rp * Rpre * R * Rpost^-1 * Rp^-1 * Soff * Sp * S * Sp^-1.
         Matrix4x4 source =
             Matrix4x4.CreateTranslation(-scalingPivot) *
             scaleMatrix *
             Matrix4x4.CreateTranslation(scalingPivot) *
-            Matrix4x4.CreateTranslation(-scalingOffset) *
+            Matrix4x4.CreateTranslation(scalingOffset) *
             Matrix4x4.CreateTranslation(-rotationPivot) *
-            pre * main * inversePost *
+            inversePost * main * pre *
             Matrix4x4.CreateTranslation(rotationPivot) *
             Matrix4x4.CreateTranslation(rotationOffset) *
             Matrix4x4.CreateTranslation(translation);
 
-        Matrix4x4 converted = coordinates.Matrix(source);
-        return converted;
+        return coordinates.Matrix(source);
+    }
+
+    private static Matrix4x4 BuildGeometryTransform(FBXNode model, CoordinateSystem coordinates)
+    {
+        FBXNode? properties = model.GetChild("Properties70") ?? model.GetChild("Properties60");
+        Vector3 translation = ReadVectorProperty(properties, "GeometricTranslation", Vector3.Zero);
+        Vector3 rotation = ReadVectorProperty(properties, "GeometricRotation", Vector3.Zero);
+        Vector3 scale = ReadVectorProperty(properties, "GeometricScaling", Vector3.One);
+        int rotationOrder = ReadIntProperty(properties, "RotationOrder", 0);
+
+        // FBX geometric transforms affect only the node attribute, not child nodes.
+        Matrix4x4 source = Matrix4x4.CreateScale(scale) *
+                           CreateEulerRotation(rotation, rotationOrder) *
+                           Matrix4x4.CreateTranslation(translation);
+        return coordinates.Matrix(source);
     }
 
     private static Matrix4x4 CreateEulerRotation(Vector3 degrees, int order)
