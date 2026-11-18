@@ -31,6 +31,7 @@ public sealed class FBXImportedNode
     public Matrix4x4 LocalTransform { get; internal set; } = Matrix4x4.Identity;
     public Matrix4x4 WorldTransform { get; internal set; } = Matrix4x4.Identity;
     public int MeshIndex { get; internal set; } = -1;
+    public IReadOnlyList<int> MeshIndices { get; internal set; } = Array.Empty<int>();
     public IReadOnlyList<int> MaterialIndices { get; internal set; } = Array.Empty<int>();
 }
 
