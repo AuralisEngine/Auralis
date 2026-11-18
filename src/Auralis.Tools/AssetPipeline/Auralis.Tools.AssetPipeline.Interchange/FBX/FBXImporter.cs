@@ -249,9 +249,11 @@ public static class FBXImporter
         foreach (FBXNode material in objects.Where(static node => node.Name == "Material"))
         {
             FBXNode? props = material.GetChild("Properties70") ?? material.GetChild("Properties60");
-            Vector3 diffuse = ReadVectorProperty(props, "DiffuseColor", Vector3.One);
+            Vector3 diffuse = ReadVectorProperty(props, "DiffuseColor",
+                ReadVectorProperty(props, "BaseColor", Vector3.One));
             Vector3 specular = ReadVectorProperty(props, "SpecularColor", new Vector3(0.04f));
-            Vector3 emissive = ReadVectorProperty(props, "EmissiveColor", Vector3.Zero);
+            Vector3 emissive = ReadVectorProperty(props, "EmissiveColor",
+                ReadVectorProperty(props, "Emissive", Vector3.Zero));
             diffuse *= ReadFloatProperty(props, "DiffuseFactor", 1f);
             specular *= ReadFloatProperty(props, "SpecularFactor", 1f);
             emissive *= ReadFloatProperty(props, "EmissiveFactor", 1f);
@@ -267,7 +269,8 @@ public static class FBXImporter
                 BaseColor = diffuse,
                 SpecularColor = specular,
                 EmissiveColor = emissive,
-                Metallic = Math.Clamp(ReadFloatProperty(props, "Metalness", 0f), 0f, 1f),
+                Metallic = Math.Clamp(ReadFloatProperty(props, "Metalness",
+                    ReadFloatProperty(props, "Metallic", 0f)), 0f, 1f),
                 Roughness = Math.Clamp(roughness, 0f, 1f),
                 Opacity = Math.Clamp(opacity, 0f, 1f)
             };
@@ -486,7 +489,7 @@ public static class FBXImporter
             string reference = ReadNodeString(layer.GetChild("ReferenceInformationType")) ?? "Direct";
             // Material layers contain direct per-polygon integer indices and do not
             // have a separate MaterialsIndex array.
-            bool indexed = indexName is not null && reference == "IndexToDirect";
+            bool indexed = indexName is not null && reference is "IndexToDirect" or "Index";
             return new LayerData(values, indices, components, mapping, indexed);
         }
 
@@ -1086,7 +1089,51 @@ public static class FBXImporter
             double[] values = node.GetDoubleArray("KeyValueFloat") ?? [];
             int count = Math.Min(times.Length, values.Length);
             if (count == 0) return new CurveData();
-            return new CurveData { Times = times[..count], Values = values[..count] };
+
+            times = times[..count];
+            values = values[..count];
+            bool sorted = true;
+            for (int i = 1; i < count; i++)
+                if (times[i] < times[i - 1])
+                {
+                    sorted = false;
+                    break;
+                }
+
+            if (!sorted)
+            {
+                int[] order = Enumerable.Range(0, count).OrderBy(index => times[index]).ToArray();
+                long[] sortedTimes = new long[count];
+                double[] sortedValues = new double[count];
+                for (int i = 0; i < count; i++)
+                {
+                    sortedTimes[i] = times[order[i]];
+                    sortedValues[i] = values[order[i]];
+                }
+                times = sortedTimes;
+                values = sortedValues;
+            }
+
+            // Collapse duplicate timestamps, retaining the last value in file order.
+            int write = 0;
+            for (int read = 0; read < times.Length; read++)
+            {
+                if (write > 0 && times[read] == times[write - 1])
+                {
+                    values[write - 1] = values[read];
+                    continue;
+                }
+                times[write] = times[read];
+                values[write] = values[read];
+                write++;
+            }
+            if (write != times.Length)
+            {
+                Array.Resize(ref times, write);
+                Array.Resize(ref values, write);
+            }
+
+            return new CurveData { Times = times, Values = values };
         }
 
         public double Evaluate(long time, double fallback)
