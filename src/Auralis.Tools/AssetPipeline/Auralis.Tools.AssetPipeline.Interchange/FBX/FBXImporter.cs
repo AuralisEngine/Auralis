@@ -17,7 +17,7 @@ public static class FBXImporter
     {
         ArgumentNullException.ThrowIfNull(document);
         options ??= new FBXImporterOptions();
-        if (options.MaxImportedVertices <= 0 || options.MaxImportedPolygons <= 0)
+        if (options.MaxImportedVertices <= 0 || options.MaxImportedPolygons <= 0 || options.MaxPolygonVertices < 3)
             throw new ArgumentOutOfRangeException(nameof(options), "Import limits must be positive.");
 
         var scene = new FBXImportedScene();
@@ -245,7 +245,6 @@ public static class FBXImporter
         List<FBXNode> objects, List<Connection> connections, Dictionary<long, int> textureIndices)
     {
         var result = new List<FBXImportedMaterial>();
-        var materialById = new Dictionary<long, FBXImportedMaterial>();
         foreach (FBXNode material in objects.Where(static node => node.Name == "Material"))
         {
             FBXNode? props = material.GetChild("Properties70") ?? material.GetChild("Properties60");
@@ -271,7 +270,6 @@ public static class FBXImporter
                 Roughness = Math.Clamp(roughness, 0f, 1f),
                 Opacity = Math.Clamp(opacity, 0f, 1f)
             };
-            materialById[imported.SourceId] = imported;
             result.Add(imported);
         }
 
@@ -343,7 +341,9 @@ public static class FBXImporter
                 throw new FBXFormatException($"Mesh '{geometry.GetString(1)}' contains a polygon with fewer than three vertices.");
             if (++polygonCount > options.MaxImportedPolygons)
                 throw new FBXFormatException($"Mesh '{geometry.GetString(1)}' exceeds the configured polygon limit.");
-            if (outputPositions.Count + polygon.Count > options.MaxImportedVertices)
+            if (polygon.Count > options.MaxPolygonVertices)
+                throw new FBXFormatException($"Mesh '{geometry.GetString(1)}' contains a polygon that exceeds the configured triangulation limit.");
+            if (polygon.Count > options.MaxImportedVertices - outputPositions.Count)
                 throw new FBXFormatException($"Mesh '{geometry.GetString(1)}' exceeds the configured imported-vertex limit.");
 
             int materialIndex = materials?.ResolveInt(polygon[0].ControlPoint, polygon[0].PolygonVertex, polygonCount - 1) ?? 0;
@@ -396,9 +396,7 @@ public static class FBXImporter
                 }
             }
 
-            int[] triangles = options.TriangulatePolygons
-                ? Triangulate(polygon, controlPoints)
-                : FanTriangulate(polygon.Count);
+            int[] triangles = Triangulate(polygon, controlPoints);
             for (int i = 0; i < triangles.Length; i += 3)
             {
                 int a = vertexBase + triangles[i];
@@ -417,6 +415,8 @@ public static class FBXImporter
             int controlPoint = encoded < 0 ? ~encoded : encoded;
             if ((uint)controlPoint >= (uint)controlPoints.Length)
                 throw new FBXFormatException($"Mesh '{geometry.GetString(1)}' references an out-of-range control point.");
+            if (polygon.Count >= options.MaxPolygonVertices)
+                throw new FBXFormatException($"Mesh '{geometry.GetString(1)}' contains a polygon that exceeds the configured triangulation limit.");
             polygon.Add(new Corner(controlPoint, polygonVertex++));
             if (encoded < 0) FlushPolygon();
         }
@@ -432,7 +432,7 @@ public static class FBXImporter
         int[] indices = outputIndices.ToArray();
 
         if (options.GenerateMissingNormals)
-            GenerateNormals(positions, indices, normalArray);
+            GenerateNormals(positions, indices, outputControlPoints, controlPointCount, normalArray);
         if (options.GenerateMissingTangents)
             GenerateTangents(positions, normalArray, indices, outputUvs.Count > 0 ? outputUvs[0].ToArray() : null, tangentArray);
 
@@ -474,7 +474,7 @@ public static class FBXImporter
             _indexed = indexed;
         }
 
-        public static LayerData? Create(FBXNode? layer, string dataName, string indexName, int components)
+        public static LayerData? Create(FBXNode? layer, string dataName, string? indexName, int components)
         {
             if (layer is null) return null;
             double[]? values = layer.GetDoubleArray(dataName);
@@ -502,8 +502,9 @@ public static class FBXImporter
                 if (_indices is null || (uint)sample >= (uint)_indices.Length) return false;
                 direct = _indices[sample];
             }
-            int offset = direct * _components;
-            if (direct < 0 || offset < 0 || offset > _values.Length - _components) return false;
+            long offsetLong = (long)direct * _components;
+            if (direct < 0 || offsetLong < 0 || offsetLong > _values.Length - _components) return false;
+            int offset = (int)offsetLong;
             value = new Vector4(
                 (float)_values[offset],
                 _components > 1 ? (float)_values[offset + 1] : 0f,
@@ -636,20 +637,26 @@ public static class FBXImporter
         return ab >= -epsilon && bc >= -epsilon && ca >= -epsilon;
     }
 
-    private static void GenerateNormals(Vector3[] positions, int[] indices, Vector3[] normals)
+    private static void GenerateNormals(
+        Vector3[] positions, int[] indices, List<int> sourceControlPoints,
+        int controlPointCount, Vector3[] normals)
     {
-        var accumulated = new Vector3[positions.Length];
+        // The imported vertex stream is split at polygon corners to retain FBX layer seams.
+        // Accumulate generated normals by original control point so adjacent faces can still smooth.
+        var accumulated = new Vector3[controlPointCount];
         for (int i = 0; i < indices.Length; i += 3)
         {
             int a = indices[i], b = indices[i + 1], c = indices[i + 2];
             Vector3 normal = Vector3.Cross(positions[b] - positions[a], positions[c] - positions[a]);
-            accumulated[a] += normal;
-            accumulated[b] += normal;
-            accumulated[c] += normal;
+            accumulated[sourceControlPoints[a]] += normal;
+            accumulated[sourceControlPoints[b]] += normal;
+            accumulated[sourceControlPoints[c]] += normal;
         }
         for (int i = 0; i < normals.Length; i++)
+        {
             if (normals[i].LengthSquared() < 1e-12f)
-                normals[i] = NormalizeOrZero(accumulated[i]);
+                normals[i] = NormalizeOrZero(accumulated[sourceControlPoints[i]]);
+        }
     }
 
     private static void GenerateTangents(
