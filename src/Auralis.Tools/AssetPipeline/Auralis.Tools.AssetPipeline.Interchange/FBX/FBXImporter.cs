@@ -483,7 +483,10 @@ public static class FBXImporter
             int[]? indices = indexName is null ? null : layer.GetInt32Array(indexName);
             string mapping = ReadNodeString(layer.GetChild("MappingInformationType")) ?? "ByPolygonVertex";
             string reference = ReadNodeString(layer.GetChild("ReferenceInformationType")) ?? "Direct";
-            return new LayerData(values, indices, components, mapping, reference == "IndexToDirect");
+            // Material layers contain direct per-polygon integer indices and do not
+            // have a separate MaterialsIndex array.
+            bool indexed = indexName is not null && reference == "IndexToDirect";
+            return new LayerData(values, indices, components, mapping, indexed);
         }
 
         public bool TryResolve(int controlPoint, int polygonVertex, int polygon, out Vector4 value)
