@@ -5,4 +5,7 @@
     <Nullable>enable</Nullable>
     <LangVersion>latest</LangVersion>
   </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../../Auralis.Core/Auralis.Core.Mathematics/Auralis.Core.Mathematics.csproj" />
+  </ItemGroup>
 </Project>
