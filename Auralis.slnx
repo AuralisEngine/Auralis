@@ -25,5 +25,7 @@
   <Folder Name="/src/AuralisRuntime/">
     <Project Path="src/AuralisRuntime/Auralis.Engine/Auralis.Engine.csproj" Id="f73ad8e1-9bf3-4fc1-895d-51bec0e42b07" />
   </Folder>
-  <Folder Name="/Tests/" />
+  <Folder Name="/Tests/">
+    <Project Path="Tests/Auralis.Engine.Tests/Auralis.Engine.Tests.csproj" Id="61d56b12-7d80-4f24-a1b7-9a7f9c2e84a1" />
+  </Folder>
 </Solution>

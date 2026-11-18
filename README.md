@@ -20,8 +20,7 @@ Auralis/
 │   │   └── Auralis.Core.IO/          # Core I/O abstractions
 │   ├── AuralisRuntime/
 │   │   └── Auralis.Engine/           # Engine runtime: Entity / Component model
-│   │                                 #   (Entity, ComponentBase, EntityComponent,
-│   │                                 #    TransformComponent, Script)
+│   │                                 #   (Entity, ComponentBase, Script)
 │   └── Auralis.Tools/
 │       └── AssetPipeline/
 │           └── Auralis.Tools.AssetPipeline.Interchange/
