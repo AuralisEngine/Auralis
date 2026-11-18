@@ -174,7 +174,7 @@ public static class FBXImporter
         if (options.ImportBlendShapes)
         {
             foreach (FBXImportedMesh mesh in meshes)
-                mesh.BlendShapes = ImportBlendShapes(mesh, objects, connections, coordinates);
+                mesh.BlendShapes = ImportBlendShapes(mesh, objects, objectById, connections, coordinates);
         }
 
         // Source control points are needed only while calculating absolute morph-target deltas.
@@ -182,7 +182,7 @@ public static class FBXImporter
             mesh.SourceControlPoints = Array.Empty<Vector3>();
 
         if (options.ImportAnimation)
-            scene.Animations = ImportAnimations(objects, connections, nodeIndexById, modelObjects, importedNodes, meshes, coordinates);
+            scene.Animations = ImportAnimations(objects, objectById, connections, nodeIndexById, modelObjects, importedNodes, meshes, coordinates);
 
         ComputeWorldTransforms(importedNodes, diagnostics);
 
@@ -814,11 +814,10 @@ public static class FBXImporter
     }
 
     private static FBXImportedBlendShape[] ImportBlendShapes(
-        FBXImportedMesh mesh, List<FBXNode> objects, List<Connection> connections,
-        CoordinateSystem coordinates)
+        FBXImportedMesh mesh, List<FBXNode> objects, Dictionary<long, FBXNode> byId,
+        List<Connection> connections, CoordinateSystem coordinates)
     {
         var result = new List<FBXImportedBlendShape>();
-        var byId = objects.ToDictionary(node => node.GetInt64(0), node => node);
         var baseNormalSums = new Vector3[mesh.ControlPointCount];
         var baseNormalCounts = new int[mesh.ControlPointCount];
         for (int i = 0; i < mesh.Normals.Length; i++)
@@ -914,11 +913,10 @@ public static class FBXImporter
     }
 
     private static IReadOnlyList<FBXImportedAnimationClip> ImportAnimations(
-        List<FBXNode> objects, List<Connection> connections,
+        List<FBXNode> objects, Dictionary<long, FBXNode> objectById, List<Connection> connections,
         Dictionary<long, int> nodeIndexById, List<FBXNode> modelObjects,
         FBXImportedNode[] importedNodes, List<FBXImportedMesh> meshes, CoordinateSystem coordinates)
     {
-        var objectById = objects.ToDictionary(node => node.GetInt64(0), node => node);
         var meshByChannelId = new Dictionary<long, int>();
         for (int meshIndex = 0; meshIndex < meshes.Count; meshIndex++)
             foreach (FBXImportedBlendShape shape in meshes[meshIndex].BlendShapes)
