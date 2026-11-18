@@ -90,13 +90,35 @@ public sealed class FBXNode
         if (value is double[] doubles) return doubles;
 
         var result = new double[value.Length];
-        for (int i = 0; i < result.Length; i++)
+        switch (value)
         {
-            try { result[i] = Convert.ToDouble(value.GetValue(i), CultureInfo.InvariantCulture); }
-            catch (Exception ex) when (ex is FormatException or InvalidCastException or OverflowException)
-            { throw new FBXFormatException($"Property '{propertyName}' contains a non-numeric array value."); }
+            case float[] floats:
+                for (int i = 0; i < result.Length; i++) result[i] = floats[i];
+                return result;
+            case int[] integers:
+                for (int i = 0; i < result.Length; i++) result[i] = integers[i];
+                return result;
+            case long[] longs:
+                for (int i = 0; i < result.Length; i++) result[i] = longs[i];
+                return result;
+            case short[] shorts:
+                for (int i = 0; i < result.Length; i++) result[i] = shorts[i];
+                return result;
+            case sbyte[] signedBytes:
+                for (int i = 0; i < result.Length; i++) result[i] = signedBytes[i];
+                return result;
+            case byte[] bytes:
+                for (int i = 0; i < result.Length; i++) result[i] = bytes[i];
+                return result;
+            default:
+                for (int i = 0; i < result.Length; i++)
+                {
+                    try { result[i] = Convert.ToDouble(value.GetValue(i), CultureInfo.InvariantCulture); }
+                    catch (Exception ex) when (ex is FormatException or InvalidCastException or OverflowException)
+                    { throw new FBXFormatException($"Property '{propertyName}' contains a non-numeric array value."); }
+                }
+                return result;
         }
-        return result;
     }
 
     /// <summary>Returns an integer array, converting the source FBX numeric representation if necessary.</summary>
@@ -107,12 +129,37 @@ public sealed class FBXNode
         if (value is int[] integers) return integers;
 
         var result = new int[value.Length];
-        for (int i = 0; i < result.Length; i++)
+        switch (value)
         {
-            try { result[i] = Convert.ToInt32(value.GetValue(i), CultureInfo.InvariantCulture); }
-            catch (Exception ex) when (ex is FormatException or InvalidCastException or OverflowException)
-            { throw new FBXFormatException($"Property '{propertyName}' contains a non-integer array value."); }
+            case short[] shorts:
+                for (int i = 0; i < result.Length; i++) result[i] = shorts[i];
+                return result;
+            case sbyte[] signedBytes:
+                for (int i = 0; i < result.Length; i++) result[i] = signedBytes[i];
+                return result;
+            case byte[] bytes:
+                for (int i = 0; i < result.Length; i++) result[i] = bytes[i];
+                return result;
+            case long[] longs:
+                for (int i = 0; i < result.Length; i++)
+                    result[i] = checked((int)longs[i]);
+                return result;
+            case float[] floats:
+                for (int i = 0; i < result.Length; i++)
+                    result[i] = checked((int)floats[i]);
+                return result;
+            case double[] doubles:
+                for (int i = 0; i < result.Length; i++)
+                    result[i] = checked((int)doubles[i]);
+                return result;
+            default:
+                for (int i = 0; i < result.Length; i++)
+                {
+                    try { result[i] = Convert.ToInt32(value.GetValue(i), CultureInfo.InvariantCulture); }
+                    catch (Exception ex) when (ex is FormatException or InvalidCastException or OverflowException)
+                    { throw new FBXFormatException($"Property '{propertyName}' contains a non-integer array value."); }
+                }
+                return result;
         }
-        return result;
     }
 }
