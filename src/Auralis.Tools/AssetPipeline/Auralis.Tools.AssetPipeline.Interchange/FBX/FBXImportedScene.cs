@@ -103,6 +103,8 @@ public sealed class FBXImportedBone
 
 public sealed class FBXImportedBlendShape
 {
+    public long SourceId { get; internal set; }
+    public long ChannelId { get; internal set; }
     public string Name { get; internal set; } = string.Empty;
     public float FullWeight { get; internal set; } = 100f;
     /// <summary>Per-imported-vertex position deltas; zero for vertices not affected by this target.</summary>
