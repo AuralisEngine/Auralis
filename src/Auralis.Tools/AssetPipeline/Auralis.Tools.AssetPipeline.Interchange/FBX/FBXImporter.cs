@@ -450,6 +450,7 @@ public static class FBXImporter
             Colors = outputColors.ToArray(),
             Indices = indices,
             SourceControlPointIndices = outputControlPoints.ToArray(),
+            ControlPointCount = controlPointCount,
             Submeshes = submeshes.ToArray()
         };
     }
@@ -702,7 +703,6 @@ public static class FBXImporter
 
         var clusterConnections = connections.Where(c => c.Type == "OO" && skins.Contains(c.Destination)).ToList();
         var bones = new List<FBXImportedBone>();
-        var boneIndexByModel = new Dictionary<long, int>();
         var influenceByControlPoint = new Dictionary<int, List<FBXVertexInfluence>>();
 
         foreach (Connection clusterConnection in clusterConnections)
@@ -712,13 +712,13 @@ public static class FBXImporter
                 !string.Equals(cluster.GetString(2), "Cluster", StringComparison.OrdinalIgnoreCase))
                 continue;
 
+            // A bone model is a source of its cluster; the cluster is a destination of the bone connection.
             Connection link = connections.FirstOrDefault(c => c.Type == "OO" &&
-                c.Source == clusterConnection.Source && nodeIndexById.ContainsKey(c.Destination));
-            if (link.Type is null || !nodeIndexById.TryGetValue(link.Destination, out int nodeIndex))
+                c.Destination == clusterConnection.Source && nodeIndexById.ContainsKey(c.Source));
+            if (link.Type is null || !nodeIndexById.TryGetValue(link.Source, out int nodeIndex))
                 continue;
 
             int boneIndex = bones.Count;
-            boneIndexByModel[link.Destination] = boneIndex;
             Matrix4x4 bind = ReadMatrix(cluster.GetDoubleArray("TransformLink"), coordinates);
             if (!Matrix4x4.Invert(bind, out Matrix4x4 inverseBind))
             {
@@ -740,7 +740,7 @@ public static class FBXImporter
             {
                 int controlPoint = indices[i];
                 float weight = (float)weights[i];
-                if (controlPoint < 0 || !float.IsFinite(weight) || weight <= 0f)
+                if ((uint)controlPoint >= (uint)mesh.ControlPointCount || !float.IsFinite(weight) || weight <= 0f)
                     continue;
                 if (!influenceByControlPoint.TryGetValue(controlPoint, out List<FBXVertexInfluence>? list))
                     influenceByControlPoint[controlPoint] = list = [];
