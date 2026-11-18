@@ -178,14 +178,19 @@ internal static class FBXAsciiParser
                 }
 
                 int elementCount = numbers.Count + other.Count;
-                int byteLimitedCount = _options.MaxArrayBytes / sizeof(double);
-                long estimatedBytes = numeric ? (long)elementCount * sizeof(double) : (long)elementCount * IntPtr.Size;
-                if (elementCount > _options.MaxArrayElements || elementCount > byteLimitedCount ||
-                    estimatedBytes > _options.MaxTotalArrayBytes - _totalArrayBytes)
-                    throw new FBXFormatException("ASCII FBX arrays exceed the configured element or decoded-byte budget.", token.Offset);
-                _totalArrayBytes += estimatedBytes;
+                if (elementCount > _options.MaxArrayElements ||
+                    elementCount > _options.MaxArrayBytes / sizeof(double))
+                    throw new FBXFormatException("ASCII FBX array exceeds the configured element or decoded-byte limit.", token.Offset);
             }
 
+            int finalCount = numbers.Count + other.Count;
+            long estimatedBytes = numeric
+                ? (long)finalCount * sizeof(double)
+                : (long)finalCount * IntPtr.Size + other.OfType<string>().Sum(static value => (long)value.Length * sizeof(char));
+            if (estimatedBytes > _options.MaxArrayBytes ||
+                estimatedBytes > _options.MaxTotalArrayBytes - _totalArrayBytes)
+                throw new FBXFormatException("ASCII FBX arrays exceed the configured decoded-byte budget.");
+            _totalArrayBytes += estimatedBytes;
             node.AddProperty(numeric ? numbers.ToArray() : other.ToArray());
         }
 
