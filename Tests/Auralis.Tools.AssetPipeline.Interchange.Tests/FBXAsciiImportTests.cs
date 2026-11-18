@@ -23,7 +23,8 @@ public sealed class FBXAsciiImportTests
                 P: "UnitScaleFactor", "double", "Number", "",1
             }
         }
-        Objects: {
+        Objects:
+        {
             Geometry: 1001, "Geometry::Triangle", "Mesh" {
                 GeometryVersion: 124
                 Vertices: *9 {
@@ -32,13 +33,26 @@ public sealed class FBXAsciiImportTests
                 PolygonVertexIndex: *3 {
                     a: 0,1,-3
                 }
+                LayerElementMaterial: {
+                    Materials: *1 {
+                        a: 0
+                    }
+                    MappingInformationType: "ByPolygon"
+                    ReferenceInformationType: "IndexToDirect"
+                }
             }
             Model: 2001, "Model::Triangle", "Mesh" {
                 Version: 232
             }
+            Material: 3001, "Material::TestMaterial", "" {
+                Properties70: {
+                    P: "DiffuseColor", "Color", "", "A", 0.25, 0.5, 0.75
+                }
+            }
         }
         Connections: {
             C: "OO",1001,2001
+            C: "OO",3001,2001
         }
         """;
 
@@ -67,6 +81,21 @@ public sealed class FBXAsciiImportTests
         Assert.Equal(100f, mesh.Positions[1].Y, precision: 3);
         Assert.Equal(100f, mesh.Positions[2].Z, precision: 3);
         Assert.Single(scene.Nodes);
+    }
+
+    [Fact]
+    public void ImportsMaterialAssignmentsFromDirectPolygonLayer()
+    {
+        FBXDocument document = FBXDocument.Parse(Encoding.UTF8.GetBytes(TriangleScene));
+        FBXImportedScene scene = FBXImporter.Import(document);
+
+        FBXImportedMaterial material = Assert.Single(scene.Materials);
+        Assert.Equal(0.25f, material.BaseColor.X, precision: 3);
+        Assert.Equal(0.5f, material.BaseColor.Y, precision: 3);
+        FBXImportedMesh mesh = Assert.Single(scene.Meshes);
+        FBXImportedSubmesh submesh = Assert.Single(mesh.Submeshes);
+        Assert.Equal(0, submesh.MaterialIndex);
+        Assert.Equal(new[] { 0 }, scene.Nodes[0].MaterialIndices);
     }
 
     [Fact]
