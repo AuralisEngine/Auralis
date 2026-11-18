@@ -23,6 +23,8 @@ internal static class FBXAsciiParser
         uint version = ReadVersion(text);
         var parser = new Parser(text, options);
         List<FBXNode> roots = parser.ReadDocument();
+        if (!roots.Any(static node => node.Name is "FBXHeaderExtension" or "GlobalSettings" or "Documents" or "Definitions" or "Objects" or "Connections" or "Takes"))
+            throw new FBXFormatException("The text input does not contain a recognizable ASCII FBX section.");
         return FBXDocument.Create(new FBXHeader(false, version), roots);
     }
 
@@ -47,11 +49,13 @@ internal static class FBXAsciiParser
         private readonly Lexer _lexer;
         private readonly FBXParserOptions _options;
         private int _nodeCount;
+        private long _totalArrayBytes;
 
         public Parser(string text, FBXParserOptions options)
         {
             _lexer = new Lexer(text, options.MaxStringBytes);
             _options = options;
+            _totalArrayBytes = 0;
         }
 
         public List<FBXNode> ReadDocument() => ReadBlock(0, expectClose: false);
@@ -175,8 +179,11 @@ internal static class FBXAsciiParser
 
                 int elementCount = numbers.Count + other.Count;
                 int byteLimitedCount = _options.MaxArrayBytes / sizeof(double);
-                if (elementCount > _options.MaxArrayElements || elementCount > byteLimitedCount)
-                    throw new FBXFormatException("ASCII FBX array exceeds the configured element or decoded-byte limit.", token.Offset);
+                long estimatedBytes = numeric ? (long)elementCount * sizeof(double) : (long)elementCount * IntPtr.Size;
+                if (elementCount > _options.MaxArrayElements || elementCount > byteLimitedCount ||
+                    estimatedBytes > _options.MaxTotalArrayBytes - _totalArrayBytes)
+                    throw new FBXFormatException("ASCII FBX arrays exceed the configured element or decoded-byte budget.", token.Offset);
+                _totalArrayBytes += estimatedBytes;
             }
 
             node.AddProperty(numeric ? numbers.ToArray() : other.ToArray());
