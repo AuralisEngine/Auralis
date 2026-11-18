@@ -25,9 +25,9 @@ Auralis/
 │   └── Auralis.Tools/
 │       └── AssetPipeline/
 │           └── Auralis.Tools.AssetPipeline.Interchange/
-│                                     # Asset interchange: FBX reading/writing
-│                                       (FBXHeader, FBXNode, FBXDocument,
-│                                        FBXReader, FBXWriter)
+│                                     # Pure-managed FBX parsing and scene import
+│                                       (binary + ASCII parsers, FBXImporter,
+│                                        FBXImportedScene, FBXDocument)
 └── Aurlais.World/                    # World layer (work in progress)
 ```
 
