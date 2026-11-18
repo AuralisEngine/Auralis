@@ -55,8 +55,7 @@ public static class FBXImporter
         var materialIndices = materials.Select((material, index) => (material.SourceId, index))
             .ToDictionary(static pair => pair.SourceId, static pair => pair.index);
 
-        List<FBXNode> modelObjects = objects.Where(static node =>
-            node.Name == "Model" && string.Equals(node.GetString(2), "Null", StringComparison.OrdinalIgnoreCase) == false).ToList();
+        List<FBXNode> modelObjects = objects.Where(static node => node.Name == "Model").ToList();
         var nodeIndexById = new Dictionary<long, int>(modelObjects.Count);
         for (int i = 0; i < modelObjects.Count; i++)
             nodeIndexById[modelObjects[i].GetInt64(0)] = i;
@@ -68,7 +67,13 @@ public static class FBXImporter
             FBXNode model = modelObjects[i];
             childLists[i] = [];
             Matrix4x4 local = BuildLocalTransform(model, coordinates);
-            Matrix4x4.Decompose(local, out Vector3 scale, out Quaternion rotation, out Vector3 translation);
+            bool decomposed = Matrix4x4.Decompose(local, out Vector3 scale, out Quaternion rotation, out Vector3 translation);
+            if (!decomposed)
+            {
+                scale = Vector3.One;
+                rotation = Quaternion.Identity;
+                translation = new Vector3(local.M41, local.M42, local.M43);
+            }
             importedNodes[i] = new FBXImportedNode
             {
                 SourceId = model.GetInt64(0),
@@ -76,7 +81,7 @@ public static class FBXImporter
                 AttributeType = model.GetString(2) ?? string.Empty,
                 LocalTransform = local,
                 Translation = translation,
-                Rotation = Quaternion.Normalize(rotation),
+                Rotation = rotation.LengthSquared() > 1e-12f ? Quaternion.Normalize(rotation) : Quaternion.Identity,
                 Scale = scale
             };
         }
@@ -694,13 +699,13 @@ public static class FBXImporter
                 !string.Equals(cluster.GetString(2), "Cluster", StringComparison.OrdinalIgnoreCase))
                 continue;
 
-            Connection? link = connections.FirstOrDefault(c => c.Type == "OO" &&
+            Connection link = connections.FirstOrDefault(c => c.Type == "OO" &&
                 c.Source == clusterConnection.Source && nodeIndexById.ContainsKey(c.Destination));
-            if (link is null || !nodeIndexById.TryGetValue(link.Value.Destination, out int nodeIndex))
+            if (link.Type is null || !nodeIndexById.TryGetValue(link.Destination, out int nodeIndex))
                 continue;
 
             int boneIndex = bones.Count;
-            boneIndexByModel[link.Value.Destination] = boneIndex;
+            boneIndexByModel[link.Destination] = boneIndex;
             Matrix4x4 bind = ReadMatrix(cluster.GetDoubleArray("TransformLink"), coordinates);
             if (!Matrix4x4.Invert(bind, out Matrix4x4 inverseBind))
             {
@@ -722,7 +727,7 @@ public static class FBXImporter
             {
                 int controlPoint = indices[i];
                 float weight = (float)weights[i];
-                if (controlPoint < 0 || controlPoint >= mesh.SourceControlPointIndices.MaxOrDefault(-1) + 1 || weight <= 0f)
+                if (controlPoint < 0 || weight <= 0f)
                     continue;
                 if (!influenceByControlPoint.TryGetValue(controlPoint, out List<FBXVertexInfluence>? list))
                     influenceByControlPoint[controlPoint] = list = [];
@@ -869,11 +874,11 @@ public static class FBXImporter
 
                 foreach (long curveNodeId in curveNodeIds)
                 {
-                    Connection? modelLink = connections.FirstOrDefault(c => c.Type == "OP" &&
+                    Connection modelLink = connections.FirstOrDefault(c => c.Type == "OP" &&
                         c.Source == curveNodeId && nodeIndexById.ContainsKey(c.Destination));
-                    if (modelLink is null) continue;
-                    int nodeIndex = nodeIndexById[modelLink.Value.Destination];
-                    string property = modelLink.Value.Property ?? string.Empty;
+                    if (modelLink.Type is null) continue;
+                    int nodeIndex = nodeIndexById[modelLink.Destination];
+                    string property = modelLink.Property ?? string.Empty;
                     if (property is not ("Lcl Translation" or "Lcl Rotation" or "Lcl Scaling"))
                         continue;
 
@@ -1135,22 +1140,23 @@ public static class FBXImporter
             return new CoordinateSystem(coord, coordSign, up, upSign, front, frontSign, unit);
         }
 
-        public Vector3 Direction(Vector3 source)
+        private static float Component(Vector3 value, int axis) => axis switch
         {
-            float[] values = [source.X, source.Y, source.Z];
-            return new Vector3(
-                values[_frontAxis] * _frontSign,
-                values[_coordAxis] * _coordSign,
-                values[_upAxis] * _upSign);
-        }
+            0 => value.X, 1 => value.Y, 2 => value.Z,
+            _ => throw new ArgumentOutOfRangeException(nameof(axis))
+        };
+
+        public Vector3 Direction(Vector3 source) => new(
+            Component(source, _frontAxis) * _frontSign,
+            Component(source, _coordAxis) * _coordSign,
+            Component(source, _upAxis) * _upSign);
 
         public Vector3 Position(Vector3 source) => Direction(source) * UnitScale;
 
-        public Vector3 Scale(Vector3 source)
-        {
-            float[] values = [source.X, source.Y, source.Z];
-            return new Vector3(MathF.Abs(values[_frontAxis]), MathF.Abs(values[_coordAxis]), MathF.Abs(values[_upAxis]));
-        }
+        public Vector3 Scale(Vector3 source) => new(
+            Component(source, _frontAxis),
+            Component(source, _coordAxis),
+            Component(source, _upAxis));
 
         public Quaternion Rotation(Vector3 eulerDegrees, int order)
         {
@@ -1286,6 +1292,4 @@ public static class FBXImporter
         return result;
     }
 
-    private static int[] MaxOrDefault(this int[] values, int fallback) =>
-        values.Length == 0 ? [fallback] : values;
 }
