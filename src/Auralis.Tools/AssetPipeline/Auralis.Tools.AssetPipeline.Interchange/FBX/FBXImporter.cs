@@ -807,6 +807,19 @@ public static class FBXImporter
     {
         var result = new List<FBXImportedBlendShape>();
         var byId = objects.ToDictionary(node => node.GetInt64(0), node => node);
+        var baseNormalSums = new Vector3[mesh.ControlPointCount];
+        var baseNormalCounts = new int[mesh.ControlPointCount];
+        for (int i = 0; i < mesh.Normals.Length; i++)
+        {
+            int controlPoint = mesh.SourceControlPointIndices[i];
+            if ((uint)controlPoint >= (uint)baseNormalSums.Length)
+                continue;
+            baseNormalSums[controlPoint] += mesh.Normals[i];
+            baseNormalCounts[controlPoint]++;
+        }
+        for (int i = 0; i < baseNormalSums.Length; i++)
+            if (baseNormalCounts[i] > 0)
+                baseNormalSums[i] = NormalizeOrZero(baseNormalSums[i]);
         var blendShapes = objects.Where(static node => node.Name == "Deformer" &&
             string.Equals(node.GetString(2), "BlendShape", StringComparison.OrdinalIgnoreCase)).ToList();
 
@@ -832,19 +845,34 @@ public static class FBXImporter
                         continue;
 
                     int[] controlPointIndices = shape.GetInt32Array("Indexes") ?? [];
-                    double[] sourceDeltas = shape.GetDoubleArray("Vertices") ?? [];
-                    double[] sourceNormalDeltas = shape.GetDoubleArray("Normals") ?? [];
+                    float[] sourceDeltas = shape.GetSingleArray("Vertices") ?? [];
+                    float[] sourceNormalDeltas = shape.GetSingleArray("Normals") ?? [];
+                    bool absoluteMode = TryReadProperty(shape.GetChild("Properties70"), "AbsoluteMode", out double absoluteValue) &&
+                                        absoluteValue != 0d;
                     var deltaMap = new Dictionary<int, Vector3>(controlPointIndices.Length);
                     var normalMap = new Dictionary<int, Vector3>(controlPointIndices.Length);
                     int deltaCount = Math.Min(controlPointIndices.Length, sourceDeltas.Length / 3);
                     for (int i = 0; i < deltaCount; i++)
                     {
-                        var delta = new Vector3((float)sourceDeltas[i * 3], (float)sourceDeltas[i * 3 + 1], (float)sourceDeltas[i * 3 + 2]);
-                        deltaMap[controlPointIndices[i]] = coordinates.Direction(delta) * coordinates.UnitScale;
+                        int controlPoint = controlPointIndices[i];
+                        if ((uint)controlPoint >= (uint)mesh.ControlPointCount)
+                            continue;
+
+                        Vector3 targetPosition = coordinates.Position(new Vector3(
+                            sourceDeltas[i * 3], sourceDeltas[i * 3 + 1], sourceDeltas[i * 3 + 2]));
+                        Vector3 positionDelta = absoluteMode
+                            ? targetPosition - mesh.SourceControlPoints[controlPoint]
+                            : coordinates.Direction(new Vector3(
+                                sourceDeltas[i * 3], sourceDeltas[i * 3 + 1], sourceDeltas[i * 3 + 2])) * coordinates.UnitScale;
+                        deltaMap[controlPoint] = positionDelta;
+
                         if (sourceNormalDeltas.Length >= (i + 1) * 3)
                         {
-                            var normalDelta = new Vector3((float)sourceNormalDeltas[i * 3], (float)sourceNormalDeltas[i * 3 + 1], (float)sourceNormalDeltas[i * 3 + 2]);
-                            normalMap[controlPointIndices[i]] = coordinates.Direction(normalDelta);
+                            Vector3 targetNormal = coordinates.Direction(new Vector3(
+                                sourceNormalDeltas[i * 3], sourceNormalDeltas[i * 3 + 1], sourceNormalDeltas[i * 3 + 2]));
+                            if (absoluteMode && baseNormalCounts[controlPoint] > 0)
+                                targetNormal -= baseNormalSums[controlPoint];
+                            normalMap[controlPoint] = targetNormal;
                         }
                     }
 
@@ -859,6 +887,8 @@ public static class FBXImporter
 
                     result.Add(new FBXImportedBlendShape
                     {
+                        SourceId = shape.GetInt64(0),
+                        ChannelId = channelLink.Source,
                         Name = GetObjectName(shape.GetString(1), $"BlendShape_{shape.GetInt64(0)}"),
                         FullWeight = shapeOrdinal < fullWeights.Length ? (float)fullWeights[shapeOrdinal] : 100f,
                         PositionDeltas = positionDeltas,
