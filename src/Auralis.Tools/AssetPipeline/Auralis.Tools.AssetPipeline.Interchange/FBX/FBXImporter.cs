@@ -1507,14 +1507,4 @@ public static class FBXImporter
         return fallback;
     }
 
-    private static long[] ToInt64Array(Array? values)
-    {
-        if (values is null) return [];
-        if (values is long[] longs) return longs;
-        var result = new long[values.Length];
-        for (int i = 0; i < result.Length; i++)
-            result[i] = Convert.ToInt64(values.GetValue(i), CultureInfo.InvariantCulture);
-        return result;
-    }
-
 }
