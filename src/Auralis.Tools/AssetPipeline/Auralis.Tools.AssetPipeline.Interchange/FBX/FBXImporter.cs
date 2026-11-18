@@ -122,6 +122,7 @@ public static class FBXImporter
         }
 
         var modelMaterials = new Dictionary<long, List<int>>();
+        var modelMeshes = new Dictionary<long, List<int>>();
         foreach (Connection connection in connections)
         {
             if (connection.Type == "OO" &&
@@ -135,9 +136,11 @@ public static class FBXImporter
 
             if (connection.Type == "OO" &&
                 meshIndexByGeometryId.TryGetValue(connection.Source, out int meshIndex) &&
-                nodeIndexById.TryGetValue(connection.Destination, out int modelIndex))
+                nodeIndexById.ContainsKey(connection.Destination))
             {
-                importedNodes[modelIndex].MeshIndex = meshIndex;
+                if (!modelMeshes.TryGetValue(connection.Destination, out List<int>? meshesForModel))
+                    modelMeshes[connection.Destination] = meshesForModel = [];
+                meshesForModel.Add(meshIndex);
             }
         }
 
@@ -145,6 +148,13 @@ public static class FBXImporter
         {
             if (modelMaterials.TryGetValue(importedNodes[i].SourceId, out List<int>? list))
                 importedNodes[i].MaterialIndices = list.Distinct().ToArray();
+            if (modelMeshes.TryGetValue(importedNodes[i].SourceId, out List<int>? meshesForModel))
+            {
+                importedNodes[i].MeshIndices = meshesForModel.Distinct().ToArray();
+                importedNodes[i].MeshIndex = importedNodes[i].MeshIndices.Count > 0
+                    ? importedNodes[i].MeshIndices[0]
+                    : -1;
+            }
         }
 
         var skeletons = new List<FBXImportedSkeleton>();
@@ -242,6 +252,9 @@ public static class FBXImporter
             Vector3 diffuse = ReadVectorProperty(props, "DiffuseColor", Vector3.One);
             Vector3 specular = ReadVectorProperty(props, "SpecularColor", new Vector3(0.04f));
             Vector3 emissive = ReadVectorProperty(props, "EmissiveColor", Vector3.Zero);
+            diffuse *= ReadFloatProperty(props, "DiffuseFactor", 1f);
+            specular *= ReadFloatProperty(props, "SpecularFactor", 1f);
+            emissive *= ReadFloatProperty(props, "EmissiveFactor", 1f);
             float opacity = ReadFloatProperty(props, "Opacity", 1f);
             if (TryReadProperty(props, "TransparencyFactor", out double transparency))
                 opacity *= (float)Math.Clamp(1d - transparency, 0d, 1d);
@@ -365,7 +378,7 @@ public static class FBXImporter
                         if (normal.LengthSquared() > 1e-12f && Vector3.Dot(Vector3.Cross(normal, tangentDirection), binormal) < 0f)
                             sign = -1f;
                     }
-                    tangent = new Vector4(tangentDirection, sign);
+                    tangent = new Vector4(NormalizeOrZero(tangentDirection), sign);
                 }
                 outputTangents.Add(tangent);
 
@@ -727,7 +740,7 @@ public static class FBXImporter
             {
                 int controlPoint = indices[i];
                 float weight = (float)weights[i];
-                if (controlPoint < 0 || weight <= 0f)
+                if (controlPoint < 0 || !float.IsFinite(weight) || weight <= 0f)
                     continue;
                 if (!influenceByControlPoint.TryGetValue(controlPoint, out List<FBXVertexInfluence>? list))
                     influenceByControlPoint[controlPoint] = list = [];
