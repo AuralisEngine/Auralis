@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Globalization;
 using Auralis.Core.Mathematics;
 using Matrix4x4 = System.Numerics.Matrix4x4;
@@ -1676,10 +1677,18 @@ public static class FBXImporter
                 int index = path[i];
                 int parent = nodes[index].ParentIndex;
                 if ((uint)parent < (uint)nodes.Length && state[parent] == 2)
+                {
+                    // Array element expressions cannot be passed by readonly reference;
+                    // local copies also keep the matrix operands explicit for the API.
+                    Matrix localTransform = nodes[index].LocalTransform;
+                    Matrix parentWorldTransform = nodes[parent].WorldTransform;
                     nodes[index].WorldTransform = Matrix.Multiply(
-                        in nodes[index].LocalTransform, in nodes[parent].WorldTransform);
+                        in localTransform, in parentWorldTransform);
+                }
                 else
+                {
                     nodes[index].WorldTransform = nodes[index].LocalTransform;
+                }
 
                 state[index] = 2;
             }
