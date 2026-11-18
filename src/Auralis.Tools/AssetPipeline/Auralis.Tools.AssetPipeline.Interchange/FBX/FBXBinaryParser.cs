@@ -184,8 +184,9 @@ internal static class FBXBinaryParser
                 throw Error("FBX array element count exceeds the configured limit");
 
             long expectedLength = (long)rawCount * elementSize;
-            if (expectedLength > int.MaxValue || encodedLength > boundary - _offset)
-                throw Error("Invalid FBX array byte length");
+            if (expectedLength > int.MaxValue || expectedLength > _options.MaxArrayBytes ||
+                encodedLength > boundary - _offset)
+                throw Error("FBX array byte length exceeds the configured limit or available data.");
 
             ReadOnlySpan<byte> encoded = _data.Slice(_offset, (int)encodedLength);
             _offset += (int)encodedLength;
