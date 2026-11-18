@@ -68,7 +68,8 @@ public static class FBXImporter
             FBXNode model = modelObjects[i];
             childLists[i] = [];
             Matrix4x4 local = BuildLocalTransform(model, coordinates);
-            bool decomposed = Matrix4x4.Decompose(local, out Vector3D scale, out Quaternion rotation, out Vector3D translation);
+            Matrix engineLocal = local;
+            bool decomposed = engineLocal.Decompose(out Vector3D scale, out Quaternion rotation, out Vector3D translation);
             if (!decomposed)
             {
                 scale = Vector3D.One;
@@ -80,7 +81,7 @@ public static class FBXImporter
                 SourceId = model.GetInt64(0),
                 Name = GetObjectName(model.GetString(1), $"Node_{i}"),
                 AttributeType = model.GetString(2) ?? string.Empty,
-                LocalTransform = local,
+                LocalTransform = engineLocal,
                 GeometryTransform = BuildGeometryTransform(model, coordinates),
                 Translation = translation,
                 Rotation = rotation.LengthSquared() > 1e-12f ? Quaternion.Normalize(rotation) : Quaternion.Identity,
@@ -489,9 +490,8 @@ public static class FBXImporter
                             }
                         }
 
-                        tangent = new Vector4D(NormalizeOrZero(tangentDirection).X,
-                            NormalizeOrZero(tangentDirection).Y,
-                            NormalizeOrZero(tangentDirection).Z, sign);
+                        Vector3D normalizedTangent = NormalizeOrZero(tangentDirection);
+                        tangent = new Vector4D(normalizedTangent.X, normalizedTangent.Y, normalizedTangent.Z, sign);
                     }
                     outputTangents[outputVertex] = tangent;
 
@@ -934,43 +934,66 @@ public static class FBXImporter
     }
 
     private static FBXImportedSkeleton? ImportSkin(
-        FBXImportedMesh mesh, List<FBXNode> objects, List<Connection> connections,
+        FBXImportedMesh mesh, List<Connection> connections,
         Dictionary<long, FBXNode> objectById, Dictionary<long, int> nodeIndexById,
-        FBXImportedNode[] importedNodes, CoordinateSystem coordinates,
+        FBXImportedNode[] importedNodes,
         List<FBXImportDiagnostic> diagnostics)
     {
         long geometryId = mesh.SourceId;
-        var skins = new HashSet<long>();
+        var skinIds = new HashSet<long>();
         foreach (Connection connection in connections)
-            if (connection.Type == "OO" && connection.Destination == geometryId &&
-                objectById.TryGetValue(connection.Source, out FBXNode? obj) &&
-                obj.Name == "Deformer" && string.Equals(obj.GetString(2), "Skin", StringComparison.OrdinalIgnoreCase))
-                skins.Add(connection.Source);
-        if (skins.Count == 0) return null;
-
-        var clusterConnections = connections.Where(c => c.Type == "OO" && skins.Contains(c.Destination)).ToList();
-        var bones = new List<FBXImportedBone>();
-        var influenceByControlPoint = new Dictionary<int, List<FBXVertexInfluence>>();
-
-        foreach (Connection clusterConnection in clusterConnections)
         {
-            if (!objectById.TryGetValue(clusterConnection.Source, out FBXNode? cluster) ||
+            if (connection.Type == "OO" && connection.Destination == geometryId &&
+                objectById.TryGetValue(connection.Source, out FBXNode? deformer) &&
+                deformer.Name == "Deformer" &&
+                string.Equals(deformer.GetString(2), "Skin", StringComparison.OrdinalIgnoreCase))
+            {
+                skinIds.Add(connection.Source);
+            }
+        }
+        if (skinIds.Count == 0)
+            return null;
+
+        var bones = new List<FBXImportedBone>();
+        var influencesByControlPoint = new List<FBXVertexInfluence>?[mesh.ControlPointCount];
+
+        // Walk the connection array in-place instead of materializing a second cluster list.
+        foreach (Connection skinConnection in connections)
+        {
+            if (skinConnection.Type != "OO" || !skinIds.Contains(skinConnection.Destination) ||
+                !objectById.TryGetValue(skinConnection.Source, out FBXNode? cluster) ||
                 cluster.Name != "Deformer" ||
                 !string.Equals(cluster.GetString(2), "Cluster", StringComparison.OrdinalIgnoreCase))
+            {
                 continue;
+            }
 
-            // A bone model is a source of its cluster; the cluster is a destination of the bone connection.
-            Connection link = connections.FirstOrDefault(c => c.Type == "OO" &&
-                c.Destination == clusterConnection.Source && nodeIndexById.ContainsKey(c.Source));
-            if (link.Type is null || !nodeIndexById.TryGetValue(link.Source, out int nodeIndex))
+            // FBX connection direction: Bone Model -> Cluster -> Skin Deformer -> Geometry.
+            long boneModelId = 0;
+            int nodeIndex = -1;
+            for (int i = 0; i < connections.Count; i++)
+            {
+                Connection boneConnection = connections[i];
+                if (boneConnection.Type == "OO" &&
+                    boneConnection.Destination == skinConnection.Source &&
+                    nodeIndexById.TryGetValue(boneConnection.Source, out nodeIndex))
+                {
+                    boneModelId = boneConnection.Source;
+                    break;
+                }
+            }
+            if (nodeIndex < 0)
                 continue;
 
             int boneIndex = bones.Count;
-            Matrix4x4 bind = ReadMatrix(cluster.GetDoubleArray("TransformLink"), coordinates);
-            if (!Matrix4x4.Invert(bind, out Matrix4x4 inverseBind))
+            Matrix bind = ReadMatrix(cluster.GetDoubleArray("TransformLink"), coordinates: null);
+            if (!Matrix.Invert(bind, out Matrix inverseBind))
             {
-                inverseBind = Matrix4x4.Identity;
-                diagnostics.Add(new FBXImportDiagnostic(FBXDiagnosticSeverity.Warning, "A skin cluster has a singular TransformLink matrix; identity inverse bind was used.", cluster.GetInt64(0)));
+                inverseBind = Matrix.Identity;
+                diagnostics.Add(new FBXImportDiagnostic(
+                    FBXDiagnosticSeverity.Warning,
+                    "A skin cluster has a singular TransformLink matrix; identity inverse bind was used.",
+                    cluster.GetInt64(0)));
             }
 
             bones.Add(new FBXImportedBone
@@ -980,57 +1003,97 @@ public static class FBXImporter
                 InverseBindMatrix = inverseBind
             });
 
-            int[] indices = cluster.GetInt32Array("Indexes") ?? [];
+            int[] controlPointIndices = cluster.GetInt32Array("Indexes") ?? [];
             double[] weights = cluster.GetDoubleArray("Weights") ?? [];
-            int count = Math.Min(indices.Length, weights.Length);
-            for (int i = 0; i < count; i++)
+            int influenceCount = Math.Min(controlPointIndices.Length, weights.Length);
+            for (int i = 0; i < influenceCount; i++)
             {
-                int controlPoint = indices[i];
+                int controlPoint = controlPointIndices[i];
                 float weight = (float)weights[i];
-                if ((uint)controlPoint >= (uint)mesh.ControlPointCount || !float.IsFinite(weight) || weight <= 0f)
+                if ((uint)controlPoint >= (uint)mesh.ControlPointCount ||
+                    !float.IsFinite(weight) || weight <= 0f)
+                {
                     continue;
-                if (!influenceByControlPoint.TryGetValue(controlPoint, out List<FBXVertexInfluence>? list))
-                    influenceByControlPoint[controlPoint] = list = [];
+                }
+
+                List<FBXVertexInfluence>? list = influencesByControlPoint[controlPoint];
+                if (list is null)
+                    influencesByControlPoint[controlPoint] = list = new List<FBXVertexInfluence>(4);
                 list.Add(new FBXVertexInfluence(boneIndex, weight));
             }
         }
 
         if (bones.Count == 0)
         {
-            diagnostics.Add(new FBXImportDiagnostic(FBXDiagnosticSeverity.Warning, "A Skin deformer was found but no usable bone clusters were connected.", geometryId));
+            diagnostics.Add(new FBXImportDiagnostic(
+                FBXDiagnosticSeverity.Warning,
+                "A Skin deformer was found but no usable bone clusters were connected.",
+                geometryId));
             return null;
         }
 
-        var boneIndexByNode = bones.Select((bone, index) => (bone.NodeIndex, index))
-            .ToDictionary(static pair => pair.NodeIndex, static pair => pair.index);
+        // Build bone-parent indices with a dense lookup rather than a per-bone dictionary.
+        int[] boneIndexByNode = new int[importedNodes.Length];
+        Array.Fill(boneIndexByNode, -1);
+        for (int i = 0; i < bones.Count; i++)
+            boneIndexByNode[bones[i].NodeIndex] = i;
+
         foreach (FBXImportedBone bone in bones)
         {
             int parentNode = importedNodes[bone.NodeIndex].ParentIndex;
-            if (boneIndexByNode.TryGetValue(parentNode, out int parentBone))
-                bone.ParentBoneIndex = parentBone;
+            if ((uint)parentNode < (uint)boneIndexByNode.Length)
+                bone.ParentBoneIndex = boneIndexByNode[parentNode];
         }
 
-        var perVertex = new FBXVertexInfluence[mesh.Positions.Length][];
-        for (int i = 0; i < perVertex.Length; i++)
+        // A flat stream avoids one small managed array allocation for every vertex.
+        int vertexCount = mesh.Positions.Length;
+        var offsets = new int[vertexCount + 1];
+        for (int vertex = 0; vertex < vertexCount; vertex++)
         {
-            int controlPoint = mesh.SourceControlPointIndices[i];
-            if (influenceByControlPoint.TryGetValue(controlPoint, out List<FBXVertexInfluence>? influences))
+            List<FBXVertexInfluence>? list =
+                influencesByControlPoint[mesh.SourceControlPointIndices[vertex]];
+            int count = list?.Count ?? 0;
+            try
             {
-                float total = influences.Sum(static influence => influence.Weight);
-                perVertex[i] = influences
-                    .Where(static influence => influence.Weight > 0f)
-                    .OrderByDescending(static influence => influence.Weight)
-                    .Select(influence => new FBXVertexInfluence(influence.BoneIndex, total > 0f ? influence.Weight / total : 0f))
-                    .ToArray();
+                offsets[vertex + 1] = checked(offsets[vertex] + count);
             }
-            else perVertex[i] = Array.Empty<FBXVertexInfluence>();
+            catch (OverflowException ex)
+            {
+                throw new FBXFormatException("The imported skin influence count exceeds the supported range.", innerException: ex);
+            }
         }
 
-        mesh.BoneInfluences = perVertex;
+        var flatInfluences = new FBXVertexInfluence[offsets[vertexCount]];
+        for (int vertex = 0; vertex < vertexCount; vertex++)
+        {
+            List<FBXVertexInfluence>? list =
+                influencesByControlPoint[mesh.SourceControlPointIndices[vertex]];
+            if (list is null || list.Count == 0)
+                continue;
+
+            double totalWeight = 0d;
+            for (int influence = 0; influence < list.Count; influence++)
+                totalWeight += list[influence].Weight;
+
+            int destination = offsets[vertex];
+            if (totalWeight <= 0d || !double.IsFinite(totalWeight))
+                continue;
+
+            for (int influence = 0; influence < list.Count; influence++)
+            {
+                FBXVertexInfluence source = list[influence];
+                flatInfluences[destination + influence] =
+                    new FBXVertexInfluence(source.BoneIndex, (float)(source.Weight / totalWeight));
+            }
+        }
+
+        mesh.BoneInfluences = flatInfluences;
+        mesh.BoneInfluenceOffsets = offsets;
+
         var skeleton = new FBXImportedSkeleton
         {
             Name = mesh.Name + "_Skeleton",
-            Bones = bones
+            Bones = bones.ToArray()
         };
         mesh.Skeleton = skeleton;
         return skeleton;
@@ -1553,7 +1616,7 @@ public static class FBXImporter
         {
             Matrix4x4 source = CreateEulerRotation(eulerDegrees, order);
             Matrix4x4 converted = _inverseBasis * source * _basis;
-            return Quaternion.Normalize(Quaternion.CreateFromRotationMatrix(converted));
+            return Quaternion.Normalize(Quaternion.RotationMatrix(converted));
         }
 
         public Matrix4x4 Matrix(Matrix4x4 source)
@@ -1615,7 +1678,8 @@ public static class FBXImporter
                 int index = path[i];
                 int parent = nodes[index].ParentIndex;
                 if ((uint)parent < (uint)nodes.Length && state[parent] == 2)
-                    nodes[index].WorldTransform = nodes[index].LocalTransform * nodes[parent].WorldTransform;
+                    nodes[index].WorldTransform = Matrix.Multiply(
+                        in nodes[index].LocalTransform, in nodes[parent].WorldTransform);
                 else
                     nodes[index].WorldTransform = nodes[index].LocalTransform;
 
@@ -1686,23 +1750,33 @@ public static class FBXImporter
 
     private static Vector3D ReadVectorProperty(FBXNode? properties, string name, Vector3D fallback)
     {
-        if (properties is null) return fallback;
+        if (properties is null)
+            return fallback;
+
         foreach (FBXNode property in properties.GetChildren("P"))
         {
-            if (property.GetString(0) != name) continue;
-            var values = new List<float>(3);
-            for (int i = 4; i < property.Properties.Count && values.Count < 3; i++)
+            if (property.GetString(0) != name || property.Properties.Count < 7)
+                continue;
+
+            try
             {
-                object? raw = property.Properties[i];
-                try
-                {
-                    if (raw is not null) values.Add(Convert.ToSingle(raw, CultureInfo.InvariantCulture));
-                }
-                catch (Exception ex) when (ex is FormatException or InvalidCastException or OverflowException) { }
+                object? x = property.Properties[4];
+                object? y = property.Properties[5];
+                object? z = property.Properties[6];
+                if (x is null || y is null || z is null)
+                    continue;
+
+                return new Vector3D(
+                    Convert.ToSingle(x, CultureInfo.InvariantCulture),
+                    Convert.ToSingle(y, CultureInfo.InvariantCulture),
+                    Convert.ToSingle(z, CultureInfo.InvariantCulture));
             }
-            if (values.Count == 3)
-                return new Vector3D(values[0], values[1], values[2]);
+            catch (Exception ex) when (ex is FormatException or InvalidCastException or OverflowException)
+            {
+                // Ignore a malformed transform property and allow a later property/fallback.
+            }
         }
+
         return fallback;
     }
 
