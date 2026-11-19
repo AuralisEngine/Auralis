@@ -127,7 +127,7 @@ public sealed class GraphicsDeviceFactoryTests
         }
     }
 
-    private sealed class TestDevice(
+    internal sealed class TestDevice(
         GraphicsBackend backend,
         GraphicsFeature features,
         GraphicsQueueCapabilities queues) : IGraphicsDevice
