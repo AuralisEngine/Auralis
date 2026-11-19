@@ -8,7 +8,7 @@ The implementation uses the directories already declared by `Auralis.Graphics.cs
 
 - `Abstractions`: backend identifiers, common exceptions, and device-object lifetime.
 - `Devices`: provider registration, device creation options, adapter information, and device capabilities.
-- `Resources`: buffer, texture, sampler, shader, and format descriptions/contracts.
+- `Resources`: buffer, texture/view, sampler, shader, and format descriptions/contracts.
 - `Commands`: command-list lifecycle and command queue/recording contracts.
 - `Synchronization`: timeline-style fences and backend-neutral resource dependencies.
 - `Pipelines`: shader-stage, vertex-input, descriptor-layout, and pipeline descriptions.
@@ -45,6 +45,29 @@ Device creation is independent of presentation. A device may be created and used
 `GraphicsDeviceCapabilities` contains the actual feature set, queue capabilities, reported limits, and per-format support reported by the selected backend. The common layer does not infer support from `GraphicsBackend` and does not provide fabricated defaults. Core operations represented by the common API form the baseline contract; `GraphicsFeature` describes optional capabilities that may be requested at device creation and queried later.
 
 Texture format support and sample counts are queried from the capability snapshot. Format support is distinct from texture usage flags: a texture description expresses intended use, while the device decides whether that format/usage combination is valid.
+
+## Backend translation guidance
+
+The common interfaces intentionally describe semantic operations rather than exposing one API's object model. Future providers should translate them as follows, while preserving each native API's actual constraints:
+
+| Common concept | Direct3D 12 | Vulkan | Metal |
+| --- | --- | --- | --- |
+| Device and adapter | DXGI adapter + D3D12 device | physical device + logical device | `MTLDevice` |
+| Logical queues | direct/compute/copy command queues; roles may share a queue | queues selected from compatible queue families; roles may share a queue | `MTLCommandQueue`; use command-buffer/encoder semantics for work classes |
+| Command list | command allocator + graphics command list | command pool + command buffer | command buffer with render/compute/blit encoders |
+| Resource dependencies | transition, UAV, and aliasing barriers | pipeline barriers, access masks, stages, and image layouts | encoder/resource-use ordering and hazard-tracking mechanisms |
+| Binding layout and sets | root signatures and descriptor heaps/tables | descriptor set layouts and descriptor sets | resource slots and argument buffers |
+| Presentation | DXGI swapchain and Win32 target data | platform surface plus swapchain and present-capable queue | drawable/layer presentation, commonly through a `CAMetalLayer` |
+| Shader artifacts | DXIL | SPIR-V | Metal library or supported source compilation path |
+
+This table is guidance, not a claim that the native concepts have identical semantics. In particular:
+
+- A logical graphics, compute, or copy queue does not guarantee a physically separate native queue. Vulkan queue-family compatibility and Metal queue behavior differ from D3D12 queue types. A backend may return the same queue for multiple logical roles when that matches its native model.
+- `GraphicsResourceBarrier` is intentionally not a universal D3D12 resource-state enum. Vulkan requires explicit execution/access/layout dependencies in more cases; Metal may express hazards through resource tracking and encoder boundaries. Backends must preserve the required visibility and ordering and may expose optional extension interfaces for native-only synchronization.
+- `GraphicsMemoryAccess` and `GraphicsMemoryPreference` express intent, not a promise about heaps or storage modes. D3D12 heap placement, Vulkan memory-type selection, and Metal storage modes need backend-specific selection.
+- Descriptor flags such as partially-bound, update-after-bind, and variable-count are not universally supported. Providers must validate them against actual device capabilities rather than emulate them silently.
+- Shader format identifiers are opaque. DXIL, SPIR-V, Metal libraries, and source text must not be treated as interchangeable bytecode.
+- Presentation support is surface-specific. A queue that can present to one native target may not present to another; surface creation must validate the chosen queue and native handle combination.
 
 ## Resources and lifetime
 
