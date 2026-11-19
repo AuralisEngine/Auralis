@@ -1,0 +1,94 @@
+# Auralis.Graphics
+
+`Auralis.Graphics` is the platform-independent graphics contract library. It targets .NET 10 and has no dependency on a native graphics binding, windowing system, rendering layer, ECS, or editor.
+
+## Project organization
+
+The implementation uses the directories already declared by `Auralis.Graphics.csproj`:
+
+- `Abstractions`: backend identifiers, common exceptions, and device-object lifetime.
+- `Devices`: provider registration, device creation options, adapter information, and device capabilities.
+- `Resources`: buffer, texture, sampler, shader, and format descriptions/contracts.
+- `Commands`: command-list lifecycle and command queue/recording contracts.
+- `Synchronization`: timeline-style fences and backend-neutral resource dependencies.
+- `Pipelines`: shader-stage, vertex-input, descriptor-layout, and pipeline descriptions.
+- `Presentation`: native target descriptors, presentation surfaces, image acquisition, and swapchains.
+- `Backends/Direct3D12`, `Backends/Vulkan`, and `Backends/Metal` remain the locations for future implementations. No backend implementation is included here.
+
+The existing `Backends/OpenGL` folder is left untouched; OpenGL is not advertised as a supported backend by this common API.
+
+## Backend registration and device creation
+
+Backend implementations provide `IGraphicsBackendProvider` and register explicitly:
+
+```csharp
+var providers = new GraphicsBackendProviderRegistry();
+providers.Register(new MyDirect3D12Provider());
+providers.Register(new MyVulkanProvider());
+
+using IGraphicsDevice device = await GraphicsDeviceFactory.CreateAsync(
+    providers,
+    new GraphicsDeviceOptions
+    {
+        Backend = GraphicsBackend.Vulkan,
+        RequiredQueues = GraphicsQueueCapabilities.Graphics |
+                         GraphicsQueueCapabilities.Compute
+    });
+```
+
+The provider types in this example are supplied by future backend assemblies, not by this common library. No reflection, assembly scanning, or native API type discovery is performed. When `Backend` is omitted, available providers are tried in registration order. Enumerate adapter information through `GraphicsDeviceFactory.EnumerateAdaptersAsync`, then use the selected provider's opaque `GraphicsAdapterId` in device options. An adapter ID is backend-specific, so adapter selection requires an explicit backend.
+
+Device creation is independent of presentation. A device may be created and used for compute, resource uploads, or offscreen work without creating a surface or swapchain.
+
+## Capabilities
+
+`GraphicsDeviceCapabilities` contains the actual feature set, queue capabilities, reported limits, and per-format support reported by the selected backend. The common layer does not infer support from `GraphicsBackend` and does not provide fabricated defaults. Core operations represented by the common API form the baseline contract; `GraphicsFeature` describes optional capabilities that may be requested at device creation and queried later.
+
+Texture format support and sample counts are queried from the capability snapshot. Format support is distinct from texture usage flags: a texture description expresses intended use, while the device decides whether that format/usage combination is valid.
+
+## Resources and lifetime
+
+Descriptors expose logical intent rather than native heap or resource-state details. For example, `GraphicsMemoryPreference` is a placement hint; it does not promise that a resource occupies a particular physical heap.
+
+`IGraphicsResource` objects are owned by one device and are disposed deterministically. The common `GraphicsDeviceObject` base class provides idempotent disposal and no finalizer. A backend must defer physical destruction of resources that are still referenced by submitted GPU work. Disposal releases the application's reference; it must not invalidate work already accepted by the GPU.
+
+CPU mapping is explicit. Memory returned from `IGraphicsBuffer.Map` remains valid only until `Unmap`. Backends are responsible for any required cache flush or invalidation and may reject mapping when the chosen access intent is not CPU-visible.
+
+Shader descriptions carry an artifact-format identifier and opaque bytes. DXIL, SPIR-V, Metal libraries, source artifacts, and application-defined formats are not assumed to be interchangeable. Shader compilation is outside this library.
+
+## Commands and synchronization
+
+A command list is created from a queue, then moves through `Initial → Recording → Executable → Pending`. The backend must enforce the legal transition rules and report completion before a pending list is reset or reused. `GraphicsCommandListLifecycle` provides a small, allocation-free state tracker for implementations and hardware-free validation. Command recording is caller-thread-owned; separate command lists may be recorded concurrently. Queue submission validates that lists belong to the same device and a compatible queue.
+
+Graphics, compute, and copy queues are requested by logical role. A backend may map multiple roles to one native queue. `IGraphicsCommandList` defines render, compute, copy, and indirect operations; the implementation must reject operations that are illegal for that list's queue or current recording state.
+
+`GraphicsResourceBarrier` describes source/destination execution stages and access intents. Texture barriers additionally specify semantic layouts. These are deliberately not Direct3D 12 resource states; backends translate them into their own hazard, layout, visibility, and synchronization model. Fences expose timeline-style CPU waits/signals and queue-side GPU waits. Backend-specific extension interfaces may be added later when a native capability cannot be represented faithfully.
+
+## Pipelines and descriptors
+
+Binding layouts are immutable descriptions with explicit binding indices, descriptor types, counts, shader stages, and optional flags. Binding sets hold resource references and are bound by set index. Render pipeline descriptions include vertex input, topology, rasterization, depth/stencil, blending, attachment formats, and sample count. Compute pipelines are independent.
+
+This API intentionally omits render graphs, materials, render passes, and renderer scheduling. Unsupported optional pipeline features must be reported by a backend rather than silently approximated.
+
+## Native presentation interoperability
+
+A host or platform integration implements `IGraphicsPresentationTarget` and returns a snapshot containing:
+
+- A platform identifier.
+- A collection of typed opaque handles (not one universal pointer).
+- Per-handle ownership (`Borrowed` or `OwnedByGraphics`).
+- The drawable extent, revision, and suspended state.
+
+For example, a Win32 target can supply an HWND and HINSTANCE; X11 can supply a Display and Window; Wayland can supply a display and surface; Android can supply an ANativeWindow; Apple platforms can supply a Metal layer. These types are represented only by opaque `nint` values and handle-kind identifiers in this project. Native handle extraction and conversion belong to platform integrations.
+
+The application remains responsible for the lifetime of every borrowed native object and of the `IGraphicsPresentationTarget` itself. The graphics surface borrows the target and must not destroy borrowed handles. Handles marked `OwnedByGraphics` transfer release responsibility to the graphics surface/backend.
+
+Surface creation occurs after device creation. Resizing recreates the swapchain image set and invalidates outstanding acquired-image values. When a target is suspended (for example, a minimized window), the application should skip acquisition/presentation until a non-zero extent is reported. When native surface identity changes, create a new surface from the updated target snapshot and dispose the old surface after its work is complete.
+
+## Threading
+
+Provider registration is a startup operation and the registry is not intended for concurrent mutation. Device/resource objects are not universally thread-safe; callers must synchronize mutations and disposal unless an implementation explicitly documents otherwise. Independent command lists may be recorded concurrently. Queue submission and CPU/GPU synchronization are backend-defined but must follow the command-list lifecycle contract.
+
+## Implementation status
+
+This project currently provides common descriptors, validation, provider/device contracts, command/pipeline/synchronization interfaces, and presentation interop contracts. It does **not** create native devices, allocate GPU memory, record native commands, compile shaders, create native windows/surfaces, or implement a Direct3D 12, Vulkan, or Metal backend. Those responsibilities belong to future backend and platform integration work.
