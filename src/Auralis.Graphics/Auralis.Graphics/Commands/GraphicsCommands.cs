@@ -23,6 +23,12 @@ public enum GraphicsCommandListUsage
     OneTimeSubmit
 }
 
+public enum GraphicsIndexFormat
+{
+    UInt16,
+    UInt32
+}
+
 /// <summary>
 /// Small, allocation-free state tracker for backend command-list implementations. Backends should
 /// call MarkSubmitted only after successful queue submission and MarkCompleted after GPU completion.
