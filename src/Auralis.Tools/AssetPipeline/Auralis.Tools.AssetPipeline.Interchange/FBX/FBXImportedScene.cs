@@ -1,0 +1,167 @@
+using Auralis.Core.Mathematics;
+
+namespace Auralis.Tools.AssetPipeline.Interchange.FBX;
+
+/// <summary>
+/// In-memory result of importing an FBX scene. This is an interchange data model, not the
+/// serialized .AuraAsset format; serialization is intentionally handled by a separate pipeline stage.
+/// </summary>
+public sealed class FBXImportedScene
+{
+    public string Name { get; internal set; } = "Scene";
+    public IReadOnlyList<FBXImportedNode> Nodes { get; internal set; } = Array.Empty<FBXImportedNode>();
+    public IReadOnlyList<FBXImportedMesh> Meshes { get; internal set; } = Array.Empty<FBXImportedMesh>();
+    public IReadOnlyList<FBXImportedMaterial> Materials { get; internal set; } = Array.Empty<FBXImportedMaterial>();
+    public IReadOnlyList<FBXImportedTexture> Textures { get; internal set; } = Array.Empty<FBXImportedTexture>();
+    public IReadOnlyList<FBXImportedSkeleton> Skeletons { get; internal set; } = Array.Empty<FBXImportedSkeleton>();
+    public IReadOnlyList<FBXImportedAnimationClip> Animations { get; internal set; } = Array.Empty<FBXImportedAnimationClip>();
+    public IReadOnlyList<FBXImportDiagnostic> Diagnostics { get; internal set; } = Array.Empty<FBXImportDiagnostic>();
+}
+
+public sealed class FBXImportedNode
+{
+    public long SourceId { get; internal set; }
+    public string Name { get; internal set; } = string.Empty;
+    public string AttributeType { get; internal set; } = string.Empty;
+    public int ParentIndex { get; internal set; } = -1;
+    public IReadOnlyList<int> Children { get; internal set; } = Array.Empty<int>();
+    public Vector3D Translation { get; internal set; }
+    public Quaternion Rotation { get; internal set; } = Quaternion.Identity;
+    public Vector3D Scale { get; internal set; } = Vector3D.One;
+    public Matrix LocalTransform { get; internal set; } = Matrix.Identity;
+    /// <summary>Non-inherited geometry offset applied to this node's mesh attribute.</summary>
+    public Matrix GeometryTransform { get; internal set; } = Matrix.Identity;
+    public Matrix WorldTransform { get; internal set; } = Matrix.Identity;
+    public int MeshIndex { get; internal set; } = -1;
+    public IReadOnlyList<int> MeshIndices { get; internal set; } = Array.Empty<int>();
+    public IReadOnlyList<int> MaterialIndices { get; internal set; } = Array.Empty<int>();
+}
+
+public sealed class FBXImportedMesh
+{
+    public long SourceId { get; internal set; }
+    public string Name { get; internal set; } = string.Empty;
+    /// <summary>Positions are in Unreal-style centimeters and axes (X forward, Y right, Z up).</summary>
+    public Vector3D[] Positions { get; internal set; } = Array.Empty<Vector3D>();
+    public Vector3D[] Normals { get; internal set; } = Array.Empty<Vector3D>();
+    /// <summary>XYZ is the tangent direction and W is its handedness sign.</summary>
+    public Vector4D[] Tangents { get; internal set; } = Array.Empty<Vector4D>();
+    /// <summary>One UV array per imported FBX UV layer.</summary>
+    public Vector2D[][] TextureCoordinates { get; internal set; } = Array.Empty<Vector2D[]>();
+    public Vector4D[] Colors { get; internal set; } = Array.Empty<Vector4D>();
+    /// <summary>Triangle indices. The importer emits triangles and corrects winding during handedness conversion.</summary>
+    public int[] Indices { get; internal set; } = Array.Empty<int>();
+    public int[] SourceControlPointIndices { get; internal set; } = Array.Empty<int>();
+    public int ControlPointCount { get; internal set; }
+    internal Vector3D[] SourceControlPoints { get; set; } = Array.Empty<Vector3D>();
+    public FBXImportedSubmesh[] Submeshes { get; internal set; } = Array.Empty<FBXImportedSubmesh>();
+    /// <summary>Flat per-vertex influence stream. Vertex i uses [BoneInfluenceOffsets[i], BoneInfluenceOffsets[i + 1]).</summary>
+    public FBXVertexInfluence[] BoneInfluences { get; internal set; } = Array.Empty<FBXVertexInfluence>();
+    /// <summary>Per-vertex offsets into <see cref="BoneInfluences"/>; length is Positions.Length + 1.</summary>
+    public int[] BoneInfluenceOffsets { get; internal set; } = Array.Empty<int>();
+    public FBXImportedSkeleton? Skeleton { get; internal set; }
+    public FBXImportedBlendShape[] BlendShapes { get; internal set; } = Array.Empty<FBXImportedBlendShape>();
+}
+
+public readonly record struct FBXImportedSubmesh(int StartIndex, int IndexCount, int MaterialIndex);
+public readonly record struct FBXVertexInfluence(int BoneIndex, float Weight);
+
+public sealed class FBXImportedMaterial
+{
+    public long SourceId { get; internal set; }
+    public string Name { get; internal set; } = string.Empty;
+    public Vector3D BaseColor { get; internal set; } = Vector3D.One;
+    public Vector3D SpecularColor { get; internal set; } = new(0.04f);
+    public Vector3D EmissiveColor { get; internal set; }
+    public float Metallic { get; internal set; }
+    public float Roughness { get; internal set; } = 0.5f;
+    public float Opacity { get; internal set; } = 1f;
+    /// <summary>Texture slots map FBX material property names to scene texture indices.</summary>
+    public IReadOnlyDictionary<string, int> TextureSlots { get; internal set; } =
+        new Dictionary<string, int>(StringComparer.Ordinal);
+}
+
+public sealed class FBXImportedTexture
+{
+    public long SourceId { get; internal set; }
+    public string Name { get; internal set; } = string.Empty;
+    public string FileName { get; internal set; } = string.Empty;
+    public string RelativeFileName { get; internal set; } = string.Empty;
+    public byte[]? EmbeddedContent { get; internal set; }
+}
+
+public sealed class FBXImportedSkeleton
+{
+    public string Name { get; internal set; } = string.Empty;
+    public IReadOnlyList<FBXImportedBone> Bones { get; internal set; } = Array.Empty<FBXImportedBone>();
+}
+
+public sealed class FBXImportedBone
+{
+    public string Name { get; internal set; } = string.Empty;
+    public int NodeIndex { get; internal set; } = -1;
+    public int ParentBoneIndex { get; internal set; } = -1;
+    public Matrix InverseBindMatrix { get; internal set; } = Matrix.Identity;
+}
+
+public sealed class FBXImportedBlendShape
+{
+    public long SourceId { get; internal set; }
+    public long ChannelId { get; internal set; }
+    public string Name { get; internal set; } = string.Empty;
+    public float FullWeight { get; internal set; } = 100f;
+    /// <summary>Per-imported-vertex position deltas; zero for vertices not affected by this target.</summary>
+    public Vector3D[] PositionDeltas { get; internal set; } = Array.Empty<Vector3D>();
+    public Vector3D[] NormalDeltas { get; internal set; } = Array.Empty<Vector3D>();
+}
+
+public sealed class FBXImportedAnimationClip
+{
+    public long SourceId { get; internal set; }
+    public string Name { get; internal set; } = string.Empty;
+    public double DurationSeconds { get; internal set; }
+    public IReadOnlyList<FBXImportedAnimationTrack> Tracks { get; internal set; } = Array.Empty<FBXImportedAnimationTrack>();
+    public IReadOnlyList<FBXImportedBlendShapeAnimationTrack> BlendShapeTracks { get; internal set; } = Array.Empty<FBXImportedBlendShapeAnimationTrack>();
+}
+
+public sealed class FBXImportedAnimationTrack
+{
+    public int NodeIndex { get; internal set; } = -1;
+    public FBXVectorKeyframe[] TranslationKeys { get; internal set; } = Array.Empty<FBXVectorKeyframe>();
+    public FBXQuaternionKeyframe[] RotationKeys { get; internal set; } = Array.Empty<FBXQuaternionKeyframe>();
+    public FBXVectorKeyframe[] ScaleKeys { get; internal set; } = Array.Empty<FBXVectorKeyframe>();
+}
+
+public sealed class FBXImportedBlendShapeAnimationTrack
+{
+    public int MeshIndex { get; internal set; } = -1;
+    public long ChannelId { get; internal set; }
+    public FBXScalarKeyframe[] Keyframes { get; internal set; } = Array.Empty<FBXScalarKeyframe>();
+}
+
+public readonly record struct FBXScalarKeyframe(double TimeSeconds, float Value);
+public readonly record struct FBXVectorKeyframe(double TimeSeconds, Vector3D Value);
+public readonly record struct FBXQuaternionKeyframe(double TimeSeconds, Quaternion Value);
+
+public readonly record struct FBXImportDiagnostic(FBXDiagnosticSeverity Severity, string Message, long SourceId = 0);
+
+public enum FBXDiagnosticSeverity : byte
+{
+    Info,
+    Warning,
+    Error
+}
+
+public sealed record FBXImporterOptions
+{
+    public bool GenerateMissingNormals { get; init; } = true;
+    public bool GenerateMissingTangents { get; init; } = true;
+    public bool ImportSkinning { get; init; } = true;
+    public bool ImportAnimation { get; init; } = true;
+    public bool ImportBlendShapes { get; init; } = true;
+    public bool ImportMaterials { get; init; } = true;
+    public bool ImportTextures { get; init; } = true;
+    public int MaxImportedVertices { get; init; } = 20_000_000;
+    public int MaxImportedPolygons { get; init; } = 20_000_000;
+    public int MaxPolygonVertices { get; init; } = 4_096;
+}

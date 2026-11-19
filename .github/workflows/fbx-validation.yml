@@ -1,0 +1,27 @@
+name: FBX validation
+
+on:
+  pull_request:
+    branches: [master]
+    paths:
+      - "Auralis.slnx"
+      - "src/Auralis.Tools/AssetPipeline/Auralis.Tools.AssetPipeline.Interchange/**"
+      - "Tests/Auralis.Tools.AssetPipeline.Interchange.Tests/**"
+      - ".github/workflows/fbx-validation.yml"
+  push:
+    branches: [feature/fbx-importer]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Restore
+        run: dotnet restore Auralis.slnx
+      - name: Build
+        run: dotnet build Auralis.slnx --configuration Release --no-restore
+      - name: Test
+        run: dotnet test Tests/Auralis.Tools.AssetPipeline.Interchange.Tests/Auralis.Tools.AssetPipeline.Interchange.Tests.csproj --configuration Release --no-build

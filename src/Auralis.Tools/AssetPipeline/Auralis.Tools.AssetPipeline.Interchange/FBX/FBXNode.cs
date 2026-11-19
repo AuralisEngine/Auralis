@@ -1,25 +1,211 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Text;
+using System.Globalization;
 
 namespace Auralis.Tools.AssetPipeline.Interchange.FBX;
 
-public class FBXNode
+/// <summary>A node in the generic FBX document tree.</summary>
+public sealed class FBXNode
 {
+    private readonly List<object?> _properties = [];
     private readonly List<FBXNode> _children = [];
-    public string Name { get; private set; } = "";
-    public FBXNode()
-    {
 
-    }
-    public FBXNode(string name)
+    public string Name { get; }
+    public IReadOnlyList<object?> Properties => _properties;
+    public IReadOnlyList<FBXNode> Children => _children;
+
+    internal FBXNode(string name) => Name = name;
+
+    internal void AddProperty(object? value) => _properties.Add(value);
+    internal void AddChild(FBXNode child) => _children.Add(child);
+
+    public FBXNode? GetChild(string name)
     {
-        Name = name;
+        foreach (FBXNode child in _children)
+            if (string.Equals(child.Name, name, StringComparison.Ordinal))
+                return child;
+        return null;
     }
 
-    public void AddChild(FBXNode child)
+    public IEnumerable<FBXNode> GetChildren(string name)
     {
-        _children.Add(child);
+        foreach (FBXNode child in _children)
+            if (string.Equals(child.Name, name, StringComparison.Ordinal))
+                yield return child;
     }
 
+    public string? GetString(int index)
+    {
+        if ((uint)index >= (uint)_properties.Count || _properties[index] is null)
+            return null;
+        return Convert.ToString(_properties[index], CultureInfo.InvariantCulture);
+    }
+
+    public long GetInt64(int index, long fallback = 0)
+    {
+        if ((uint)index >= (uint)_properties.Count || _properties[index] is null)
+            return fallback;
+        try { return Convert.ToInt64(_properties[index], CultureInfo.InvariantCulture); }
+        catch (Exception ex) when (ex is FormatException or InvalidCastException or OverflowException) { return fallback; }
+    }
+
+    public double GetDouble(int index, double fallback = 0)
+    {
+        if ((uint)index >= (uint)_properties.Count || _properties[index] is null)
+            return fallback;
+        try { return Convert.ToDouble(_properties[index], CultureInfo.InvariantCulture); }
+        catch (Exception ex) when (ex is FormatException or InvalidCastException or OverflowException) { return fallback; }
+    }
+
+    /// <summary>Gets an FBX array property, including ASCII arrays stored below an <c>a</c> child node.</summary>
+    public Array? GetArray(string propertyName)
+    {
+        FBXNode? property = GetChild(propertyName);
+        if (property is null)
+            return null;
+
+        foreach (object? value in property._properties)
+            if (value is Array array)
+                return array;
+
+        FBXNode? asciiArray = property.GetChild("a");
+        if (asciiArray is not null)
+        {
+            foreach (object? value in asciiArray._properties)
+                if (value is Array array)
+                    return array;
+
+            if (asciiArray._properties.Count > 0)
+                return asciiArray._properties.ToArray();
+        }
+
+        if (property._properties.Count == 1 && property._properties[0] is Array direct)
+            return direct;
+        return null;
+    }
+
+    /// <summary>Returns a numeric array without converting it when it is already a double array.</summary>
+    public double[]? GetDoubleArray(string propertyName)
+    {
+        Array? value = GetArray(propertyName);
+        if (value is null) return null;
+        if (value is double[] doubles) return doubles;
+
+        var result = new double[value.Length];
+        switch (value)
+        {
+            case float[] floats:
+                for (int i = 0; i < result.Length; i++) result[i] = floats[i];
+                return result;
+            case int[] integers:
+                for (int i = 0; i < result.Length; i++) result[i] = integers[i];
+                return result;
+            case long[] longs:
+                for (int i = 0; i < result.Length; i++) result[i] = longs[i];
+                return result;
+            case short[] shorts:
+                for (int i = 0; i < result.Length; i++) result[i] = shorts[i];
+                return result;
+            case sbyte[] signedBytes:
+                for (int i = 0; i < result.Length; i++) result[i] = signedBytes[i];
+                return result;
+            case byte[] bytes:
+                for (int i = 0; i < result.Length; i++) result[i] = bytes[i];
+                return result;
+            default:
+                for (int i = 0; i < result.Length; i++)
+                {
+                    try { result[i] = Convert.ToDouble(value.GetValue(i), CultureInfo.InvariantCulture); }
+                    catch (Exception ex) when (ex is FormatException or InvalidCastException or OverflowException)
+                    { throw new FBXFormatException($"Property '{propertyName}' contains a non-numeric array value."); }
+                }
+                return result;
+        }
+    }
+
+    /// <summary>Returns a single-precision numeric array without copying an existing float array.</summary>
+    public float[]? GetSingleArray(string propertyName)
+    {
+        Array? value = GetArray(propertyName);
+        if (value is null) return null;
+        if (value is float[] floats) return floats;
+
+        var result = new float[value.Length];
+        switch (value)
+        {
+            case double[] doubles:
+                for (int i = 0; i < result.Length; i++) result[i] = (float)doubles[i];
+                return result;
+            case int[] integers:
+                for (int i = 0; i < result.Length; i++) result[i] = integers[i];
+                return result;
+            case long[] longs:
+                for (int i = 0; i < result.Length; i++) result[i] = longs[i];
+                return result;
+            case short[] shorts:
+                for (int i = 0; i < result.Length; i++) result[i] = shorts[i];
+                return result;
+            case sbyte[] signedBytes:
+                for (int i = 0; i < result.Length; i++) result[i] = signedBytes[i];
+                return result;
+            case byte[] bytes:
+                for (int i = 0; i < result.Length; i++) result[i] = bytes[i];
+                return result;
+            default:
+                for (int i = 0; i < result.Length; i++)
+                {
+                    try { result[i] = Convert.ToSingle(value.GetValue(i), CultureInfo.InvariantCulture); }
+                    catch (Exception ex) when (ex is FormatException or InvalidCastException or OverflowException)
+                    { throw new FBXFormatException($"Property '{propertyName}' contains a non-numeric array value."); }
+                }
+                return result;
+        }
+    }
+
+    /// <summary>Returns an integer array, converting the source FBX numeric representation if necessary.</summary>
+    public int[]? GetInt32Array(string propertyName)
+    {
+        Array? value = GetArray(propertyName);
+        if (value is null) return null;
+        if (value is int[] integers) return integers;
+
+        var result = new int[value.Length];
+        try
+        {
+            switch (value)
+            {
+            case short[] shorts:
+                for (int i = 0; i < result.Length; i++) result[i] = shorts[i];
+                return result;
+            case sbyte[] signedBytes:
+                for (int i = 0; i < result.Length; i++) result[i] = signedBytes[i];
+                return result;
+            case byte[] bytes:
+                for (int i = 0; i < result.Length; i++) result[i] = bytes[i];
+                return result;
+            case long[] longs:
+                for (int i = 0; i < result.Length; i++)
+                    result[i] = checked((int)longs[i]);
+                return result;
+            case float[] floats:
+                for (int i = 0; i < result.Length; i++)
+                    result[i] = checked((int)floats[i]);
+                return result;
+            case double[] doubles:
+                for (int i = 0; i < result.Length; i++)
+                    result[i] = checked((int)doubles[i]);
+                return result;
+            default:
+                for (int i = 0; i < result.Length; i++)
+                {
+                    try { result[i] = Convert.ToInt32(value.GetValue(i), CultureInfo.InvariantCulture); }
+                    catch (Exception ex) when (ex is FormatException or InvalidCastException or OverflowException)
+                    { throw new FBXFormatException($"Property '{propertyName}' contains a non-integer array value."); }
+                }
+                return result;
+            }
+        }
+        catch (OverflowException ex)
+        {
+            throw new FBXFormatException($"Property '{propertyName}' contains an integer outside the supported 32-bit range.", innerException: ex);
+        }
+    }
 }
