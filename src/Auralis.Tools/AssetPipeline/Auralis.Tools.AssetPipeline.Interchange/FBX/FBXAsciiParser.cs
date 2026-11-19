@@ -8,10 +8,12 @@ internal static class FBXAsciiParser
 {
     private static readonly UTF8Encoding StrictUtf8 = new(false, true);
 
+    private static ReadOnlySpan<byte> _startBuffer => [0xEF, 0xBB, 0xBF];
+
     public static FBXDocument Parse(ReadOnlyMemory<byte> data, FBXParserOptions options)
     {
         ReadOnlySpan<byte> bytes = data.Span;
-        if (bytes.StartsWith(new byte[] { 0xEF, 0xBB, 0xBF }))
+        if (bytes.StartsWith(_startBuffer))
             bytes = bytes[3..];
 
         try
