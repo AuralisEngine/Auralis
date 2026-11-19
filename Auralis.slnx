@@ -10,7 +10,9 @@
     <Project Path="src/Auralis.Core/Auralis.Core/Auralis.Core.csproj" Id="9d2c0d7f-f027-45a2-a98d-61a5fd874340" />
   </Folder>
   <Folder Name="/src/Auralis.Editor/" />
-  <Folder Name="/src/Auralis.Graphics/" />
+  <Folder Name="/src/Auralis.Graphics/">
+    <Project Path="src/Auralis.Graphics/Auralis.Graphics/Auralis.Graphics.csproj" Id="e95ca756-370e-4c75-bd7d-3a06259cb1eb" />
+  </Folder>
   <Folder Name="/src/Auralis.Memory/" />
   <Folder Name="/src/Auralis.Physics/" />
   <Folder Name="/src/Auralis.Platform/" />
