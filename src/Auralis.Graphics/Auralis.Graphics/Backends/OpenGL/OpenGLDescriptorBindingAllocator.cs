@@ -1,3 +1,4 @@
+using Auralis.Graphics.Abstractions;
 using Auralis.Graphics.Pipelines;
 
 namespace Auralis.Graphics.Backends.OpenGL;
