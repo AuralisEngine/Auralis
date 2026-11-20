@@ -1,5 +1,6 @@
 using Auralis.Graphics.Abstractions;
 using Auralis.Graphics.Pipelines;
+using Auralis.Graphics.Resources;
 using Silk.NET.OpenGL;
 
 namespace Auralis.Graphics.Backends.OpenGL;
