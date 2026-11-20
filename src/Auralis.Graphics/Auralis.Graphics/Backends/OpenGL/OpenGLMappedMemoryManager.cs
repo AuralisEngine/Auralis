@@ -39,6 +39,8 @@ internal sealed unsafe class OpenGLMappedMemoryManager : MemoryManager<byte>
         // MemoryHandle owns and releases the GCHandle returned by Pin.
     }
 
+    internal void Invalidate() => Dispose(disposing: true);
+
     protected override void Dispose(bool disposing)
     {
         Interlocked.Exchange(ref _buffer, null);
