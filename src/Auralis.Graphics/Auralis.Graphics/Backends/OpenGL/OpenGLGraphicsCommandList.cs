@@ -23,13 +23,16 @@ internal enum OpenGLCommandKind : byte
     ClearColorSInt,
     ClearDepthStencil,
     SetRenderPipeline,
+    SetComputePipeline,
     SetBindingSet,
     SetVertexBuffer,
     SetIndexBuffer,
     Draw,
     DrawIndexed,
     DrawIndirect,
-    DrawIndexedIndirect
+    DrawIndexedIndirect,
+    Dispatch,
+    DispatchIndirect
 }
 
 internal struct OpenGLRecordedCommand
@@ -55,6 +58,7 @@ internal struct OpenGLRecordedCommand
     internal bool ClearDepthEnabled;
     internal bool ClearStencilEnabled;
     internal OpenGLGraphicsRenderPipeline? RenderPipeline;
+    internal OpenGLGraphicsComputePipeline? ComputePipeline;
     internal OpenGLBindingSetSnapshot? BindingSet;
     internal uint SetIndex;
     internal uint VertexBinding;
@@ -71,6 +75,9 @@ internal struct OpenGLRecordedCommand
     internal int BaseVertex;
     internal uint DrawCount;
     internal uint Stride;
+    internal uint GroupCountX;
+    internal uint GroupCountY;
+    internal uint GroupCountZ;
 }
 
 internal sealed record OpenGLRenderTargetSet(
@@ -91,6 +98,8 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
     private bool _recordedHasDepthStencil;
     private GraphicsFormat _renderTargetsDepthFormat;
     private OpenGLGraphicsRenderPipeline? _recordedPipeline;
+    private OpenGLGraphicsComputePipeline? _recordedComputePipeline;
+    private OpenGLGraphicsPipelineLayout? _recordedPipelineLayout;
     private OpenGLRenderTargetSet? _recordedTargets;
     private readonly Dictionary<uint, IGraphicsBuffer> _recordedVertexBuffers = new();
     private readonly HashSet<uint> _recordedBoundSets = [];
@@ -143,6 +152,8 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
         _recordedHasDepthStencil = false;
         _renderTargetsDepthFormat = GraphicsFormat.Unknown;
         _recordedPipeline = null;
+        _recordedComputePipeline = null;
+        _recordedPipelineLayout = null;
         _recordedTargets = null;
         _recordedVertexBuffers.Clear();
         _recordedBoundSets.Clear();
@@ -363,6 +374,8 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
             throw new GraphicsValidationException("The render pipeline belongs to an incompatible backend.");
 
         _recordedPipeline = openGlPipeline;
+        _recordedComputePipeline = null;
+        _recordedPipelineLayout = (OpenGLGraphicsPipelineLayout)openGlPipeline.Layout;
         _recordedVertexBuffers.Clear();
         _recordedBoundSets.Clear();
         _recordedIndexBuffer = null;
@@ -373,22 +386,37 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
         });
     }
 
-    public void SetComputePipeline(IGraphicsComputePipeline pipeline) =>
-        throw Unsupported("Compute pipelines and dispatch");
+    public void SetComputePipeline(IGraphicsComputePipeline pipeline)
+    {
+        EnsureRecording();
+        EnsureComputeQueue();
+        ArgumentNullException.ThrowIfNull(pipeline);
+        EnsureOwned(pipeline);
+        if (pipeline is not OpenGLGraphicsComputePipeline openGlPipeline)
+            throw new GraphicsValidationException("The compute pipeline belongs to an incompatible backend.");
+
+        _recordedComputePipeline = openGlPipeline;
+        _recordedPipeline = null;
+        _recordedPipelineLayout = (OpenGLGraphicsPipelineLayout)openGlPipeline.Layout;
+        _recordedBoundSets.Clear();
+        _commands.Add(new OpenGLRecordedCommand
+        {
+            Kind = OpenGLCommandKind.SetComputePipeline,
+            ComputePipeline = openGlPipeline
+        });
+    }
 
     public void SetBindingSet(uint setIndex, IGraphicsBindingSet bindingSet)
     {
         EnsureRecording();
-        EnsureGraphicsQueue();
         ArgumentNullException.ThrowIfNull(bindingSet);
         EnsureOwned(bindingSet);
-        if (_recordedPipeline is null)
-            throw new GraphicsValidationException("Set a render pipeline before binding descriptor sets.");
-        if (bindingSet is not OpenGLGraphicsBindingSet openGlSet ||
-            _recordedPipeline.Layout is not OpenGLGraphicsPipelineLayout layout)
-            throw new GraphicsValidationException("The binding set or pipeline layout belongs to an incompatible backend.");
+        if (_recordedPipelineLayout is null)
+            throw new GraphicsValidationException("Set a graphics or compute pipeline before binding descriptor sets.");
+        if (bindingSet is not OpenGLGraphicsBindingSet openGlSet)
+            throw new GraphicsValidationException("The binding set belongs to an incompatible backend.");
 
-        ReadOnlyMemory<IGraphicsBindingLayout> layouts = layout.BindingLayouts;
+        ReadOnlyMemory<IGraphicsBindingLayout> layouts = _recordedPipelineLayout.BindingLayouts;
         if (setIndex >= (uint)layouts.Length ||
             !ReferenceEquals(layouts.Span[(int)setIndex], openGlSet.Layout))
             throw new GraphicsValidationException($"Binding set {setIndex} does not match the active pipeline layout.");
@@ -592,8 +620,7 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
             throw new GraphicsValidationException("Offscreen rendering requires an explicit render-target set.");
         if (!_hasRecordedViewport)
             throw new GraphicsValidationException("Set a viewport before issuing a draw.");
-        ReadOnlyMemory<IGraphicsBindingLayout> layouts =
-            ((OpenGLGraphicsPipelineLayout)_recordedPipeline.Layout).BindingLayouts;
+        ReadOnlyMemory<IGraphicsBindingLayout> layouts = _recordedPipelineLayout!.BindingLayouts;
         for (uint setIndex = 0; setIndex < (uint)layouts.Length; setIndex++)
         {
             if (!_recordedBoundSets.Contains(setIndex))
@@ -636,8 +663,73 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
                 throw new GraphicsValidationException($"Vertex buffer binding {layouts[i].Binding} has not been set.");
         }
     }
-    public void Dispatch(uint groupCountX, uint groupCountY = 1, uint groupCountZ = 1) => throw Unsupported("Compute dispatch");
-    public void DispatchIndirect(IGraphicsBuffer arguments, ulong offset) => throw Unsupported("Indirect compute dispatch");
+    public void Dispatch(uint groupCountX, uint groupCountY = 1, uint groupCountZ = 1)
+    {
+        EnsureRecording();
+        EnsureComputeQueue();
+        EnsureComputeReady();
+        ValidateComputeGroupCount(groupCountX, groupCountY, groupCountZ);
+        _commands.Add(new OpenGLRecordedCommand
+        {
+            Kind = OpenGLCommandKind.Dispatch,
+            GroupCountX = groupCountX,
+            GroupCountY = groupCountY,
+            GroupCountZ = groupCountZ
+        });
+    }
+
+    public void DispatchIndirect(IGraphicsBuffer arguments, ulong offset)
+    {
+        EnsureRecording();
+        EnsureComputeQueue();
+        EnsureComputeReady();
+        ArgumentNullException.ThrowIfNull(arguments);
+        EnsureOwned(arguments);
+        if ((arguments.Description.Usage & GraphicsBufferUsage.IndirectArguments) == 0)
+            throw new GraphicsValidationException("Indirect dispatch requires IndirectArguments buffer usage.");
+        if ((offset & 3) != 0 || offset > (ulong)nint.MaxValue)
+            throw new GraphicsValidationException("Indirect dispatch offset must be four-byte aligned and natively addressable.");
+        if (offset > arguments.Description.SizeInBytes ||
+            12UL > arguments.Description.SizeInBytes - offset)
+            throw new GraphicsValidationException("Indirect dispatch arguments exceed the buffer range.");
+
+        _commands.Add(new OpenGLRecordedCommand
+        {
+            Kind = OpenGLCommandKind.DispatchIndirect,
+            SourceBuffer = arguments,
+            BufferOffset = offset
+        });
+    }
+
+    private void ValidateComputeGroupCount(uint x, uint y, uint z)
+    {
+        if (x == 0 || y == 0 || z == 0)
+            throw new GraphicsValidationException("Compute work-group counts must all be greater than zero.");
+
+        OpenGLGraphicsDevice device = (OpenGLGraphicsDevice)Device;
+        if ((device.MaxComputeWorkGroupCountX != 0 && x > device.MaxComputeWorkGroupCountX) ||
+            (device.MaxComputeWorkGroupCountY != 0 && y > device.MaxComputeWorkGroupCountY) ||
+            (device.MaxComputeWorkGroupCountZ != 0 && z > device.MaxComputeWorkGroupCountZ))
+            throw new GraphicsValidationException("Compute dispatch exceeds the OpenGL per-axis work-group count limit.");
+    }
+
+    private void EnsureComputeReady()
+    {
+        if (_recordedComputePipeline is null)
+            throw new GraphicsValidationException("A compute pipeline must be set before dispatch.");
+        ReadOnlyMemory<IGraphicsBindingLayout> layouts = _recordedComputePipeline.Layout.BindingLayouts;
+        for (uint setIndex = 0; setIndex < (uint)layouts.Length; setIndex++)
+        {
+            if (!_recordedBoundSets.Contains(setIndex))
+                throw new GraphicsValidationException($"Compute descriptor set {setIndex} has not been bound.");
+        }
+    }
+
+    private void EnsureComputeQueue()
+    {
+        if (_queue.QueueType != GraphicsQueueType.Compute)
+            throw new GraphicsValidationException("Compute commands require a compute-capable logical queue.");
+    }
 
     internal unsafe void Execute(
         GL gl,
