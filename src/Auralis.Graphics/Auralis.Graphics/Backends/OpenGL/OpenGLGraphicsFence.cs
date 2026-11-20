@@ -1,0 +1,215 @@
+using Auralis.Graphics.Abstractions;
+using Auralis.Graphics.Synchronization;
+using Silk.NET.OpenGL;
+using Silk.NET.OpenGL.Extensions.ARB;
+
+namespace Auralis.Graphics.Backends.OpenGL;
+
+/// <summary>
+/// Timeline-style fence backed by ordered GLsync objects. GPU signal points are only completed after
+/// the corresponding sync object reports signaled; CPU Signal advances the timeline immediately.
+/// </summary>
+internal sealed class OpenGLGraphicsFence : GraphicsDeviceObject, IGraphicsFence, IOpenGLNativeResource
+{
+    private readonly OpenGLGraphicsDevice _device;
+    private readonly ArbSync _syncApi;
+    private readonly object _gate = new();
+    private readonly SortedDictionary<ulong, nint> _syncs = [];
+    private ulong _completedValue;
+    private ulong _lastSignaledValue;
+
+    internal OpenGLGraphicsFence(
+        OpenGLGraphicsDevice device,
+        ArbSync syncApi,
+        ulong initialValue) : base(device)
+    {
+        _device = device;
+        _syncApi = syncApi;
+        _completedValue = initialValue;
+        _lastSignaledValue = initialValue;
+    }
+
+    public ulong CompletedValue
+    {
+        get
+        {
+            ThrowIfDisposed();
+            return _device.WithContext(gl =>
+            {
+                lock (_gate)
+                {
+                    PollCompleted(gl, 0);
+                    return _completedValue;
+                }
+            });
+        }
+    }
+
+    /// <summary>Signals the timeline from the CPU. GPU submissions use SignalFromGpu instead.</summary>
+    public void Signal(ulong value)
+    {
+        ThrowIfDisposed();
+        _device.WithContext(gl =>
+        {
+            lock (_gate)
+            {
+                EnsureMonotonic(value);
+                _lastSignaledValue = value;
+                _completedValue = value;
+                DeleteCompletedSyncs(gl, value);
+                Monitor.PulseAll(_gate);
+            }
+        });
+    }
+
+    internal void SignalFromGpu(GL gl, ulong value)
+    {
+        ThrowIfDisposed();
+        lock (_gate)
+        {
+            EnsureMonotonic(value);
+            nint sync = _syncApi.FenceSync(
+                SyncCondition.SyncGpuCommandsComplete,
+                SyncBehaviorFlags.None);
+            if (sync == 0)
+                throw new GraphicsException("OpenGL failed to create a GPU fence sync object.");
+
+            _syncs.Add(value, sync);
+            _lastSignaledValue = value;
+            Monitor.PulseAll(_gate);
+        }
+    }
+
+    internal void EnqueueGpuWait(GL gl, ulong value)
+    {
+        ThrowIfDisposed();
+        lock (_gate)
+        {
+            PollCompleted(gl, 0);
+            if (value <= _completedValue)
+                return;
+
+            foreach (KeyValuePair<ulong, nint> pair in _syncs)
+            {
+                if (pair.Key >= value)
+                {
+                    _syncApi.WaitSync(pair.Value, SyncBehaviorFlags.None, ulong.MaxValue);
+                    return;
+                }
+            }
+        }
+
+        throw new GraphicsValidationException(
+            $"Fence value {value} has not been submitted or CPU-signaled; OpenGL cannot enqueue a wait for an unknown future sync object.");
+    }
+
+    public bool Wait(ulong value, TimeSpan timeout, CancellationToken cancellationToken = default)
+    {
+        ThrowIfDisposed();
+        if (timeout < TimeSpan.Zero && timeout != Timeout.InfiniteTimeSpan)
+            throw new ArgumentOutOfRangeException(nameof(timeout));
+
+        long start = Stopwatch.GetTimestamp();
+        long timeoutTicks = timeout == Timeout.InfiniteTimeSpan
+            ? long.MaxValue
+            : (long)(timeout.TotalSeconds * Stopwatch.Frequency);
+
+        while (true)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            bool completed = _device.WithContext(gl =>
+            {
+                lock (_gate)
+                    return PollCompleted(gl, 10_000_000) >= value;
+            });
+
+            if (completed)
+                return true;
+
+            if (timeoutTicks != long.MaxValue && Stopwatch.GetTimestamp() - start >= timeoutTicks)
+                return false;
+
+            lock (_gate)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (_completedValue < value && !_syncs.Values.Any(sync => sync != 0))
+                    Monitor.Wait(_gate, TimeSpan.FromMilliseconds(1));
+            }
+        }
+    }
+
+    private ulong PollCompleted(GL gl, ulong waitNanoseconds)
+    {
+        if (_syncs.Count == 0)
+            return _completedValue;
+
+        ulong completed = _completedValue;
+        foreach (KeyValuePair<ulong, nint> pair in _syncs)
+        {
+            ARB status = _syncApi.ClientWaitSync(
+                pair.Value,
+                SyncObjectMask.SyncFlushCommandsBit,
+                waitNanoseconds);
+
+            if (status == ARB.AlreadySignaled || status == ARB.ConditionSatisfied)
+            {
+                completed = Math.Max(completed, pair.Key);
+                continue;
+            }
+
+            if (status == ARB.TimeoutExpired)
+                break;
+
+            if (status == ARB.WaitFailed)
+                throw new GraphicsException("OpenGL ClientWaitSync failed while waiting for a fence.");
+        }
+
+        if (completed > _completedValue)
+        {
+            _completedValue = completed;
+            DeleteCompletedSyncs(gl, completed);
+            Monitor.PulseAll(_gate);
+        }
+
+        return _completedValue;
+    }
+
+    private void DeleteCompletedSyncs(GL gl, ulong value)
+    {
+        List<ulong>? completedKeys = null;
+        foreach (KeyValuePair<ulong, nint> pair in _syncs)
+        {
+            if (pair.Key > value)
+                break;
+
+            _syncApi.DeleteSync(pair.Value);
+            (completedKeys ??= []).Add(pair.Key);
+        }
+
+        if (completedKeys is not null)
+        {
+            for (int i = 0; i < completedKeys.Count; i++)
+                _syncs.Remove(completedKeys[i]);
+        }
+    }
+
+    private void EnsureMonotonic(ulong value)
+    {
+        if (value <= _lastSignaledValue)
+            throw new GraphicsValidationException(
+                $"Fence values must increase monotonically. Last signal: {_lastSignaledValue}; requested: {value}.");
+    }
+
+    protected override void DisposeCore() => _device.ReleaseResource(this);
+
+    public void ReleaseNative(GL gl)
+    {
+        lock (_gate)
+        {
+            foreach (nint sync in _syncs.Values)
+                _syncApi.DeleteSync(sync);
+            _syncs.Clear();
+            Monitor.PulseAll(_gate);
+        }
+    }
+}
