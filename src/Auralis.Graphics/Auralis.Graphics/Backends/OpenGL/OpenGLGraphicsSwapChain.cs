@@ -245,9 +245,7 @@ internal sealed class OpenGLGraphicsSwapChain : GraphicsDeviceObject, IGraphicsS
         if (!_surface.SupportsPresentation(_queue))
             throw new GraphicsValidationException("The swapchain's queue is no longer compatible with its surface.");
 
-        if (!_device.ContextProvider.SupportsPresentMode(copy.PresentMode))
-            throw new GraphicsValidationException($"The OpenGL context provider cannot apply present mode {copy.PresentMode}.");
-
+        OpenGLPresentationTargetValidation.ValidatePresentMode(_device.ContextProvider, copy.PresentMode);
         _device.ContextProvider.SetPresentMode(copy.PresentMode);
         GraphicsPresentationTargetSnapshot snapshot = _surface.RefreshSnapshot();
         if (snapshot.IsSuspended)
