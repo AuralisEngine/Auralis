@@ -30,6 +30,16 @@ public sealed class OpenGLBackendTests
     }
 
     [Fact]
+    public async Task ProviderDoesNotInventSystemWideAdapterInformation()
+    {
+        var provider = new OpenGLGraphicsBackendProvider(new TestContextProvider(true));
+
+        ReadOnlyMemory<GraphicsAdapterInfo> adapters = await provider.EnumerateAdaptersAsync();
+
+        Assert.Empty(adapters.ToArray());
+    }
+
+    [Fact]
     public void ProviderCanBeRegisteredExplicitlyWithoutCreatingAContext()
     {
         var context = new TestContextProvider(isAvailable: false);

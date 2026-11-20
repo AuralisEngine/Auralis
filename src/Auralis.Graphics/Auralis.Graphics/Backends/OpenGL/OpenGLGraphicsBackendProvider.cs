@@ -34,10 +34,9 @@ public sealed class OpenGLGraphicsBackendProvider : IGraphicsBackendProvider
         if (!IsAvailable)
             throw new GraphicsBackendUnavailableException(Backend, UnavailableReason);
 
-        // The host supplies one current context, not a system-wide physical-adapter enumeration API.
-        // A device-backed renderer string is reported after device creation; do not fabricate PCI IDs.
-        return ValueTask.FromResult<ReadOnlyMemory<GraphicsAdapterInfo>>(
-            new[] { new GraphicsAdapterInfo(default, "Current OpenGL context", GraphicsAdapterType.Unknown, 0, 0, 0) });
+        // A context provider supplies one already-selected context, not a system-wide adapter
+        // enumeration facility. Return no fabricated physical-adapter entries.
+        return ValueTask.FromResult<ReadOnlyMemory<GraphicsAdapterInfo>>(ReadOnlyMemory<GraphicsAdapterInfo>.Empty);
     }
 
     public ValueTask<IGraphicsDevice> CreateDeviceAsync(
