@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Auralis.Graphics.Abstractions;
 using Auralis.Graphics.Synchronization;
 using Silk.NET.OpenGL;
@@ -132,7 +133,7 @@ internal sealed class OpenGLGraphicsFence : GraphicsDeviceObject, IGraphicsFence
             lock (_gate)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                if (_completedValue < value && !_syncs.Values.Any(sync => sync != 0))
+                if (_completedValue < value && _syncs.Count == 0)
                     Monitor.Wait(_gate, TimeSpan.FromMilliseconds(1));
             }
         }
