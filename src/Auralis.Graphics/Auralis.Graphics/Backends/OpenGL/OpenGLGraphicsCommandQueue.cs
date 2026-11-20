@@ -81,7 +81,7 @@ internal sealed class OpenGLGraphicsCommandQueue : IGraphicsCommandQueue
             _device.WithContext(gl =>
             {
                 for (int i = 0; i < lists.Length; i++)
-                    lists[i].Execute(gl, _device.DirectStateAccess, _device.CopyImageApi);
+                    lists[i].Execute(gl, _device.DirectStateAccess, _device.CopyImageApi, _device.ViewportApi);
 
                 completionSync = _device.SyncApi.FenceSync(
                     SyncCondition.SyncGpuCommandsComplete,
