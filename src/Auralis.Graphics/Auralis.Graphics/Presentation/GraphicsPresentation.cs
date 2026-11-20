@@ -215,11 +215,11 @@ public interface IGraphicsPresentationSurface : IGraphicsDeviceObject
     /// a device-wide Present flag or a graphics queue role is not sufficient evidence. Returns false for queues
     /// owned by another device.
     /// </summary>
-    bool SupportsPresentation(IGraphicsCommandQueue queue);
+    bool SupportsPresentation(IGraphicsQueue queue);
 
     /// <summary>Creates a swapchain using an explicitly selected, surface-compatible presentation queue.</summary>
     IGraphicsSwapChain CreateSwapChain(
-        IGraphicsCommandQueue presentationQueue,
+        IGraphicsQueue presentationQueue,
         in GraphicsSwapChainDescription description);
 }
 
@@ -229,7 +229,7 @@ public interface IGraphicsSwapChain : IGraphicsDeviceObject
     GraphicsSwapChainDescription Description { get; }
 
     /// <summary>The exact queue selected for presentation to the owning surface.</summary>
-    IGraphicsCommandQueue PresentationQueue { get; }
+    IGraphicsQueue PresentationQueue { get; }
 
     ulong Generation { get; }
 

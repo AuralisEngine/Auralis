@@ -291,8 +291,16 @@ public sealed class GraphicsReviewRegressionTests
             GraphicsFormatSupport.ColorAttachment | GraphicsFormatSupport.Blend,
             GraphicsSampleCountFlags.One);
 
+        var meshOnlyDevice = CreateDevice(GraphicsFeature.MeshShaders, renderFormats);
+        var meshOnlyPipeline = new GraphicsRenderPipelineDescription(
+            new TestPipelineLayout(meshOnlyDevice),
+            [new TestShader(meshOnlyDevice, GraphicsShaderStage.Mesh)],
+            GraphicsPrimitiveTopology.TriangleList,
+            [GraphicsFormat.RGBA8UNorm]);
+        Assert.Null(meshOnlyPipeline.VertexShader);
+
         var meshDevice = CreateDevice(
-            GraphicsFeature.MeshShaders,
+            GraphicsFeature.MeshShaders | GraphicsFeature.TaskShaders,
             renderFormats);
         var meshLayout = new TestPipelineLayout(meshDevice);
         IGraphicsShader[] meshShaders =
@@ -375,6 +383,27 @@ public sealed class GraphicsReviewRegressionTests
                 layout,
                 new TestShader(noOptionalFeatures, GraphicsShaderStage.Compute)));
 
+        // Mesh and task shaders are separate device features, even though task stages require a mesh stage.
+        var meshOnlyDevice = CreateDevice(GraphicsFeature.MeshShaders, renderFormats);
+        var meshOnlyLayout = new TestPipelineLayout(meshOnlyDevice);
+        var missingTaskFeature = Assert.Throws<GraphicsFeatureNotSupportedException>(() =>
+            new GraphicsRenderPipelineDescription(
+                meshOnlyLayout,
+                [new TestShader(meshOnlyDevice, GraphicsShaderStage.Mesh),
+                 new TestShader(meshOnlyDevice, GraphicsShaderStage.Task)],
+                GraphicsPrimitiveTopology.TriangleList,
+                [GraphicsFormat.RGBA8UNorm]));
+        Assert.Equal(GraphicsFeature.TaskShaders, missingTaskFeature.MissingFeatures);
+
+        var taskOnlyFeatureDevice = CreateDevice(GraphicsFeature.TaskShaders, renderFormats);
+        Assert.Throws<GraphicsFeatureNotSupportedException>(() =>
+            new GraphicsRenderPipelineDescription(
+                new TestPipelineLayout(taskOnlyFeatureDevice),
+                [new TestShader(taskOnlyFeatureDevice, GraphicsShaderStage.Mesh),
+                 new TestShader(taskOnlyFeatureDevice, GraphicsShaderStage.Task)],
+                GraphicsPrimitiveTopology.TriangleList,
+                [GraphicsFormat.RGBA8UNorm]));
+
         Assert.Throws<ArgumentException>(() => new GraphicsRenderPipelineDescription(
             layout,
             [new TestShader(noOptionalFeatures, GraphicsShaderStage.Vertex),
@@ -422,10 +451,11 @@ public sealed class GraphicsReviewRegressionTests
         var surface = new TestPresentationSurface(device, target);
 
         var graphicsQueue = new TestQueue(device, GraphicsQueueType.Graphics);
-        var presentQueue = new TestQueue(device, GraphicsQueueType.Present);
+        IGraphicsQueue presentQueue = device.GetPresentationQueue();
         var computeQueue = new TestQueue(device, GraphicsQueueType.Compute);
-        var foreignQueue = new TestQueue(foreignDevice, GraphicsQueueType.Graphics);
+        IGraphicsQueue foreignQueue = foreignDevice.GetPresentationQueue();
 
+        Assert.IsNotAssignableFrom<IGraphicsCommandQueue>(presentQueue);
         Assert.True(surface.SupportsPresentation(graphicsQueue));
         Assert.True(surface.SupportsPresentation(presentQueue));
         Assert.False(surface.SupportsPresentation(computeQueue));
@@ -599,12 +629,13 @@ public sealed class GraphicsReviewRegressionTests
         public IGraphicsPresentationTarget Target { get; } = target;
         public GraphicsPresentationTargetSnapshot Snapshot => Target.GetSnapshot();
 
-        public bool SupportsPresentation(IGraphicsCommandQueue queue) =>
+        public bool SupportsPresentation(IGraphicsQueue queue) =>
             !IsDisposed && ReferenceEquals(queue.Device, Device) &&
-            queue.QueueType is GraphicsQueueType.Graphics or GraphicsQueueType.Present;
+            (queue is not IGraphicsCommandQueue commandQueue ||
+             commandQueue.QueueType == GraphicsQueueType.Graphics);
 
         public IGraphicsSwapChain CreateSwapChain(
-            IGraphicsCommandQueue presentationQueue,
+            IGraphicsQueue presentationQueue,
             in GraphicsSwapChainDescription description)
         {
             if (!SupportsPresentation(presentationQueue))
@@ -618,11 +649,11 @@ public sealed class GraphicsReviewRegressionTests
 
     private sealed class TestSwapChain(
         IGraphicsDevice device,
-        IGraphicsCommandQueue presentationQueue,
+        IGraphicsQueue presentationQueue,
         GraphicsSwapChainDescription description) : GraphicsDeviceObject(device), IGraphicsSwapChain
     {
         public GraphicsSwapChainDescription Description { get; private set; } = description;
-        public IGraphicsCommandQueue PresentationQueue { get; } = presentationQueue;
+        public IGraphicsQueue PresentationQueue { get; } = presentationQueue;
         public ulong Generation { get; private set; } = 1;
         public GraphicsAcquireResult AcquireNextImage(TimeSpan timeout) => default;
         public GraphicsPresentStatus Present(

@@ -144,6 +144,8 @@ public sealed class GraphicsDeviceFactoryTests
 
         public IGraphicsCommandQueue GetQueue(GraphicsQueueType queueType, uint index = 0) =>
             throw new NotSupportedException();
+        public IGraphicsQueue GetPresentationQueue(uint index = 0) =>
+            new TestPresentationQueue(this, index);
         public IGraphicsBuffer CreateBuffer(in GraphicsBufferDescription description) =>
             throw new NotSupportedException();
         public IGraphicsTexture CreateTexture(in GraphicsTextureDescription description) =>
@@ -168,6 +170,12 @@ public sealed class GraphicsDeviceFactoryTests
             throw new NotSupportedException();
 
         public void Dispose() => IsDisposed = true;
+    }
+
+    private sealed class TestPresentationQueue(IGraphicsDevice device, uint index) : IGraphicsQueue
+    {
+        public IGraphicsDevice Device { get; } = device;
+        public uint Index { get; } = index;
     }
 
     private sealed class TestDeviceObject(IGraphicsDevice device) : GraphicsDeviceObject(device)

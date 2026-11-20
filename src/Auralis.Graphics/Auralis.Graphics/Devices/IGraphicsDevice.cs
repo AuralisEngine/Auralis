@@ -23,11 +23,14 @@ public interface IGraphicsDevice : IDisposable
 
     bool IsDisposed { get; }
 
-    /// <summary>
-    /// Gets a queue candidate for the requested role. A Present queue is only a candidate;
-    /// validate it with IGraphicsPresentationSurface.SupportsPresentation for the actual target.
-    /// </summary>
+    /// <summary>Gets a command-capable graphics, compute, or copy queue.</summary>
     IGraphicsCommandQueue GetQueue(GraphicsQueueType queueType, uint index = 0);
+
+    /// <summary>
+    /// Gets a presentation-queue candidate. It may not implement IGraphicsCommandQueue and is not
+    /// guaranteed to support every surface. Query the actual surface before creating a swapchain.
+    /// </summary>
+    IGraphicsQueue GetPresentationQueue(uint index = 0);
 
     IGraphicsBuffer CreateBuffer(in GraphicsBufferDescription description);
 

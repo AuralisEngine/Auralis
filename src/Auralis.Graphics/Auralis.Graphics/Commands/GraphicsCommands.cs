@@ -119,16 +119,11 @@ public sealed class GraphicsCommandListLifecycle
     public void EnsureComputeCommands()
     {
         EnsureRecording();
-        if (QueueType is GraphicsQueueType.Copy or GraphicsQueueType.Present)
-            throw new InvalidOperationException("Dispatch commands are not legal on this command-list queue role.");
+        if (QueueType == GraphicsQueueType.Copy)
+            throw new InvalidOperationException("Dispatch commands are not legal on a copy command list.");
     }
 
-    public void EnsureCopyCommands()
-    {
-        EnsureRecording();
-        if (QueueType == GraphicsQueueType.Present)
-            throw new InvalidOperationException("Copy commands are not legal on a presentation-only command list.");
-    }
+    public void EnsureCopyCommands() => EnsureRecording();
 
     /// <summary>Marks the tracker disposed after backend-owned in-flight work has completed.</summary>
     public void MarkDisposed()
@@ -157,17 +152,21 @@ public sealed class GraphicsCommandListLifecycle
 }
 
 /// <summary>
- /// A queue is owned by its device and is not independently disposable. Submit accepts already-recorded
- /// lists; the backend validates queue/device compatibility and tracks in-flight completion. A presentation-only
- /// queue can be used by a surface/swapchain but does not necessarily support command recording.
- /// </summary>
-public interface IGraphicsCommandQueue
+/// A device-owned queue identity. A queue may support presentation without supporting command recording.
+/// </summary>
+public interface IGraphicsQueue
 {
     IGraphicsDevice Device { get; }
 
-    GraphicsQueueType QueueType { get; }
-
     uint Index { get; }
+}
+
+/// <summary>
+/// A device-owned command-capable queue. Presentation-only queues intentionally do not implement this interface.
+/// </summary>
+public interface IGraphicsCommandQueue : IGraphicsQueue
+{
+    GraphicsQueueType QueueType { get; }
 
     IGraphicsCommandList CreateCommandList(GraphicsCommandListUsage usage = GraphicsCommandListUsage.Reusable);
 

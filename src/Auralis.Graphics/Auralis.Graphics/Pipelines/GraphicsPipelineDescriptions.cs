@@ -603,6 +603,7 @@ public sealed class GraphicsRenderPipelineDescription
         if (hasGeometry) required |= GraphicsFeature.GeometryShaders;
         if (hasTessellation) required |= GraphicsFeature.TessellationShaders;
         if (hasMesh) required |= GraphicsFeature.MeshShaders;
+        if (hasTask) required |= GraphicsFeature.TaskShaders;
         if (Rasterization.DepthClampEnabled) required |= GraphicsFeature.DepthClamp;
         if (Rasterization.PolygonMode != GraphicsPolygonMode.Fill) required |= GraphicsFeature.FillModeNonSolid;
         if (Rasterization.LineWidth != 1) required |= GraphicsFeature.WideLines;

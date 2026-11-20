@@ -69,7 +69,8 @@ public enum GraphicsFeature : ulong
     LogicOperations = 1UL << 18,
     WideLines = 1UL << 19,
     DepthClamp = 1UL << 20,
-    FillModeNonSolid = 1UL << 21
+    FillModeNonSolid = 1UL << 21,
+    TaskShaders = 1UL << 22
 }
 
 /// <summary>A strongly typed set of optional graphics features reported by a device.</summary>
@@ -83,15 +84,12 @@ public readonly record struct GraphicsFeatureSet(GraphicsFeature Enabled)
     public GraphicsFeature MissingFrom(GraphicsFeature requested) => requested & ~Enabled;
 }
 
-/// <summary>
-/// Logical queue role used to request a command queue. A presentation queue may have no
-/// graphics/compute capability; surface compatibility must still be queried for the target.
+/// <summary>Logical role used to request a command-capable queue.</summary>
 public enum GraphicsQueueType
 {
     Graphics,
     Compute,
-    Copy,
-    Present
+    Copy
 }
 
 /// <summary>
