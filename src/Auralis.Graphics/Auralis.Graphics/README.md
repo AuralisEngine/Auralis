@@ -168,7 +168,7 @@ Context-object ownership and GL-state ownership are separate:
 - `OpenGLContextOwnership.Owned`: the provider has transferred its lifetime to the device; device disposal calls the provider's `Dispose`.
 - `OpenGLContextStateOwnership.Exclusive` is required. The initial backend does not save/restore all GL state. The host must not issue unrelated GL commands on the context while it is attached to Auralis. `Shared` state ownership is rejected instead of silently corrupting host state.
 
-The context provider owns the meaning of its context identity and must guarantee that its resolver and activation methods refer to that same context. A drawable is optional and `SupportsPresentation` is only a context-provider property; the current backend does not yet implement presentation surfaces or swapchains.
+The context provider owns the meaning of its context identity and must guarantee that its resolver and activation methods refer to that same context. A drawable is optional. For presentation, the provider must additionally verify that a `GraphicsPresentationTargetSnapshot` identifies the drawable belonging to this exact context, expose the presentation modes it can honor, apply the selected mode, and swap that drawable's buffers. The backend rejects a target that the provider does not recognize.
 
 ### Implemented functionality
 
@@ -185,6 +185,7 @@ The context provider owns the meaning of its context identity and must guarantee
 | Rendering/compute commands | Deferred render-target binding, viewport/scissor, typed clears, vertex/index binding, direct/indexed/indirect draws, direct/indirect compute dispatch |
 | Copy/barriers | Deferred buffer and whole-texture copies plus destination-access-based OpenGL memory barriers |
 | Synchronization | GL sync objects, CPU wait/polling, and GPU-side wait for an already-created fence value |
+| Presentation | Acquired images are offscreen color textures; present blits to the provider-verified default drawable and swaps buffers |
 | Queues | Logical graphics/compute/copy queues sharing one serialized context command stream; no physical parallel queues are claimed |
 
 The backend reports OpenGL implementation strings in `GraphicsDeviceInfo`. The injected context is already selected, so system-wide physical adapter enumeration is unavailable: `EnumerateAdaptersAsync` returns an empty list rather than fabricating adapter IDs, PCI identifiers, memory sizes, or adapter types. Unknown limits remain zero. Format support is derived from the active context's internal-format operation queries and advertised extensions; it is not inferred from the enum alone.
@@ -213,7 +214,9 @@ Resource barriers are translated into GL memory-barrier bits based on destinatio
 
 - No OpenGL ES support.
 - No native context/window creation or platform integration is included.
-- No presentation surface, swapchain, default-framebuffer acquired-image abstraction, resize/recreation, or swap-buffer execution is implemented yet. Even when a context provider reports a drawable, callers must not assume a usable Auralis presentation surface exists.
+- The backend does not expose the native default framebuffer as an `IGraphicsTexture`. Swapchain images are Auralis-owned offscreen textures; presentation blits one to framebuffer 0 and then calls the provider's swap operation.
+- The injected provider/platform integration must correctly identify the exact drawable, support and apply the requested present mode, and implement buffer swapping. No WGL/GLX/EGL/native Apple context or window creation code is included.
+- The current swapchain presents a color-only offscreen image ring; it does not expose default framebuffer depth/stencil attachments or native swapchain image handles.
 - No mesh/task shader pipeline support.
 - No separate native compute/transfer queue. Compute work is serialized on the same context stream as graphics and copies.
 - Descriptor indexing and partially-bound/update-after-bind/variable-count descriptors are unsupported.
@@ -225,6 +228,6 @@ Resource barriers are translated into GL memory-barrier bits based on destinatio
 
 ### Tests and verification
 
-The ordinary graphics test suite includes hardware-independent tests for provider registration/availability, texture targets, sampler translations, descriptor slot allocation, pipeline enum/vertex-format mappings, compute dispatch limit validation, resource barriers, render-target validation, and mapped-memory lifetime. CI builds the graphics project and runs this test suite without requiring a GPU or display.
+The ordinary graphics test suite includes hardware-independent tests for provider registration/availability, presentation drawable/present-mode validation, texture targets, sampler translations, descriptor slot allocation, pipeline enum/vertex-format mappings, compute dispatch limit validation, resource barriers, render-target validation, and mapped-memory lifetime. CI builds the graphics project and runs this test suite without requiring a GPU or display.
 
 No real-context hardware smoke test has been run in this environment. A host/platform integration should gate such a test on an available desktop OpenGL 4.5 Core context and exercise device creation, shader compilation, resource allocation, an offscreen draw/copy, fence completion, and disposal. The backend currently has no mandatory windowing package; a test host may supply any suitable context provider.
