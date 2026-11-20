@@ -98,6 +98,15 @@ public sealed class OpenGLBackendTests
         lease.Dispose();
 
         Assert.Equal(1, successfulProvider.ReleaseCurrentCount);
+
+        var throwingActionProvider = new TestContextProvider(isAvailable: true);
+        Assert.Throws<InvalidOperationException>(() =>
+        {
+            using OpenGLContextLease contextLease = OpenGLContextLease.Acquire(throwingActionProvider);
+            throw new InvalidOperationException("Simulated GL operation failure.");
+        });
+        Assert.Equal(1, throwingActionProvider.MakeCurrentCount);
+        Assert.Equal(1, throwingActionProvider.ReleaseCurrentCount);
     }
 
     [Fact]
