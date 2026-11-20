@@ -98,7 +98,6 @@ internal sealed class OpenGLGraphicsSwapChain : GraphicsDeviceObject, IGraphicsS
 
         while (true)
         {
-            cancellationCheck();
             ulong remainingNanoseconds = GetRemainingNanoseconds(start, timeoutTicks);
 
             GraphicsAcquireResult result = _device.WithContext(gl =>
@@ -151,7 +150,6 @@ internal sealed class OpenGLGraphicsSwapChain : GraphicsDeviceObject, IGraphicsS
                 return new GraphicsAcquireResult(GraphicsAcquireStatus.Timeout, default);
         }
 
-        static void cancellationCheck() { }
     }
 
     public GraphicsPresentStatus Present(
