@@ -3,6 +3,7 @@ using Auralis.Graphics.Backends.OpenGL;
 using Auralis.Graphics.Devices;
 using Auralis.Graphics.Pipelines;
 using Auralis.Graphics.Resources;
+using Auralis.Graphics.Presentation;
 using Auralis.Graphics.Synchronization;
 using Silk.NET.OpenGL;
 using Xunit;
@@ -338,6 +339,9 @@ public sealed class OpenGLBackendTests
         public bool IsAvailable { get; } = isAvailable;
         public string? UnavailableReason => IsAvailable ? null : "No current desktop GL context.";
         public bool SupportsPresentation => false;
+        public bool IsPresentationTargetCompatible(in GraphicsPresentationTargetSnapshot target) => false;
+        public bool SupportsPresentMode(GraphicsPresentMode presentMode) => false;
+        public void SetPresentMode(GraphicsPresentMode presentMode) => throw new NotSupportedException();
 
         public void MakeCurrent() => throw new NotSupportedException();
         public void ReleaseCurrent() => throw new NotSupportedException();
