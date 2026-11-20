@@ -1,6 +1,8 @@
 using Auralis.Graphics.Abstractions;
 using Auralis.Graphics.Backends.OpenGL;
 using Auralis.Graphics.Devices;
+using Auralis.Graphics.Resources;
+using Silk.NET.OpenGL;
 using Xunit;
 
 namespace Auralis.Graphics.Tests;
@@ -65,6 +67,70 @@ public sealed class OpenGLBackendTests
         Assert.Same(borrowed.ContextIdentity, borrowed.ContextIdentity);
     }
 
+
+
+    [Fact]
+    public void TextureDescriptionsMapToTheExpectedDesktopOpenGLTargets()
+    {
+        static GraphicsTextureDescription Description(
+            GraphicsTextureDimension dimension,
+            uint width = 64,
+            uint height = 64,
+            uint depth = 1,
+            uint layers = 1,
+            uint samples = 1,
+            uint mipLevels = 1) =>
+            new(dimension, GraphicsFormat.RGBA8UNorm, width, height, depth,
+                mipLevels, layers, samples, GraphicsTextureUsage.Sampled);
+
+        Assert.Equal(TextureTarget.Texture1D,
+            OpenGLTextureTargetMapping.ForTexture(Description(GraphicsTextureDimension.Texture1D, height: 1)));
+        Assert.Equal(TextureTarget.Texture1DArray,
+            OpenGLTextureTargetMapping.ForTexture(Description(GraphicsTextureDimension.Texture1D, height: 1, layers: 4)));
+        Assert.Equal(TextureTarget.Texture2D,
+            OpenGLTextureTargetMapping.ForTexture(Description(GraphicsTextureDimension.Texture2D)));
+        Assert.Equal(TextureTarget.Texture2DArray,
+            OpenGLTextureTargetMapping.ForTexture(Description(GraphicsTextureDimension.Texture2D, layers: 4)));
+        Assert.Equal(TextureTarget.Texture3D,
+            OpenGLTextureTargetMapping.ForTexture(Description(GraphicsTextureDimension.Texture3D, depth: 16)));
+        Assert.Equal(TextureTarget.TextureCubeMap,
+            OpenGLTextureTargetMapping.ForTexture(Description(GraphicsTextureDimension.Cube, layers: 6)));
+        Assert.Equal(TextureTarget.TextureCubeMapArray,
+            OpenGLTextureTargetMapping.ForTexture(Description(GraphicsTextureDimension.Cube, layers: 12)));
+        Assert.Equal(TextureTarget.Texture2DMultisample,
+            OpenGLTextureTargetMapping.ForTexture(Description(GraphicsTextureDimension.Texture2D, samples: 4)));
+        Assert.Equal(TextureTarget.Texture2DMultisampleArray,
+            OpenGLTextureTargetMapping.ForTexture(Description(GraphicsTextureDimension.Texture2D, layers: 4, samples: 4)));
+    }
+
+    [Fact]
+    public void SamplerDescriptionsMapAllCommonStatesWithoutFallbacks()
+    {
+        Assert.Equal(TextureMinFilter.NearestMipmapNearest,
+            OpenGLSamplerMapping.ToMinFilter(GraphicsFilter.Nearest, GraphicsFilter.Nearest));
+        Assert.Equal(TextureMinFilter.LinearMipmapNearest,
+            OpenGLSamplerMapping.ToMinFilter(GraphicsFilter.Linear, GraphicsFilter.Nearest));
+        Assert.Equal(TextureMinFilter.NearestMipmapLinear,
+            OpenGLSamplerMapping.ToMinFilter(GraphicsFilter.Nearest, GraphicsFilter.Linear));
+        Assert.Equal(TextureMinFilter.LinearMipmapLinear,
+            OpenGLSamplerMapping.ToMinFilter(GraphicsFilter.Linear, GraphicsFilter.Linear));
+        Assert.Equal(TextureMagFilter.Linear,
+            OpenGLSamplerMapping.ToMagFilter(GraphicsFilter.Linear));
+        Assert.Equal(TextureWrapMode.Repeat,
+            OpenGLSamplerMapping.ToAddressMode(GraphicsAddressMode.Repeat));
+        Assert.Equal(TextureWrapMode.MirroredRepeat,
+            OpenGLSamplerMapping.ToAddressMode(GraphicsAddressMode.MirroredRepeat));
+        Assert.Equal(TextureWrapMode.ClampToEdge,
+            OpenGLSamplerMapping.ToAddressMode(GraphicsAddressMode.ClampToEdge));
+        Assert.Equal(TextureWrapMode.ClampToBorder,
+            OpenGLSamplerMapping.ToAddressMode(GraphicsAddressMode.ClampToBorder));
+        Assert.Equal((TextureWrapMode)GLEnum.MirrorClampToEdge,
+            OpenGLSamplerMapping.ToAddressMode(GraphicsAddressMode.MirrorClampToEdge));
+        Assert.Equal(GLEnum.Lequal,
+            OpenGLSamplerMapping.ToCompareFunction(GraphicsCompareOperation.LessEqual));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            OpenGLSamplerMapping.ToAddressMode((GraphicsAddressMode)int.MaxValue));
+    }
 
     [Fact]
     public void MappedMemoryBecomesInaccessibleAfterInvalidation()
