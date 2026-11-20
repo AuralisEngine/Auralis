@@ -80,7 +80,7 @@ internal sealed class OpenGLGraphicsShader : GraphicsDeviceObject, IGraphicsShad
                 {
                     string log = gl.GetShaderInfoLog(handle);
                     gl.DeleteShader(handle);
-                    throw new GraphicsException($"OpenGL GLSL compilation failed ({description.Stage}):\n{log}");
+                    throw new GraphicsException($"OpenGL GLSL compilation failed ({stage}):\n{log}");
                 }
 
                 return handle;
