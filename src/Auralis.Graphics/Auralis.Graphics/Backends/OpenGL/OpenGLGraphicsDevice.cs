@@ -25,6 +25,7 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
     private readonly ArbTextureView _textureViewApi;
     private readonly ArbSamplerObjects _samplerObjects;
     private readonly ArbInternalformatQuery _internalFormatQuery;
+    private readonly ArbSync _syncApi;
     private readonly string _renderer;
     private int _disposeState;
 
@@ -35,6 +36,7 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
         ArbTextureView textureViewApi,
         ArbSamplerObjects samplerObjects,
         ArbInternalformatQuery internalFormatQuery,
+        ArbSync syncApi,
         int major,
         int minor,
         string vendor,
@@ -48,6 +50,7 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
         _textureViewApi = textureViewApi;
         _samplerObjects = samplerObjects;
         _internalFormatQuery = internalFormatQuery;
+        _syncApi = syncApi;
         _renderer = renderer;
         Capabilities = capabilities;
         Backend = GraphicsBackend.OpenGL;
@@ -72,6 +75,7 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
         ArbTextureView? textureViewApi = null;
         ArbSamplerObjects? samplerObjects = null;
         ArbInternalformatQuery? internalFormatQuery = null;
+        ArbSync? syncApi = null;
         contextProvider.MakeCurrent();
         try
         {
@@ -95,6 +99,7 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
             textureViewApi = new ArbTextureView(gl.Context);
             samplerObjects = new ArbSamplerObjects(gl.Context);
             internalFormatQuery = new ArbInternalformatQuery(gl.Context);
+            syncApi = new ArbSync(gl.Context);
 
             string vendor = gl.GetStringS(StringName.Vendor);
             string renderer = gl.GetStringS(StringName.Renderer);
@@ -104,16 +109,18 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
 
             OpenGLGraphicsDevice device = new(
                 contextProvider, gl, directStateAccess, textureViewApi, samplerObjects,
-                internalFormatQuery, major, minor, vendor, renderer, version, capabilities);
+                internalFormatQuery, syncApi, major, minor, vendor, renderer, version, capabilities);
             gl = null;
             directStateAccess = null;
             textureViewApi = null;
             samplerObjects = null;
             internalFormatQuery = null;
+            syncApi = null;
             return device;
         }
         catch
         {
+            syncApi?.Dispose();
             internalFormatQuery?.Dispose();
             samplerObjects?.Dispose();
             textureViewApi?.Dispose();
@@ -209,6 +216,7 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
     internal ArbDirectStateAccess DirectStateAccess => _directStateAccess;
     internal ArbTextureView TextureViewApi => _textureViewApi;
     internal ArbSamplerObjects SamplerObjects => _samplerObjects;
+    internal ArbSync SyncApi => _syncApi;
 
     internal T WithContext<T>(Func<GL, T> action)
     {
@@ -345,8 +353,16 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
     public IGraphicsComputePipeline CreateComputePipeline(GraphicsComputePipelineDescription description) =>
         throw new NotSupportedException("Compute pipeline creation is not implemented yet.");
 
-    public IGraphicsFence CreateFence(ulong initialValue = 0) =>
-        throw new NotSupportedException("Fence synchronization is not implemented yet.");
+    public IGraphicsFence CreateFence(ulong initialValue = 0)
+    {
+        ObjectDisposedException.ThrowIf(IsDisposed, this);
+        return WithContext(gl =>
+        {
+            OpenGLGraphicsFence fence = new(this, _syncApi, initialValue);
+            RegisterUnderContext(fence);
+            return (IGraphicsFence)fence;
+        });
+    }
 
     public IGraphicsPresentationSurface CreatePresentationSurface(IGraphicsPresentationTarget target) =>
         throw new NotSupportedException("Presentation surfaces and swapchains are not implemented yet.");
@@ -367,6 +383,7 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
                         resource.ReleaseNative(_gl);
 
                     _gl.Finish();
+                    _syncApi.Dispose();
                     _internalFormatQuery.Dispose();
                     _samplerObjects.Dispose();
                     _textureViewApi.Dispose();
