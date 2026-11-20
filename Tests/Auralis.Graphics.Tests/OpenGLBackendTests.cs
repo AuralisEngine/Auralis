@@ -76,6 +76,31 @@ public sealed class OpenGLBackendTests
 
 
     [Fact]
+    public void ContextLeaseReleasesOnlyAfterSuccessfulMakeCurrentAndOnlyOnce()
+    {
+        var failingProvider = new TestContextProvider(
+            isAvailable: true,
+            makeCurrentThrows: true);
+
+        Assert.Throws<InvalidOperationException>(() =>
+            OpenGLContextLease.Acquire(failingProvider));
+
+        Assert.Equal(1, failingProvider.MakeCurrentCount);
+        Assert.Equal(0, failingProvider.ReleaseCurrentCount);
+
+        var successfulProvider = new TestContextProvider(isAvailable: true);
+        OpenGLContextLease lease = OpenGLContextLease.Acquire(successfulProvider);
+
+        Assert.Equal(1, successfulProvider.MakeCurrentCount);
+        Assert.Equal(0, successfulProvider.ReleaseCurrentCount);
+
+        lease.Dispose();
+        lease.Dispose();
+
+        Assert.Equal(1, successfulProvider.ReleaseCurrentCount);
+    }
+
+    [Fact]
     public void OpenGLDeviceOptionsRejectUnverifiableAdapterAndUnsupportedDebugLayers()
     {
         Assert.Throws<GraphicsBackendUnavailableException>(() =>
@@ -448,7 +473,8 @@ public sealed class OpenGLBackendTests
         OpenGLContextOwnership ownership = OpenGLContextOwnership.Borrowed,
         bool supportsPresentation = false,
         bool targetCompatible = false,
-        GraphicsPresentMode supportedPresentMode = GraphicsPresentMode.Fifo) : IOpenGLContextProvider
+        GraphicsPresentMode supportedPresentMode = GraphicsPresentMode.Fifo,
+        bool makeCurrentThrows = false) : IOpenGLContextProvider
     {
         public object ContextIdentity { get; } = new object();
         public OpenGLContextOwnership Ownership { get; } = ownership;
@@ -456,6 +482,8 @@ public sealed class OpenGLBackendTests
         public bool IsAvailable { get; } = isAvailable;
         public string? UnavailableReason => IsAvailable ? null : "No current desktop GL context.";
         public bool SupportsPresentation { get; } = supportsPresentation;
+        public int MakeCurrentCount { get; private set; }
+        public int ReleaseCurrentCount { get; private set; }
         public bool IsPresentationTargetCompatible(in GraphicsPresentationTargetSnapshot target) =>
             SupportsPresentation && targetCompatible;
         public bool SupportsPresentMode(GraphicsPresentMode presentMode) =>
@@ -466,8 +494,14 @@ public sealed class OpenGLBackendTests
                 throw new NotSupportedException();
         }
 
-        public void MakeCurrent() => throw new NotSupportedException();
-        public void ReleaseCurrent() => throw new NotSupportedException();
+        public void MakeCurrent()
+        {
+            MakeCurrentCount++;
+            if (makeCurrentThrows)
+                throw new InvalidOperationException("Simulated context activation failure.");
+        }
+
+        public void ReleaseCurrent() => ReleaseCurrentCount++;
         public nint GetProcAddress(string name) => 0;
         public void SwapBuffers()
         {
