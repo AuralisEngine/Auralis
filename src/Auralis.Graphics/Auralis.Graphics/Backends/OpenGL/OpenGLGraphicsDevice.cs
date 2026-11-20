@@ -77,12 +77,6 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
         {
             gl = GL.GetApi(contextProvider.GetProcAddress);
 
-            // These Silk.NET extension wrappers load the entry points promoted into the required
-            // desktop 4.5 core version. Construct them only with this context current.
-            directStateAccess = new ArbDirectStateAccess(gl.Context);
-            textureViewApi = new ArbTextureView(gl.Context);
-            samplerObjects = new ArbSamplerObjects(gl.Context);
-            internalFormatQuery = new ArbInternalformatQuery(gl.Context);
             int major = gl.GetInteger(GLEnum.MajorVersion);
             int minor = gl.GetInteger(GLEnum.MinorVersion);
             int profile = gl.GetInteger(GLEnum.ContextProfileMask);
@@ -94,6 +88,13 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
                 throw new GraphicsBackendUnavailableException(
                     GraphicsBackend.OpenGL,
                     "A desktop OpenGL Core Profile context is required.");
+
+            // These Silk.NET wrappers load entry points promoted into the required desktop 4.5
+            // core version. Construct them only after validation, with this context current.
+            directStateAccess = new ArbDirectStateAccess(gl.Context);
+            textureViewApi = new ArbTextureView(gl.Context);
+            samplerObjects = new ArbSamplerObjects(gl.Context);
+            internalFormatQuery = new ArbInternalformatQuery(gl.Context);
 
             string vendor = gl.GetStringS(StringName.Vendor);
             string renderer = gl.GetStringS(StringName.Renderer);
