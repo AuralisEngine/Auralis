@@ -17,6 +17,7 @@ internal static class OpenGLFormatCapabilities
             return [];
 
         List<GraphicsFormatCapabilities> formats = new(35);
+        Span<int> queriedSamples = stackalloc int[64];
         foreach (GraphicsFormat format in Enum.GetValues<GraphicsFormat>())
         {
             if (format == GraphicsFormat.Unknown ||
@@ -108,7 +109,7 @@ internal static class OpenGLFormatCapabilities
 
             if (count > 0 && count <= 64)
             {
-                Span<int> queriedCounts = stackalloc int[count];
+                Span<int> queriedCounts = queriedSamples[..count];
                 internalFormatQuery.GetInternalformat(
                     TextureTarget.Texture2DMultisample,
                     queryFormat,
