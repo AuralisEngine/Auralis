@@ -323,7 +323,11 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
     public void Dispatch(uint groupCountX, uint groupCountY = 1, uint groupCountZ = 1) => throw Unsupported("Compute dispatch");
     public void DispatchIndirect(IGraphicsBuffer arguments, ulong offset) => throw Unsupported("Indirect compute dispatch");
 
-    internal void Execute(GL gl, ArbDirectStateAccess dsa, ArbCopyImage copyImage)
+    internal void Execute(
+        GL gl,
+        ArbDirectStateAccess dsa,
+        ArbCopyImage copyImage,
+        ArbViewportArray viewportApi)
     {
         ReadOnlySpan<OpenGLRecordedCommand> commands = Commands;
         uint framebuffer = 0;
@@ -355,13 +359,13 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
                         break;
                     case OpenGLCommandKind.SetViewport:
                         GraphicsViewport viewport = command.Viewport;
-                        gl.Viewport(viewport.X, viewport.Y, viewport.Width, viewport.Height);
-                        gl.DepthRange(viewport.MinDepth, viewport.MaxDepth);
+                        viewportApi.ViewportIndexedf(0, viewport.X, viewport.Y, viewport.Width, viewport.Height);
+                        viewportApi.DepthRangeIndexed(0, viewport.MinDepth, viewport.MaxDepth);
                         break;
                     case OpenGLCommandKind.SetScissor:
                         GraphicsScissorRect scissor = command.Scissor;
                         gl.Enable(EnableCap.ScissorTest);
-                        gl.Scissor(scissor.X, scissor.Y, checked((int)scissor.Width), checked((int)scissor.Height));
+                        viewportApi.ScissorIndexed(0, scissor.X, scissor.Y, scissor.Width, scissor.Height);
                         break;
                     case OpenGLCommandKind.ClearColor:
                         EnsureFramebuffer(framebuffer);
