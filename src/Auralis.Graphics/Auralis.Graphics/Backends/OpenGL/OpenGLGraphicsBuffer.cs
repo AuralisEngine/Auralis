@@ -77,17 +77,9 @@ internal sealed unsafe class OpenGLGraphicsBuffer : GraphicsDeviceObject, IGraph
             {
                 _device.WithContext(gl =>
                 {
-                    int previousBinding = gl.GetInteger(GLEnum.ArrayBufferBinding);
-                    try
-                    {
-                        gl.BindBuffer(BufferTargetARB.ArrayBuffer, _handle);
-                        fixed (byte* data = staging)
-                            gl.GetBufferSubData(BufferTargetARB.ArrayBuffer, (nint)offset, (nuint)size, data);
-                    }
-                    finally
-                    {
-                        gl.BindBuffer(BufferTargetARB.ArrayBuffer, unchecked((uint)previousBinding));
-                    }
+                    fixed (byte* data = staging)
+                        _device.DirectStateAccess.GetNamedBufferSubData(
+                            _handle, (nint)offset, (nuint)size, data);
                 });
             }
 
@@ -116,17 +108,9 @@ internal sealed unsafe class OpenGLGraphicsBuffer : GraphicsDeviceObject, IGraph
             ulong offset = _mappedOffset;
             _device.WithContext(gl =>
             {
-                int previousBinding = gl.GetInteger(GLEnum.ArrayBufferBinding);
-                try
-                {
-                    gl.BindBuffer(BufferTargetARB.ArrayBuffer, _handle);
-                    fixed (byte* data = staging)
-                        gl.BufferSubData(BufferTargetARB.ArrayBuffer, (nint)offset, (nuint)staging.Length, data);
-                }
-                finally
-                {
-                    gl.BindBuffer(BufferTargetARB.ArrayBuffer, unchecked((uint)previousBinding));
-                }
+                fixed (byte* data = staging)
+                    _device.DirectStateAccess.NamedBufferSubData(
+                        _handle, (nint)offset, (nuint)staging.Length, data);
             });
         }
 
