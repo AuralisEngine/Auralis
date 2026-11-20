@@ -223,7 +223,7 @@ internal sealed class OpenGLGraphicsRenderPipeline : GraphicsDeviceObject, IGrap
         gl.LineWidth(rasterization.LineWidth);
 
         ApplyDepthStencil(gl, Description.DepthStencil);
-        ApplyBlend(gl, Description.Blend, Description.ColorFormats.Length);
+        ApplyBlend(gl, _device.DrawBuffersBlendApi, Description.Blend, Description.ColorFormats.Length);
 
         if (Description.Tessellation is { } tessellation)
             gl.PatchParameter(PatchParameterName.Vertices, checked((int)tessellation.PatchControlPoints));
@@ -251,45 +251,71 @@ internal sealed class OpenGLGraphicsRenderPipeline : GraphicsDeviceObject, IGrap
             OpenGLPipelineMapping.ToStencilOperation(state.DepthFail),
             OpenGLPipelineMapping.ToStencilOperation(state.Pass));
         gl.StencilFuncSeparate(
-            face,
-            OpenGLPipelineMapping.ToDepthFunction(state.Compare),
+            (GLEnum)face,
+            (GLEnum)OpenGLPipelineMapping.ToDepthFunction(state.Compare),
             unchecked((int)state.Reference),
             state.CompareMask);
         gl.StencilMaskSeparate(face, state.WriteMask);
     }
 
-    private static void ApplyBlend(GL gl, GraphicsBlendState blend, int colorTargetCount)
+    private static void ApplyBlend(
+        GL gl,
+        ArbDrawBuffersBlend drawBuffersBlend,
+        GraphicsBlendState blend,
+        int colorTargetCount)
     {
+        if (colorTargetCount == 0)
+            return;
+
         ReadOnlySpan<GraphicsBlendAttachmentState> attachments = blend.Attachments;
+        GraphicsBlendAttachmentState first = attachments.IsEmpty
+            ? new GraphicsBlendAttachmentState(
+                false,
+                GraphicsBlendFactor.One,
+                GraphicsBlendFactor.Zero,
+                GraphicsBlendOperation.Add,
+                GraphicsBlendFactor.One,
+                GraphicsBlendFactor.Zero,
+                GraphicsBlendOperation.Add,
+                GraphicsColorWriteMask.All)
+            : attachments[0];
+
+        // GL 4.5 provides indexed blend factors/equations, but Silk.NET 2.23.0 exposes the
+        // indexed enable and color-mask operations only through the EXT_draw_buffers2 wrapper
+        // in its Legacy package. This backend does not mix OpenGL binding assemblies. Therefore
+        // enable state and write mask are required to be common across draw buffers; blend
+        // factors/equations remain independently configured through ARB_draw_buffers_blend.
+        for (int i = 1; i < colorTargetCount; i++)
+        {
+            GraphicsBlendAttachmentState current = attachments.IsEmpty
+                ? first
+                : attachments[i];
+            if (current.BlendEnabled != first.BlendEnabled || current.WriteMask != first.WriteMask)
+                throw new GraphicsValidationException(
+                    "OpenGL 4.5 backend currently requires identical blend-enable and color-write-mask state for every color attachment.");
+        }
+
+        SetEnabled(gl, EnableCap.Blend, first.BlendEnabled);
+        GraphicsColorWriteMask mask = first.WriteMask;
+        gl.ColorMask(
+            (mask & GraphicsColorWriteMask.Red) != 0,
+            (mask & GraphicsColorWriteMask.Green) != 0,
+            (mask & GraphicsColorWriteMask.Blue) != 0,
+            (mask & GraphicsColorWriteMask.Alpha) != 0);
+
         for (int i = 0; i < colorTargetCount; i++)
         {
-            GraphicsBlendAttachmentState state = attachments.IsEmpty
-                ? default
-                : attachments[i];
-
-            if (state.BlendEnabled)
-                gl.Enablei(EnableCap.Blend, (uint)i);
-            else
-                gl.Disablei(EnableCap.Blend, (uint)i);
-
-            gl.BlendFuncSeparatei(
+            GraphicsBlendAttachmentState state = attachments.IsEmpty ? first : attachments[i];
+            drawBuffersBlend.BlendFuncSeparate(
                 (uint)i,
                 OpenGLPipelineMapping.ToBlendFactor(state.SourceColor),
                 OpenGLPipelineMapping.ToBlendFactor(state.DestinationColor),
                 OpenGLPipelineMapping.ToBlendFactor(state.SourceAlpha),
                 OpenGLPipelineMapping.ToBlendFactor(state.DestinationAlpha));
-            gl.BlendEquationSeparatei(
+            drawBuffersBlend.BlendEquationSeparate(
                 (uint)i,
                 OpenGLPipelineMapping.ToBlendEquation(state.ColorOperation),
                 OpenGLPipelineMapping.ToBlendEquation(state.AlphaOperation));
-
-            GraphicsColorWriteMask mask = state.WriteMask;
-            gl.ColorMaski(
-                (uint)i,
-                (mask & GraphicsColorWriteMask.Red) != 0,
-                (mask & GraphicsColorWriteMask.Green) != 0,
-                (mask & GraphicsColorWriteMask.Blue) != 0,
-                (mask & GraphicsColorWriteMask.Alpha) != 0);
         }
     }
 
