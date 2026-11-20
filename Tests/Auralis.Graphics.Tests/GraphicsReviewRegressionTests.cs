@@ -422,17 +422,19 @@ public sealed class GraphicsReviewRegressionTests
         var surface = new TestPresentationSurface(device, target);
 
         var graphicsQueue = new TestQueue(device, GraphicsQueueType.Graphics);
+        var presentQueue = new TestQueue(device, GraphicsQueueType.Present);
         var computeQueue = new TestQueue(device, GraphicsQueueType.Compute);
         var foreignQueue = new TestQueue(foreignDevice, GraphicsQueueType.Graphics);
 
         Assert.True(surface.SupportsPresentation(graphicsQueue));
+        Assert.True(surface.SupportsPresentation(presentQueue));
         Assert.False(surface.SupportsPresentation(computeQueue));
         Assert.False(surface.SupportsPresentation(foreignQueue));
 
         var swapChain = surface.CreateSwapChain(
-            graphicsQueue,
+            presentQueue,
             new GraphicsSwapChainDescription(1280, 720, GraphicsFormat.BGRA8UNorm, 3, GraphicsPresentMode.Fifo));
-        Assert.Same(graphicsQueue, swapChain.PresentationQueue);
+        Assert.Same(presentQueue, swapChain.PresentationQueue);
         Assert.Throws<GraphicsException>(() => surface.CreateSwapChain(
             computeQueue,
             new GraphicsSwapChainDescription(1280, 720, GraphicsFormat.BGRA8UNorm, 3, GraphicsPresentMode.Fifo)));
@@ -599,7 +601,7 @@ public sealed class GraphicsReviewRegressionTests
 
         public bool SupportsPresentation(IGraphicsCommandQueue queue) =>
             !IsDisposed && ReferenceEquals(queue.Device, Device) &&
-            queue.QueueType == GraphicsQueueType.Graphics;
+            queue.QueueType is GraphicsQueueType.Graphics or GraphicsQueueType.Present;
 
         public IGraphicsSwapChain CreateSwapChain(
             IGraphicsCommandQueue presentationQueue,

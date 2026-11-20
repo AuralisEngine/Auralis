@@ -23,6 +23,10 @@ public interface IGraphicsDevice : IDisposable
 
     bool IsDisposed { get; }
 
+    /// <summary>
+    /// Gets a queue candidate for the requested role. A Present queue is only a candidate;
+    /// validate it with IGraphicsPresentationSurface.SupportsPresentation for the actual target.
+    /// </summary>
     IGraphicsCommandQueue GetQueue(GraphicsQueueType queueType, uint index = 0);
 
     IGraphicsBuffer CreateBuffer(in GraphicsBufferDescription description);

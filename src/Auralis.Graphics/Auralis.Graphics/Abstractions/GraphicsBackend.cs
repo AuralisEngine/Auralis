@@ -83,12 +83,15 @@ public readonly record struct GraphicsFeatureSet(GraphicsFeature Enabled)
     public GraphicsFeature MissingFrom(GraphicsFeature requested) => requested & ~Enabled;
 }
 
-/// <summary>Logical queue role used to request a command queue.</summary>
+/// <summary>
+/// Logical queue role used to request a command queue. A presentation queue may have no
+/// graphics/compute capability; surface compatibility must still be queried for the target.
 public enum GraphicsQueueType
 {
     Graphics,
     Compute,
-    Copy
+    Copy,
+    Present
 }
 
 /// <summary>

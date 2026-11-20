@@ -37,6 +37,17 @@ public sealed class CommandLifecycleTests
     }
 
     [Fact]
+    public void PresentationOnlyQueueCannotRecordGpuCommands()
+    {
+        var presentation = new GraphicsCommandListLifecycle(GraphicsQueueType.Present);
+        presentation.Begin();
+
+        Assert.Throws<InvalidOperationException>(presentation.EnsureGraphicsCommands);
+        Assert.Throws<InvalidOperationException>(presentation.EnsureComputeCommands);
+        Assert.Throws<InvalidOperationException>(presentation.EnsureCopyCommands);
+    }
+
+    [Fact]
     public void OneTimeCommandListCannotBeSubmittedTwiceOrResetAfterSubmission()
     {
         var lifecycle = new GraphicsCommandListLifecycle(

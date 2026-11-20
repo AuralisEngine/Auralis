@@ -119,11 +119,16 @@ public sealed class GraphicsCommandListLifecycle
     public void EnsureComputeCommands()
     {
         EnsureRecording();
-        if (QueueType == GraphicsQueueType.Copy)
-            throw new InvalidOperationException("Dispatch commands are not legal on a copy command list.");
+        if (QueueType is GraphicsQueueType.Copy or GraphicsQueueType.Present)
+            throw new InvalidOperationException("Dispatch commands are not legal on this command-list queue role.");
     }
 
-    public void EnsureCopyCommands() => EnsureRecording();
+    public void EnsureCopyCommands()
+    {
+        EnsureRecording();
+        if (QueueType == GraphicsQueueType.Present)
+            throw new InvalidOperationException("Copy commands are not legal on a presentation-only command list.");
+    }
 
     /// <summary>Marks the tracker disposed after backend-owned in-flight work has completed.</summary>
     public void MarkDisposed()
@@ -152,9 +157,10 @@ public sealed class GraphicsCommandListLifecycle
 }
 
 /// <summary>
-/// A queue is owned by its device and is not independently disposable. Submit accepts already-recorded
-/// lists; the backend validates queue/device compatibility and tracks in-flight completion.
-/// </summary>
+ /// A queue is owned by its device and is not independently disposable. Submit accepts already-recorded
+ /// lists; the backend validates queue/device compatibility and tracks in-flight completion. A presentation-only
+ /// queue can be used by a surface/swapchain but does not necessarily support command recording.
+ /// </summary>
 public interface IGraphicsCommandQueue
 {
     IGraphicsDevice Device { get; }
