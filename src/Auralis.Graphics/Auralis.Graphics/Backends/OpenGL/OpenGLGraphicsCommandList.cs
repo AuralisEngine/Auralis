@@ -64,6 +64,7 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
     private readonly List<OpenGLRecordedCommand> _commands = new(64);
     private uint _recordedColorTargetCount;
     private bool _recordedHasDepthStencil;
+    private GraphicsFormat _renderTargetsDepthFormat;
 
     internal OpenGLGraphicsCommandList(
         OpenGLGraphicsCommandQueue queue,
@@ -107,6 +108,7 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
         _commands.Clear();
         _recordedColorTargetCount = 0;
         _recordedHasDepthStencil = false;
+        _renderTargetsDepthFormat = GraphicsFormat.Unknown;
     }
 
     public void MemoryBarrier(ReadOnlySpan<GraphicsResourceBarrier> barriers)
@@ -212,6 +214,11 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
         });
         _recordedColorTargetCount = (uint)colors.Length;
         _recordedHasDepthStencil = depthStencilTarget is not null;
+        _renderTargetsDepthFormat = depthStencilTarget is null
+            ? GraphicsFormat.Unknown
+            : depthStencilTarget.Description.Format == GraphicsFormat.Unknown
+                ? depthStencilTarget.Texture.Description.Format
+                : depthStencilTarget.Description.Format;
     }
 
     public void SetViewport(in GraphicsViewport viewport)
@@ -236,8 +243,9 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
     {
         EnsureRecording();
         EnsureGraphicsQueue();
-        if (attachmentIndex >= _recordedColorTargetCount)
-            throw new GraphicsValidationException("The requested color attachment is not bound.");
+        GraphicsFormat format = GetColorTargetFormat(attachmentIndex);
+        if (OpenGLFormatCapabilities.IsUnsignedInteger(format) || OpenGLFormatCapabilities.IsSignedInteger(format))
+            throw new GraphicsValidationException("Floating-point color clears cannot target integer formats.");
         GraphicsClearColor value = color;
         value.Validate();
         _commands.Add(new OpenGLRecordedCommand
@@ -252,8 +260,9 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
     {
         EnsureRecording();
         EnsureGraphicsQueue();
-        if (attachmentIndex >= _recordedColorTargetCount)
-            throw new GraphicsValidationException("The requested color attachment is not bound.");
+        GraphicsFormat format = GetColorTargetFormat(attachmentIndex);
+        if (!OpenGLFormatCapabilities.IsUnsignedInteger(format))
+            throw new GraphicsValidationException("Unsigned integer color clears require an unsigned integer attachment format.");
         _commands.Add(new OpenGLRecordedCommand
         {
             Kind = OpenGLCommandKind.ClearColorUInt,
@@ -266,8 +275,9 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
     {
         EnsureRecording();
         EnsureGraphicsQueue();
-        if (attachmentIndex >= _recordedColorTargetCount)
-            throw new GraphicsValidationException("The requested color attachment is not bound.");
+        GraphicsFormat format = GetColorTargetFormat(attachmentIndex);
+        if (!OpenGLFormatCapabilities.IsSignedInteger(format))
+            throw new GraphicsValidationException("Signed integer color clears require a signed integer attachment format.");
         _commands.Add(new OpenGLRecordedCommand
         {
             Kind = OpenGLCommandKind.ClearColorSInt,
@@ -286,6 +296,12 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
             throw new ArgumentException("At least one of clearDepth or clearStencil must be true.");
         if (clearDepth && (!float.IsFinite(depth) || depth < 0 || depth > 1))
             throw new ArgumentOutOfRangeException(nameof(depth));
+        if (clearStencil)
+        {
+            GraphicsFormat depthFormat = _renderTargetsDepthFormat;
+            if (depthFormat is not (GraphicsFormat.D24UNormS8UInt or GraphicsFormat.D32FloatS8UInt))
+                throw new GraphicsValidationException("A stencil clear requires a depth/stencil attachment with stencil storage.");
+        }
         _commands.Add(new OpenGLRecordedCommand
         {
             Kind = OpenGLCommandKind.ClearDepthStencil,
@@ -335,7 +351,7 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
                     case OpenGLCommandKind.SetRenderTargets:
                         if (framebuffer != 0)
                             gl.DeleteFramebuffer(framebuffer);
-                        framebuffer = CreateFramebuffer(dsa, command.RenderTargets!);
+                        framebuffer = CreateFramebuffer(gl, dsa, command.RenderTargets!);
                         break;
                     case OpenGLCommandKind.SetViewport:
                         GraphicsViewport viewport = command.Viewport;
@@ -376,6 +392,7 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
     }
 
     private static uint CreateFramebuffer(
+        GL gl,
         ArbDirectStateAccess dsa,
         OpenGLRenderTargetSet targets)
     {
@@ -429,8 +446,7 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
         }
         catch
         {
-            // The object was generated by this context's DSA API and is safe to delete here.
-            // Caller cleanup is handled in the execution finally block only after ownership transfer.
+            gl.DeleteFramebuffer(framebuffer);
             throw;
         }
     }
@@ -476,6 +492,26 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
             Span<int> stencil = stackalloc int[1] { unchecked((int)command.ClearStencil) };
             dsa.ClearNamedFramebuffer(framebuffer, BufferKind.Stencil, 0, stencil);
         }
+    }
+
+    private GraphicsFormat GetColorTargetFormat(uint attachmentIndex)
+    {
+        if (attachmentIndex >= _recordedColorTargetCount)
+            throw new GraphicsValidationException("The requested color attachment is not bound.");
+
+        // The last SetRenderTargets command retains the views; locate its recorded view set.
+        for (int i = _commands.Count - 1; i >= 0; i--)
+        {
+            if (_commands[i].Kind != OpenGLCommandKind.SetRenderTargets)
+                continue;
+
+            IGraphicsTextureView view = _commands[i].RenderTargets!.ColorTargets[checked((int)attachmentIndex)];
+            return view.Description.Format == GraphicsFormat.Unknown
+                ? view.Texture.Description.Format
+                : view.Description.Format;
+        }
+
+        throw new GraphicsValidationException("No color attachment set is active.");
     }
 
     private void EnsureGraphicsQueue()
