@@ -159,7 +159,10 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
         if (gl.TryGetExtension(out ArbInternalformatQuery extension))
             query = extension;
 
-        GraphicsFormatCapabilities[] formats = OpenGLFormatCapabilities.Query(gl, query);
+        bool hasInternalFormatQuery2 = AtLeast(major, minor, 4, 3) ||
+                                       gl.IsExtensionPresent("GL_ARB_internalformat_query2");
+        GraphicsFormatCapabilities[] formats = OpenGLFormatCapabilities.Query(
+            gl, query, hasInternalFormatQuery2);
 
         return new GraphicsDeviceCapabilities(
             new GraphicsFeatureSet(features),
