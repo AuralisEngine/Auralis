@@ -11,6 +11,77 @@ namespace Auralis.Graphics.Tests;
 
 public sealed class GraphicsReviewRegressionTests
 {
+
+    [Fact]
+    public void RenderTargetValidationChecksOwnershipExtentSamplesUsageAndFormats()
+    {
+        var colorCapabilities = new GraphicsFormatCapabilities(
+            GraphicsFormat.RGBA8UNorm,
+            GraphicsFormatSupport.ColorAttachment,
+            GraphicsSampleCountFlags.One | GraphicsSampleCountFlags.Four);
+        var depthCapabilities = new GraphicsFormatCapabilities(
+            GraphicsFormat.D32Float,
+            GraphicsFormatSupport.DepthStencilAttachment,
+            GraphicsSampleCountFlags.One | GraphicsSampleCountFlags.Four);
+        var device = CreateDevice(GraphicsFeature.None, colorCapabilities, depthCapabilities);
+
+        var colorTexture = new TestTexture(device, new GraphicsTextureDescription(
+            GraphicsTextureDimension.Texture2D,
+            GraphicsFormat.RGBA8UNorm,
+            128, 64, 1, 1, 1, 1,
+            GraphicsTextureUsage.ColorAttachment));
+        var depthTexture = new TestTexture(device, new GraphicsTextureDescription(
+            GraphicsTextureDimension.Texture2D,
+            GraphicsFormat.D32Float,
+            128, 64, 1, 1, 1, 1,
+            GraphicsTextureUsage.DepthStencilAttachment));
+
+        var colorView = new TestTextureView(colorTexture, new GraphicsTextureViewDescription(
+            GraphicsFormat.Unknown, GraphicsTextureViewType.Texture2D, 0, 1, 0, 1));
+        var depthView = new TestTextureView(depthTexture, new GraphicsTextureViewDescription(
+            GraphicsFormat.Unknown, GraphicsTextureViewType.Texture2D, 0, 1, 0, 1));
+
+        Assert.Equal(
+            new GraphicsRenderTargetExtent(128, 64, 1),
+            GraphicsRenderTargetValidation.Validate(device, [colorView], depthView));
+
+        var mismatchedExtent = new TestTexture(device, colorTexture.Description with { Width = 64 });
+        var mismatchedView = new TestTextureView(mismatchedExtent, colorView.Description);
+        Assert.Throws<GraphicsValidationException>(() =>
+            GraphicsRenderTargetValidation.Validate(device, [colorView, mismatchedView]));
+
+        var foreignDevice = CreateDevice(GraphicsFeature.None, colorCapabilities, depthCapabilities);
+        var foreignTexture = new TestTexture(foreignDevice, colorTexture.Description);
+        var foreignView = new TestTextureView(foreignTexture, colorView.Description);
+        Assert.Throws<ArgumentException>(() =>
+            GraphicsRenderTargetValidation.Validate(device, [foreignView]));
+
+        var sampledOnly = new TestTexture(device,
+            colorTexture.Description with { Usage = GraphicsTextureUsage.Sampled });
+        var sampledOnlyView = new TestTextureView(sampledOnly, colorView.Description);
+        Assert.Throws<GraphicsValidationException>(() =>
+            GraphicsRenderTargetValidation.Validate(device, [sampledOnlyView]));
+    }
+
+    [Fact]
+    public void RenderTargetAndDynamicStateDescriptionsRejectInvalidValues()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new GraphicsViewport(0, 0, -1, 100).Validate());
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new GraphicsViewport(0, 0, 100, 100, 0.8f, 0.2f).Validate());
+        Assert.Throws<ArgumentException>(() =>
+            new GraphicsViewport(float.NaN, 0, 100, 100).Validate());
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new GraphicsScissorRect(0, 0, uint.MaxValue, 1).Validate());
+        Assert.Throws<ArgumentException>(() =>
+            new GraphicsClearColor(0, 0, float.PositiveInfinity, 1).Validate());
+
+        new GraphicsViewport(0, 0, 1280, 720).Validate();
+        new GraphicsScissorRect(-2, 0, 0, 32).Validate();
+        new GraphicsClearColor(0, 0, 0, 1).Validate();
+    }
+
     [Fact]
     public void VariableCountBindingMustHaveHighestBindingNumberRegardlessOfInputOrder()
     {
@@ -566,8 +637,18 @@ public sealed class GraphicsReviewRegressionTests
     {
         public string? DebugName => null;
         public GraphicsTextureDescription Description { get; } = description;
-        public IGraphicsTextureView CreateView(in GraphicsTextureViewDescription description) =>
-            throw new NotSupportedException();
+        public IGraphicsTextureView CreateView(in GraphicsTextureViewDescription viewDescription) =>
+            new TestTextureView(this, viewDescription);
+        protected override void DisposeCore() { }
+    }
+
+    private sealed class TestTextureView(
+        IGraphicsTexture texture,
+        GraphicsTextureViewDescription description) : GraphicsDeviceObject(texture.Device), IGraphicsTextureView
+    {
+        public string? DebugName => null;
+        public IGraphicsTexture Texture { get; } = texture;
+        public GraphicsTextureViewDescription Description { get; } = description;
         protected override void DisposeCore() { }
     }
 
