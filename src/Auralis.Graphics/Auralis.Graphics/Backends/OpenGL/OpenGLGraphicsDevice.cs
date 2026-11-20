@@ -153,7 +153,31 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
         return true;
     });
 
-    internal void Register(IOpenGLNativeResource resource) => _resources.Add(resource);
+    /// <summary>Registers a resource from inside a WithContext callback, while the context gate is held.</summary>
+    internal void RegisterUnderContext(IOpenGLNativeResource resource) => _resources.Add(resource);
+
+    /// <summary>
+    /// Releases a resource under the same context serialization used for commands. If device disposal
+    /// already owns the gate, it has responsibility for draining the registered resource set.
+    /// </summary>
+    internal void ReleaseResource(IOpenGLNativeResource resource)
+    {
+        lock (_contextGate)
+        {
+            if (IsDisposed)
+                return;
+
+            _contextProvider.MakeCurrent();
+            try
+            {
+                resource.ReleaseNative(_gl);
+            }
+            finally
+            {
+                _contextProvider.ReleaseCurrent();
+            }
+        }
+    }
 
     public IGraphicsCommandQueue GetQueue(GraphicsQueueType queueType, uint index = 0) =>
         throw new NotSupportedException("Command queues and command-list execution are not part of the initial OpenGL backend increment.");
@@ -164,38 +188,43 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
     public unsafe IGraphicsBuffer CreateBuffer(in GraphicsBufferDescription description)
     {
         ObjectDisposedException.ThrowIf(IsDisposed, this);
-        Capabilities.ValidateBufferDescription(description);
-        ulong sizeInBytes = description.SizeInBytes;
+        GraphicsBufferDescription bufferDescription = description;
+        Capabilities.ValidateBufferDescription(bufferDescription);
+        ulong sizeInBytes = bufferDescription.SizeInBytes;
         if (sizeInBytes > (ulong)nuint.MaxValue)
             throw new GraphicsValidationException("The requested buffer is larger than the native addressable size.");
-        uint handle = WithContext(gl =>
+
+        return WithContext(gl =>
         {
+            int previousBinding = gl.GetInteger(GLEnum.ArrayBufferBinding);
             uint buffer = gl.GenBuffer();
+            bool registered = false;
             try
             {
                 gl.BindBuffer(BufferTargetARB.ArrayBuffer, buffer);
                 gl.BufferData(BufferTargetARB.ArrayBuffer, (nuint)sizeInBytes, null, BufferUsageARB.DynamicDraw);
-                gl.BindBuffer(BufferTargetARB.ArrayBuffer, 0);
-                return buffer;
+                OpenGLGraphicsBuffer resource = new(this, bufferDescription, buffer);
+                RegisterUnderContext(resource);
+                registered = true;
+                return (IGraphicsBuffer)resource;
             }
             catch
             {
-                gl.DeleteBuffer(buffer);
+                if (!registered)
+                    gl.DeleteBuffer(buffer);
                 throw;
             }
+            finally
+            {
+                gl.BindBuffer(BufferTargetARB.ArrayBuffer, unchecked((uint)previousBinding));
+            }
         });
-
-        OpenGLGraphicsBuffer resource = new(this, description, handle);
-        Register(resource);
-        return resource;
     }
 
     public IGraphicsShader CreateShader(in GraphicsShaderDescription description)
     {
         ObjectDisposedException.ThrowIf(IsDisposed, this);
-        OpenGLGraphicsShader resource = OpenGLGraphicsShader.Create(this, description);
-        Register(resource);
-        return resource;
+        return OpenGLGraphicsShader.Create(this, description);
     }
 
     public IGraphicsTexture CreateTexture(in GraphicsTextureDescription description) =>
@@ -227,26 +256,32 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
 
     public void Dispose()
     {
-        if (Interlocked.Exchange(ref _disposeState, 1) != 0)
-            return;
-
         lock (_contextGate)
         {
-            _contextProvider.MakeCurrent();
+            if (Interlocked.Exchange(ref _disposeState, 1) != 0)
+                return;
+
             try
             {
-                foreach (IOpenGLNativeResource resource in _resources)
-                    resource.ReleaseNative(_gl);
-                _gl.Finish();
-                _gl.Dispose();
+                _contextProvider.MakeCurrent();
+                try
+                {
+                    foreach (IOpenGLNativeResource resource in _resources)
+                        resource.ReleaseNative(_gl);
+
+                    _gl.Finish();
+                    _gl.Dispose();
+                }
+                finally
+                {
+                    _contextProvider.ReleaseCurrent();
+                }
             }
             finally
             {
-                _contextProvider.ReleaseCurrent();
+                if (_contextProvider.Ownership == OpenGLContextOwnership.Owned)
+                    _contextProvider.Dispose();
             }
         }
-
-        if (_contextProvider.Ownership == OpenGLContextOwnership.Owned)
-            _contextProvider.Dispose();
     }
 }
