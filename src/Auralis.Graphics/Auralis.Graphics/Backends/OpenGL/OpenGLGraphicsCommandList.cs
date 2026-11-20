@@ -697,7 +697,7 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
                     case OpenGLCommandKind.SetBindingSet:
                         if (activePipeline?.Layout is not OpenGLGraphicsPipelineLayout activeLayout)
                             throw new GraphicsValidationException("A render pipeline must be active before descriptor sets are bound.");
-                        command.BindingSet!.Bind(gl, dsa, activeLayout, command.SetIndex);
+                        command.BindingSet!.Bind(gl, dsa, imageLoadStoreApi, activeLayout, command.SetIndex);
                         break;
                     case OpenGLCommandKind.SetVertexBuffer:
                         if (activePipeline is null)
