@@ -87,7 +87,7 @@ internal sealed class OpenGLGraphicsRenderPipeline : GraphicsDeviceObject, IGrap
 
         return device.WithContext(gl =>
         {
-            uint program = LinkProgram(gl, description.Shaders);
+            uint program = OpenGLProgramLinker.Link(gl, description.Shaders);
             uint vertexArray = 0;
             try
             {
@@ -108,34 +108,6 @@ internal sealed class OpenGLGraphicsRenderPipeline : GraphicsDeviceObject, IGrap
                 throw;
             }
         });
-    }
-
-    private static uint LinkProgram(GL gl, ReadOnlySpan<IGraphicsShader> shaders)
-    {
-        uint program = gl.CreateProgram();
-        if (program == 0)
-            throw new GraphicsException("OpenGL failed to create a shader program.");
-
-        try
-        {
-            for (int i = 0; i < shaders.Length; i++)
-                gl.AttachShader(program, ((OpenGLGraphicsShader)shaders[i]).Handle);
-
-            gl.LinkProgram(program);
-            gl.GetProgram(program, ProgramPropertyARB.LinkStatus, out int linked);
-            if (linked == 0)
-                throw new GraphicsException($"OpenGL shader program link failed:\n{gl.GetProgramInfoLog(program)}");
-
-            for (int i = 0; i < shaders.Length; i++)
-                gl.DetachShader(program, ((OpenGLGraphicsShader)shaders[i]).Handle);
-
-            return program;
-        }
-        catch
-        {
-            gl.DeleteProgram(program);
-            throw;
-        }
     }
 
     private static void ConfigureVertexArray(
