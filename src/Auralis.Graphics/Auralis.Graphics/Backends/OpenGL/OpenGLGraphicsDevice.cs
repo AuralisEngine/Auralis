@@ -172,14 +172,7 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
         bool hasCompute = AtLeast(major, minor, 4, 3);
         bool hasTessellation = AtLeast(major, minor, 4, 0);
         bool hasGeometry = AtLeast(major, minor, 3, 2);
-        bool hasTimerQuery = AtLeast(major, minor, 3, 3) || gl.IsExtensionPresent("GL_ARB_timer_query");
         bool hasAnisotropy = gl.IsExtensionPresent("GL_EXT_texture_filter_anisotropic");
-        bool hasSparseTextures = gl.IsExtensionPresent("GL_ARB_sparse_texture");
-        bool hasMultiViewport = AtLeast(major, minor, 4, 1);
-        bool hasDepthBounds = gl.IsExtensionPresent("GL_EXT_depth_bounds_test") ||
-                              gl.IsExtensionPresent("GL_NV_depth_bounds_test");
-        bool hasMeshShaders = gl.IsExtensionPresent("GL_NV_mesh_shader") ||
-                              gl.IsExtensionPresent("GL_EXT_mesh_shader");
 
         GraphicsFeature features = GraphicsFeature.None;
         if (hasCompute) features |= GraphicsFeature.ComputeShaders;
@@ -187,16 +180,9 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
         if (AtLeast(major, minor, 4, 3)) features |= GraphicsFeature.MultiDrawIndirect;
         if (hasTessellation) features |= GraphicsFeature.TessellationShaders;
         if (hasGeometry) features |= GraphicsFeature.GeometryShaders;
-        if (hasTimerQuery) features |= GraphicsFeature.TimestampQueries;
         if (hasAnisotropy) features |= GraphicsFeature.SamplerAnisotropy;
-        if (hasSparseTextures) features |= GraphicsFeature.SparseResources;
-        if (hasMultiViewport) features |= GraphicsFeature.MultiViewport;
-        if (hasDepthBounds) features |= GraphicsFeature.DepthBoundsTest;
-        if (hasMeshShaders)
-        {
-            features |= GraphicsFeature.MeshShaders;
-            features |= GraphicsFeature.TaskShaders;
-        }
+        // Timestamp queries, sparse resources, mesh/task shaders, depth bounds, and multi-viewport
+        // are intentionally not advertised until the corresponding execution paths are implemented.
 
         features |= GraphicsFeature.LogicOperations | GraphicsFeature.FillModeNonSolid;
         if (AtLeast(major, minor, 3, 2))
