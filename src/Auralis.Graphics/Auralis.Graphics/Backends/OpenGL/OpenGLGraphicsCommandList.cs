@@ -895,7 +895,11 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
                         activePipeline = command.RenderPipeline!;
                         activeComputePipeline = null;
                         activePipelineLayout = (OpenGLGraphicsPipelineLayout)activePipeline.Layout;
-                        activePipeline.Apply(gl, drawBuffersBlendApi);
+                        activePipeline.Apply(
+                            gl,
+                            drawBuffersBlendApi,
+                            ((OpenGLGraphicsDevice)Device).DepthBoundsApi,
+                            ((OpenGLGraphicsDevice)Device).PolygonOffsetClampApi);
                         break;
                     case OpenGLCommandKind.SetComputePipeline:
                         activeComputePipeline = command.ComputePipeline!;

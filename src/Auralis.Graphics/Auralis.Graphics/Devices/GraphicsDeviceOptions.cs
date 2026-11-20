@@ -45,7 +45,8 @@ public sealed record GraphicsDeviceOptions
             GraphicsFeature.MultiViewport | GraphicsFeature.DepthBoundsTest |
             GraphicsFeature.LogicOperations | GraphicsFeature.WideLines |
             GraphicsFeature.DepthClamp | GraphicsFeature.FillModeNonSolid |
-            GraphicsFeature.TaskShaders | GraphicsFeature.IndependentBlend;
+            GraphicsFeature.TaskShaders | GraphicsFeature.IndependentBlend |
+            GraphicsFeature.DepthBiasClamp;
 
         const GraphicsQueueCapabilities allQueues =
             GraphicsQueueCapabilities.Graphics | GraphicsQueueCapabilities.Compute |

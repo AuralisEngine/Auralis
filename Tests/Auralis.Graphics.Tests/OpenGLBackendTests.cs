@@ -15,6 +15,28 @@ namespace Auralis.Graphics.Tests;
 public sealed class OpenGLBackendTests
 {
     [Fact]
+    public void DepthBiasClampRequiresAndUsesAdvertisedPipelineFeature()
+    {
+        OpenGLPipelineFeatureValidation.ValidateDepthBiasClamp(0, supported: false);
+        OpenGLPipelineFeatureValidation.ValidateDepthBiasClamp(2, supported: true);
+
+        Assert.Throws<GraphicsFeatureNotSupportedException>(() =>
+            OpenGLPipelineFeatureValidation.ValidateDepthBiasClamp(2, supported: false));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            OpenGLPipelineFeatureValidation.ValidateDepthBiasClamp(float.NaN, supported: true));
+    }
+
+    [Fact]
+    public void DepthBoundsTestingRequiresTheOptionalExtension()
+    {
+        OpenGLPipelineFeatureValidation.ValidateDepthBounds(enabled: false, supported: false);
+        OpenGLPipelineFeatureValidation.ValidateDepthBounds(enabled: true, supported: true);
+
+        Assert.Throws<GraphicsFeatureNotSupportedException>(() =>
+            OpenGLPipelineFeatureValidation.ValidateDepthBounds(enabled: true, supported: false));
+    }
+
+    [Fact]
     public void DriverLineWidthRangeControlsWideLineCapabilityAndRequestedWidths()
     {
         OpenGLLineWidthRange unitOnly = OpenGLLineWidthRange.FromNative(1f, 1f);

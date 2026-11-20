@@ -77,9 +77,12 @@ internal sealed class OpenGLGraphicsRenderPipeline : GraphicsDeviceObject, IGrap
                 throw new GraphicsValidationException("All pipeline shaders must belong to this OpenGL backend.");
         }
 
-        if (description.Rasterization.DepthBiasClamp != 0)
-            throw new GraphicsValidationException(
-                "Depth-bias clamping requires GL_ARB_polygon_offset_clamp, which is not enabled by this backend.");
+        OpenGLPipelineFeatureValidation.ValidateDepthBiasClamp(
+            description.Rasterization.DepthBiasClamp,
+            device.PolygonOffsetClampApi is not null);
+        OpenGLPipelineFeatureValidation.ValidateDepthBounds(
+            description.DepthStencil.DepthBoundsTestEnabled,
+            device.DepthBoundsApi is not null);
         if (!device.SupportedLineWidths.Contains(description.Rasterization.LineWidth))
             throw new GraphicsValidationException(
                 $"Requested line width {description.Rasterization.LineWidth} is outside the driver-reported range " +
@@ -217,7 +220,11 @@ internal sealed class OpenGLGraphicsRenderPipeline : GraphicsDeviceObject, IGrap
         }
     }
 
-    internal void Apply(GL gl, ArbDrawBuffersBlend drawBuffersBlend)
+    internal void Apply(
+        GL gl,
+        ArbDrawBuffersBlend drawBuffersBlend,
+        ExtDepthBoundsTest? depthBoundsApi,
+        ArbPolygonOffsetClamp? polygonOffsetClampApi)
     {
         ThrowIfDisposed();
         gl.UseProgram(_program);
@@ -266,10 +273,22 @@ internal sealed class OpenGLGraphicsRenderPipeline : GraphicsDeviceObject, IGrap
             EnableCap.PolygonOffsetPoint,
             rasterization.DepthBiasEnabled && rasterization.PolygonMode == GraphicsPolygonMode.Point);
         if (rasterization.DepthBiasEnabled)
-            gl.PolygonOffset(rasterization.DepthBiasSlopeFactor, rasterization.DepthBiasConstantFactor);
+        {
+            if (rasterization.DepthBiasClamp != 0 && polygonOffsetClampApi is not null)
+            {
+                polygonOffsetClampApi.PolygonOffsetClamp(
+                    rasterization.DepthBiasSlopeFactor,
+                    rasterization.DepthBiasConstantFactor,
+                    rasterization.DepthBiasClamp);
+            }
+            else
+            {
+                gl.PolygonOffset(rasterization.DepthBiasSlopeFactor, rasterization.DepthBiasConstantFactor);
+            }
+        }
         gl.LineWidth(rasterization.LineWidth);
 
-        ApplyDepthStencil(gl, Description.DepthStencil);
+        ApplyDepthStencil(gl, Description.DepthStencil, depthBoundsApi);
         ApplyBlend(
             gl, drawBuffersBlend, _device.IndexedDrawBuffersApi,
             Description.Blend, Description.ColorFormats.Length);
@@ -278,9 +297,18 @@ internal sealed class OpenGLGraphicsRenderPipeline : GraphicsDeviceObject, IGrap
             gl.PatchParameter(PatchParameterName.Vertices, checked((int)tessellation.PatchControlPoints));
     }
 
-    private static void ApplyDepthStencil(GL gl, GraphicsDepthStencilState state)
+    private static void ApplyDepthStencil(
+        GL gl,
+        GraphicsDepthStencilState state,
+        ExtDepthBoundsTest? depthBoundsApi)
     {
         SetEnabled(gl, EnableCap.DepthTest, state.DepthTestEnabled);
+        if (depthBoundsApi is not null)
+        {
+            SetEnabled(gl, (EnableCap)EXT.DepthBoundsTestExt, state.DepthBoundsTestEnabled);
+            if (state.DepthBoundsTestEnabled)
+                depthBoundsApi.DepthBounds(state.MinimumDepthBounds, state.MaximumDepthBounds);
+        }
         gl.DepthMask(state.DepthWriteEnabled);
         gl.DepthFunc(OpenGLPipelineMapping.ToDepthFunction(state.DepthCompare));
 
