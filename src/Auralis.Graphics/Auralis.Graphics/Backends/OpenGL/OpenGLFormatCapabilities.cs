@@ -25,9 +25,10 @@ internal static class OpenGLFormatCapabilities
             if (requiredExtension is not null && !gl.IsExtensionPresent(requiredExtension))
                 continue;
 
+            InternalFormat queryFormat = (InternalFormat)internalFormat;
             int supported = internalFormatQuery.GetInternalformat(
                 TextureTarget.Texture2D,
-                internalFormat,
+                queryFormat,
                 InternalFormatPName.InternalformatSupported);
 
             if (supported == 0)
@@ -39,7 +40,7 @@ internal static class OpenGLFormatCapabilities
 
             if (internalFormatQuery.GetInternalformat(
                     TextureTarget.Texture2D,
-                    internalFormat,
+                    queryFormat,
                     InternalFormatPName.Filter) != 0)
             {
                 support |= GraphicsFormatSupport.LinearFiltering;
@@ -81,11 +82,11 @@ internal static class OpenGLFormatCapabilities
 
             if (internalFormatQuery.GetInternalformat(
                     TextureTarget.Texture2D,
-                    internalFormat,
+                    queryFormat,
                     InternalFormatPName.ShaderImageLoad) != 0 &&
                 internalFormatQuery.GetInternalformat(
                     TextureTarget.Texture2D,
-                    internalFormat,
+                    queryFormat,
                     InternalFormatPName.ShaderImageStore) != 0)
             {
                 support |= GraphicsFormatSupport.Storage;
@@ -97,7 +98,7 @@ internal static class OpenGLFormatCapabilities
             GraphicsSampleCountFlags sampleCounts = GraphicsSampleCountFlags.One;
             int count = internalFormatQuery.GetInternalformat(
                 TextureTarget.Texture2DMultisample,
-                internalFormat,
+                queryFormat,
                 InternalFormatPName.NumSampleCounts);
 
             if (count > 0 && count <= 64)
@@ -105,9 +106,8 @@ internal static class OpenGLFormatCapabilities
                 Span<int> queriedCounts = stackalloc int[count];
                 internalFormatQuery.GetInternalformat(
                     TextureTarget.Texture2DMultisample,
-                    internalFormat,
+                    queryFormat,
                     queriedCounts);
-                sampleCounts = GraphicsSampleCountFlags.None;
                 for (int i = 0; i < queriedCounts.Length; i++)
                 {
                     sampleCounts |= queriedCounts[i] switch
@@ -123,8 +123,6 @@ internal static class OpenGLFormatCapabilities
                     };
                 }
 
-                if (sampleCounts == GraphicsSampleCountFlags.None)
-                    sampleCounts = GraphicsSampleCountFlags.One;
             }
 
             formats.Add(new GraphicsFormatCapabilities(format, support, sampleCounts));
@@ -185,12 +183,9 @@ internal static class OpenGLFormatCapabilities
                 SizedInternalFormat.CompressedRgbaS3TCDxt5Ext, "GL_EXT_texture_compression_s3tc"),
             GraphicsFormat.BC3UNormSrgb => Compressed(
                 SizedInternalFormat.CompressedSrgbAlphaS3TCDxt5Ext, "GL_EXT_texture_compression_s3tc"),
-            GraphicsFormat.BC5UNorm => Compressed(
-                SizedInternalFormat.CompressedRGRgtc2, "GL_ARB_texture_compression_rgtc"),
-            GraphicsFormat.BC7UNorm => Compressed(
-                SizedInternalFormat.CompressedRgbaBptcUnorm, "GL_ARB_texture_compression_bptc"),
-            GraphicsFormat.BC7UNormSrgb => Compressed(
-                SizedInternalFormat.CompressedSrgbAlphaBptcUnorm, "GL_ARB_texture_compression_bptc"),
+            GraphicsFormat.BC5UNorm => SizedInternalFormat.CompressedRGRgtc2,
+            GraphicsFormat.BC7UNorm => SizedInternalFormat.CompressedRgbaBptcUnorm,
+            GraphicsFormat.BC7UNormSrgb => SizedInternalFormat.CompressedSrgbAlphaBptcUnorm,
             GraphicsFormat.ASTC4x4UNorm => Compressed(
                 SizedInternalFormat.CompressedRgbaAstc4x4, "GL_KHR_texture_compression_astc_ldr"),
             GraphicsFormat.ASTC4x4UNormSrgb => Compressed(
@@ -212,13 +207,6 @@ internal static class OpenGLFormatCapabilities
             requiredExtension = "GL_KHR_texture_compression_astc_ldr";
 
         return true;
-    }
-
-    private static SizedInternalFormat Compressed(
-        SizedInternalFormat format,
-        string requiredExtension)
-    {
-        return format;
     }
 
     private static bool IsDepthStencil(GraphicsFormat format) =>
