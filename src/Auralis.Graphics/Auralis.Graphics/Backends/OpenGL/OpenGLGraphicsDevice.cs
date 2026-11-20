@@ -21,12 +21,20 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
     private readonly object _contextGate = new();
     private readonly ConcurrentBag<IOpenGLNativeResource> _resources = [];
     private readonly GL _gl;
+    private readonly ArbDirectStateAccess _directStateAccess;
+    private readonly ArbTextureView _textureViewApi;
+    private readonly ArbSamplerObjects _samplerObjects;
+    private readonly ArbInternalformatQuery _internalFormatQuery;
     private readonly string _renderer;
     private int _disposeState;
 
     private OpenGLGraphicsDevice(
         IOpenGLContextProvider contextProvider,
         GL gl,
+        ArbDirectStateAccess directStateAccess,
+        ArbTextureView textureViewApi,
+        ArbSamplerObjects samplerObjects,
+        ArbInternalformatQuery internalFormatQuery,
         int major,
         int minor,
         string vendor,
@@ -36,6 +44,10 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
     {
         _contextProvider = contextProvider;
         _gl = gl;
+        _directStateAccess = directStateAccess;
+        _textureViewApi = textureViewApi;
+        _samplerObjects = samplerObjects;
+        _internalFormatQuery = internalFormatQuery;
         _renderer = renderer;
         Capabilities = capabilities;
         Backend = GraphicsBackend.OpenGL;
@@ -56,10 +68,21 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
     {
         cancellationToken.ThrowIfCancellationRequested();
         GL? gl = null;
+        ArbDirectStateAccess? directStateAccess = null;
+        ArbTextureView? textureViewApi = null;
+        ArbSamplerObjects? samplerObjects = null;
+        ArbInternalformatQuery? internalFormatQuery = null;
         contextProvider.MakeCurrent();
         try
         {
             gl = GL.GetApi(contextProvider.GetProcAddress);
+
+            // These Silk.NET extension wrappers load the entry points promoted into the required
+            // desktop 4.5 core version. Construct them only with this context current.
+            directStateAccess = new ArbDirectStateAccess(gl.Context);
+            textureViewApi = new ArbTextureView(gl.Context);
+            samplerObjects = new ArbSamplerObjects(gl.Context);
+            internalFormatQuery = new ArbInternalformatQuery(gl.Context);
             int major = gl.GetInteger(GLEnum.MajorVersion);
             int minor = gl.GetInteger(GLEnum.MinorVersion);
             int profile = gl.GetInteger(GLEnum.ContextProfileMask);
@@ -75,16 +98,25 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
             string vendor = gl.GetStringS(StringName.Vendor);
             string renderer = gl.GetStringS(StringName.Renderer);
             string version = gl.GetStringS(StringName.Version);
-            GraphicsDeviceCapabilities capabilities = QueryCapabilities(gl, major, minor);
+            GraphicsDeviceCapabilities capabilities = QueryCapabilities(gl, major, minor, internalFormatQuery);
             cancellationToken.ThrowIfCancellationRequested();
 
             OpenGLGraphicsDevice device = new(
-                contextProvider, gl, major, minor, vendor, renderer, version, capabilities);
+                contextProvider, gl, directStateAccess, textureViewApi, samplerObjects,
+                internalFormatQuery, major, minor, vendor, renderer, version, capabilities);
             gl = null;
+            directStateAccess = null;
+            textureViewApi = null;
+            samplerObjects = null;
+            internalFormatQuery = null;
             return device;
         }
         catch
         {
+            internalFormatQuery?.Dispose();
+            samplerObjects?.Dispose();
+            textureViewApi?.Dispose();
+            directStateAccess?.Dispose();
             gl?.Dispose();
             throw;
         }
@@ -94,7 +126,11 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
         }
     }
 
-    private static GraphicsDeviceCapabilities QueryCapabilities(GL gl, int major, int minor)
+    private static GraphicsDeviceCapabilities QueryCapabilities(
+        GL gl,
+        int major,
+        int minor,
+        ArbInternalformatQuery internalFormatQuery)
     {
         static bool AtLeast(int major, int minor, int requiredMajor, int requiredMinor) =>
             major > requiredMajor || (major == requiredMajor && minor >= requiredMinor);
@@ -155,14 +191,10 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
             maxComputeInvocations, maxComputeX, maxComputeY, maxComputeZ,
             maxAnisotropy, maxPatchSize);
 
-        ArbInternalformatQuery? query = null;
-        if (gl.TryGetExtension(out ArbInternalformatQuery extension))
-            query = extension;
-
         bool hasInternalFormatQuery2 = AtLeast(major, minor, 4, 3) ||
                                        gl.IsExtensionPresent("GL_ARB_internalformat_query2");
         GraphicsFormatCapabilities[] formats = OpenGLFormatCapabilities.Query(
-            gl, query, hasInternalFormatQuery2);
+            gl, internalFormatQuery, hasInternalFormatQuery2);
 
         return new GraphicsDeviceCapabilities(
             new GraphicsFeatureSet(features),
@@ -172,6 +204,10 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
     }
 
     private static uint ToUInt(int value) => value > 0 ? (uint)value : 0;
+
+    internal ArbDirectStateAccess DirectStateAccess => _directStateAccess;
+    internal ArbTextureView TextureViewApi => _textureViewApi;
+    internal ArbSamplerObjects SamplerObjects => _samplerObjects;
 
     internal T WithContext<T>(Func<GL, T> action)
     {
@@ -271,11 +307,27 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
         return OpenGLGraphicsShader.Create(this, description);
     }
 
-    public IGraphicsTexture CreateTexture(in GraphicsTextureDescription description) =>
-        throw new NotSupportedException("Texture allocation and format capability discovery are not implemented yet.");
+    public IGraphicsTexture CreateTexture(in GraphicsTextureDescription description)
+    {
+        ObjectDisposedException.ThrowIf(IsDisposed, this);
+        GraphicsTextureDescription textureDescription = description;
+        Capabilities.ValidateTextureDescription(textureDescription);
+        if ((textureDescription.CreationOptions & GraphicsResourceCreationOptions.AllowAliasing) != 0)
+            throw new GraphicsValidationException("OpenGL does not expose resource aliasing through this backend.");
 
-    public IGraphicsSampler CreateSampler(in GraphicsSamplerDescription description) =>
-        throw new NotSupportedException("Sampler creation is not implemented yet.");
+        return WithContext(gl => OpenGLGraphicsTexture.CreateUnderContext(
+            this, gl, _directStateAccess, textureDescription));
+    }
+
+    public IGraphicsSampler CreateSampler(in GraphicsSamplerDescription description)
+    {
+        ObjectDisposedException.ThrowIf(IsDisposed, this);
+        GraphicsSamplerDescription samplerDescription = description;
+        Capabilities.ValidateSamplerDescription(samplerDescription);
+
+        return WithContext(gl => OpenGLGraphicsSampler.CreateUnderContext(
+            this, _directStateAccess, _samplerObjects, samplerDescription));
+    }
 
     public IGraphicsBindingLayout CreateBindingLayout(GraphicsBindingLayoutDescription description) =>
         throw new NotSupportedException("Descriptor binding layouts are not implemented yet.");
@@ -314,6 +366,10 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
                         resource.ReleaseNative(_gl);
 
                     _gl.Finish();
+                    _internalFormatQuery.Dispose();
+                    _samplerObjects.Dispose();
+                    _textureViewApi.Dispose();
+                    _directStateAccess.Dispose();
                     _gl.Dispose();
                 }
                 finally
