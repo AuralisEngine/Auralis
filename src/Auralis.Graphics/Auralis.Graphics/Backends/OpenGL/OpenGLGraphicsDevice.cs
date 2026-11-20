@@ -113,7 +113,8 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
             string vendor = gl.GetStringS(StringName.Vendor);
             string renderer = gl.GetStringS(StringName.Renderer);
             string version = gl.GetStringS(StringName.Version);
-            GraphicsDeviceCapabilities capabilities = QueryCapabilities(gl, major, minor, internalFormatQuery);
+            GraphicsDeviceCapabilities capabilities = QueryCapabilities(
+                gl, major, minor, internalFormatQuery, contextProvider.SupportsPresentation);
             cancellationToken.ThrowIfCancellationRequested();
 
             OpenGLGraphicsDevice device = new(
@@ -149,7 +150,8 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
         GL gl,
         int major,
         int minor,
-        ArbInternalformatQuery internalFormatQuery)
+        ArbInternalformatQuery internalFormatQuery,
+        bool supportsPresentation)
     {
         static bool AtLeast(int major, int minor, int requiredMajor, int requiredMinor) =>
             major > requiredMajor || (major == requiredMajor && minor >= requiredMinor);
@@ -219,6 +221,8 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
         // not implemented yet; do not advertise a compute-capable queue until it is executable.
         GraphicsQueueCapabilities queues = GraphicsQueueCapabilities.Graphics |
                                             GraphicsQueueCapabilities.Copy;
+        if (supportsPresentation)
+            queues |= GraphicsQueueCapabilities.Present;
 
         return new GraphicsDeviceCapabilities(
             new GraphicsFeatureSet(features),
@@ -313,17 +317,12 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
             throw new GraphicsValidationException("The OpenGL backend exposes one logical queue per queue role.");
         if (!Enum.IsDefined(queueType))
             throw new ArgumentOutOfRangeException(nameof(queueType));
-        if (queueType == GraphicsQueueType.Compute &&
-            !Capabilities.Features.Supports(GraphicsFeature.ComputeShaders))
-            throw new GraphicsFeatureNotSupportedException(
-                GraphicsFeature.ComputeShaders, GraphicsFeature.ComputeShaders);
+        if (queueType == GraphicsQueueType.Compute)
+            throw new GraphicsException(
+                "Compute shaders are available, but OpenGL compute command recording and dispatch are not implemented yet.");
 
         lock (_queueGate)
         {
-            if (queueType == GraphicsQueueType.Compute)
-                throw new GraphicsFeatureNotSupportedException(
-                    GraphicsFeature.ComputeShaders, GraphicsFeature.ComputeShaders);
-
             return _queues[(int)queueType] ??= new OpenGLGraphicsCommandQueue(this, queueType);
         }
     }
@@ -332,6 +331,9 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
     {
         if (index != 0)
             throw new GraphicsValidationException("The OpenGL backend exposes one presentation-queue candidate.");
+        if (!_contextProvider.SupportsPresentation)
+            throw new GraphicsBackendUnavailableException(
+                GraphicsBackend.OpenGL, "The injected OpenGL context provider has no presentation drawable.");
         return GetQueue(GraphicsQueueType.Graphics, 0);
     }
 
