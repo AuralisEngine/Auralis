@@ -89,7 +89,8 @@ internal sealed class OpenGLGraphicsCommandQueue : IGraphicsCommandQueue
                         _device.BaseInstanceApi,
                         _device.DrawIndirectApi,
                         _device.MultiDrawIndirectApi,
-                        _device.ImageLoadStoreApi);
+                        _device.ImageLoadStoreApi,
+                        _device.DrawBuffersBlendApi);
 
                 completionSync = _device.SyncApi.FenceSync(
                     SyncCondition.SyncGpuCommandsComplete,
