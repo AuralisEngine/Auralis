@@ -31,6 +31,7 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
     private readonly ArbInternalformatQuery _internalFormatQuery;
     private readonly ArbSync _syncApi;
     private readonly ArbCopyImage _copyImageApi;
+    private readonly ArbViewportArray _viewportApi;
     private readonly string _renderer;
     private int _disposeState;
 
@@ -43,6 +44,7 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
         ArbInternalformatQuery internalFormatQuery,
         ArbSync syncApi,
         ArbCopyImage copyImageApi,
+        ArbViewportArray viewportApi,
         int major,
         int minor,
         string vendor,
@@ -58,6 +60,7 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
         _internalFormatQuery = internalFormatQuery;
         _syncApi = syncApi;
         _copyImageApi = copyImageApi;
+        _viewportApi = viewportApi;
         _renderer = renderer;
         Capabilities = capabilities;
         Backend = GraphicsBackend.OpenGL;
@@ -84,6 +87,7 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
         ArbInternalformatQuery? internalFormatQuery = null;
         ArbSync? syncApi = null;
         ArbCopyImage? copyImageApi = null;
+        ArbViewportArray? viewportApi = null;
         if (contextProvider.StateOwnership != OpenGLContextStateOwnership.Exclusive)
             throw new GraphicsBackendUnavailableException(
                 GraphicsBackend.OpenGL,
@@ -114,6 +118,7 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
             internalFormatQuery = new ArbInternalformatQuery(gl.Context);
             syncApi = new ArbSync(gl.Context);
             copyImageApi = new ArbCopyImage(gl.Context);
+            viewportApi = new ArbViewportArray(gl.Context);
 
             string vendor = gl.GetStringS(StringName.Vendor);
             string renderer = gl.GetStringS(StringName.Renderer);
@@ -124,7 +129,8 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
 
             OpenGLGraphicsDevice device = new(
                 contextProvider, gl, directStateAccess, textureViewApi, samplerObjects,
-                internalFormatQuery, syncApi, copyImageApi, major, minor, vendor, renderer, version, capabilities);
+                internalFormatQuery, syncApi, copyImageApi, viewportApi,
+                major, minor, vendor, renderer, version, capabilities);
             gl = null;
             directStateAccess = null;
             textureViewApi = null;
@@ -132,10 +138,12 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
             internalFormatQuery = null;
             syncApi = null;
             copyImageApi = null;
+            viewportApi = null;
             return device;
         }
         catch
         {
+            viewportApi?.Dispose();
             copyImageApi?.Dispose();
             syncApi?.Dispose();
             internalFormatQuery?.Dispose();
@@ -243,6 +251,7 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
     internal ArbSamplerObjects SamplerObjects => _samplerObjects;
     internal ArbSync SyncApi => _syncApi;
     internal ArbCopyImage CopyImageApi => _copyImageApi;
+    internal ArbViewportArray ViewportApi => _viewportApi;
 
     internal T WithContext<T>(Func<GL, T> action)
     {
@@ -456,6 +465,7 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
                     foreach (IOpenGLNativeResource resource in _resources)
                         resource.ReleaseNative(_gl);
 
+                    _viewportApi.Dispose();
                     _copyImageApi.Dispose();
                     _syncApi.Dispose();
                     _internalFormatQuery.Dispose();
