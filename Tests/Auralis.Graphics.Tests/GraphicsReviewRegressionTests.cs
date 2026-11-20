@@ -162,7 +162,7 @@ public sealed class GraphicsReviewRegressionTests
     [Fact]
     public void DeviceCapabilitiesEnforceBufferAndTextureLimits()
     {
-        GraphicsDeviceLimits limits = default with
+        GraphicsDeviceLimits limits = default(GraphicsDeviceLimits) with
         {
             MaxBufferSizeInBytes = 1024,
             MaxTextureDimension1D = 64,
@@ -224,7 +224,7 @@ public sealed class GraphicsReviewRegressionTests
     [Fact]
     public void DeviceCapabilitiesValidateTextureViewFormatSupportAndVertexInputLimits()
     {
-        GraphicsDeviceLimits limits = default with
+        GraphicsDeviceLimits limits = default(GraphicsDeviceLimits) with
         {
             MaxVertexInputAttributes = 1,
             MaxVertexInputBindings = 1
