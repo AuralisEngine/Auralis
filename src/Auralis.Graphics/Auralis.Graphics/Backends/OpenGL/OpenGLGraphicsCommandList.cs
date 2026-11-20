@@ -85,6 +85,12 @@ internal sealed record OpenGLRenderTargetSet(
     IGraphicsTextureView? DepthStencilTarget,
     GraphicsRenderTargetExtent Extent);
 
+internal readonly record struct OpenGLVertexBufferBinding(
+    IGraphicsBuffer Buffer,
+    ulong Offset,
+    uint Stride,
+    GraphicsVertexInputRate InputRate);
+
 /// <summary>
 /// CPU-side deferred command recorder. Recording does not make the GL context current and never calls GL.
 /// Commands retain their referenced resources until the list is reset or disposed.
@@ -101,7 +107,7 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
     private OpenGLGraphicsComputePipeline? _recordedComputePipeline;
     private OpenGLGraphicsPipelineLayout? _recordedPipelineLayout;
     private OpenGLRenderTargetSet? _recordedTargets;
-    private readonly Dictionary<uint, IGraphicsBuffer> _recordedVertexBuffers = new();
+    private readonly Dictionary<uint, OpenGLVertexBufferBinding> _recordedVertexBuffers = new();
     private readonly HashSet<uint> _recordedBoundSets = [];
     private bool _hasRecordedViewport;
     private IGraphicsBuffer? _recordedIndexBuffer;
@@ -446,27 +452,28 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
 
         bool found = false;
         ReadOnlySpan<GraphicsVertexBufferLayout> layouts = input.Buffers;
-        uint stride = 0;
+        GraphicsVertexBufferLayout bufferLayout = default;
         for (int i = 0; i < layouts.Length; i++)
         {
             if (layouts[i].Binding != binding)
                 continue;
             found = true;
-            stride = layouts[i].Stride;
+            bufferLayout = layouts[i];
             break;
         }
 
         if (!found)
             throw new GraphicsValidationException($"Vertex binding {binding} is not declared by the active pipeline.");
 
-        _recordedVertexBuffers[binding] = buffer;
+        _recordedVertexBuffers[binding] = new OpenGLVertexBufferBinding(
+            buffer, offset, bufferLayout.Stride, bufferLayout.InputRate);
         _commands.Add(new OpenGLRecordedCommand
         {
             Kind = OpenGLCommandKind.SetVertexBuffer,
             VertexBinding = binding,
             VertexBuffer = buffer,
             BufferOffset = offset,
-            Stride = stride
+            Stride = bufferLayout.Stride
         });
     }
 
@@ -502,7 +509,9 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
     {
         EnsureRecording();
         EnsureDrawReady();
-        ValidateVertexBindings();
+        ValidateVertexBindings(firstVertex, vertexCount, firstInstance, instanceCount);
+        if (firstVertex > int.MaxValue)
+            throw new GraphicsValidationException("The first vertex exceeds the native OpenGL integer range.");
 
         _commands.Add(new OpenGLRecordedCommand
         {
@@ -523,7 +532,7 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
     {
         EnsureRecording();
         EnsureDrawReady();
-        ValidateVertexBindings();
+        ValidateVertexBindings(0, 0, firstInstance, instanceCount);
         if (_recordedIndexBuffer is null)
             throw new GraphicsValidationException("An index buffer must be set before an indexed draw.");
 
@@ -651,16 +660,58 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
             throw new GraphicsValidationException("The bound depth/stencil format does not match the render pipeline.");
     }
 
-    private void ValidateVertexBindings()
+    private void ValidateVertexBindings(
+        uint firstVertex = 0,
+        uint vertexCount = 0,
+        uint firstInstance = 0,
+        uint instanceCount = 0)
     {
         if (_recordedPipeline?.Description.VertexInput is not { } input)
             return;
 
         ReadOnlySpan<GraphicsVertexBufferLayout> layouts = input.Buffers;
+        ReadOnlySpan<GraphicsVertexAttribute> attributes = input.Attributes;
         for (int i = 0; i < layouts.Length; i++)
         {
-            if (!_recordedVertexBuffers.ContainsKey(layouts[i].Binding))
-                throw new GraphicsValidationException($"Vertex buffer binding {layouts[i].Binding} has not been set.");
+            GraphicsVertexBufferLayout layout = layouts[i];
+            if (!_recordedVertexBuffers.TryGetValue(layout.Binding, out OpenGLVertexBufferBinding binding))
+                throw new GraphicsValidationException($"Vertex buffer binding {layout.Binding} has not been set.");
+
+            uint firstElement = layout.InputRate == GraphicsVertexInputRate.PerInstance
+                ? firstInstance
+                : firstVertex;
+            uint elementCount = layout.InputRate == GraphicsVertexInputRate.PerInstance
+                ? instanceCount
+                : vertexCount;
+            if (elementCount == 0)
+                continue;
+
+            uint attributeEnd = 0;
+            for (int attributeIndex = 0; attributeIndex < attributes.Length; attributeIndex++)
+            {
+                GraphicsVertexAttribute attribute = attributes[attributeIndex];
+                if (attribute.Binding != layout.Binding)
+                    continue;
+
+                uint byteSize = OpenGLPipelineMapping.GetVertexFormatByteSize(attribute.Format);
+                uint end = checked(attribute.Offset + byteSize);
+                attributeEnd = Math.Max(attributeEnd, end);
+            }
+
+            if (attributeEnd == 0)
+                continue;
+
+            ulong lastElement = checked((ulong)firstElement + elementCount - 1);
+            ulong requiredEnd = checked(
+                binding.Offset +
+                lastElement * binding.Stride +
+                attributeEnd);
+
+            if (requiredEnd > binding.Buffer.Description.SizeInBytes)
+            {
+                throw new GraphicsValidationException(
+                    $"Vertex binding {layout.Binding} reads byte {requiredEnd} but the buffer size is {binding.Buffer.Description.SizeInBytes}.");
+            }
         }
     }
     public void Dispatch(uint groupCountX, uint groupCountY = 1, uint groupCountZ = 1)
