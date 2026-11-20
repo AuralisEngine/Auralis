@@ -181,11 +181,11 @@ The context provider owns the meaning of its context identity and must guarantee
 | Samplers | Sampler objects with filtering, addressing, compare, LOD, border color, and extension-gated anisotropy |
 | Shaders | GLSL source compile through Silk.NET; compile log surfaced; `main` entry point |
 | Descriptors | Uniform/storage buffers, sampled/storage textures, samplers, and combined texture/sampler sets; explicit deterministic binding-point mapping |
-| Graphics pipelines | Linked monolithic program, vertex-array object, conventional vertex/fragment plus supported geometry/tessellation stages, fixed raster/depth/stencil/blend state |
-| Rendering commands | Deferred render-target binding, viewport/scissor, typed clears, vertex/index binding, direct/indexed/indirect draws |
+| Graphics/compute pipelines | Linked monolithic graphics or compute program; DSA vertex-array object for conventional graphics pipelines; supported geometry/tessellation stages; fixed raster/depth/stencil/blend state |
+| Rendering/compute commands | Deferred render-target binding, viewport/scissor, typed clears, vertex/index binding, direct/indexed/indirect draws, direct/indirect compute dispatch |
 | Copy/barriers | Deferred buffer and whole-texture copies plus destination-access-based OpenGL memory barriers |
 | Synchronization | GL sync objects, CPU wait/polling, and GPU-side wait for an already-created fence value |
-| Queues | Logical graphics/copy queues sharing one serialized context command stream; no physical parallel queues are claimed |
+| Queues | Logical graphics/compute/copy queues sharing one serialized context command stream; no physical parallel queues are claimed |
 
 The backend reports OpenGL implementation strings in `GraphicsDeviceInfo`. The injected context is already selected, so system-wide physical adapter enumeration is unavailable: `EnumerateAdaptersAsync` returns an empty list rather than fabricating adapter IDs, PCI identifiers, memory sizes, or adapter types. Unknown limits remain zero. Format support is derived from the active context's internal-format operation queries and advertised extensions; it is not inferred from the enum alone.
 
@@ -203,7 +203,7 @@ GLSL must use the resulting numeric binding in its `layout(binding = N)` declara
 
 OpenGL does not expose native command buffers. Auralis uses CPU-side typed deferred command records: recording methods validate and retain arguments without invoking GL; submission activates the provider's context and executes commands in order. Queue submission associates a GL sync object with the submitted lists. A list becomes reusable only after the submission is observed complete. Referenced native resources are not physically deleted while submissions are pending.
 
-The graphics and copy queue objects are logical roles over one context's ordered command stream. They are serialized and do not promise independent graphics, compute, or transfer hardware queues. A compute shader may compile when the context supports it, but compute pipeline creation, dispatch commands, and a compute queue are not implemented yet. Consequently the backend does not advertise a compute queue or separate compute/transfer queue capabilities.
+The graphics, compute, and copy queue objects are logical roles over one context's ordered command stream. They are serialized and do not promise independent graphics, compute, or transfer hardware queues. Compute pipeline creation, direct dispatch, and indirect dispatch are implemented when the required OpenGL 4.3+ compute functionality is present. The backend advertises a logical compute queue in that case, but does not advertise separate compute/transfer queue features.
 
 The fence abstraction is implemented with ordered GL sync objects. CPU waits use client waits; queue waits enqueue a GL server-side wait and do not block the CPU. A queue wait requires the requested fence value to have already been signaled/submitted, because OpenGL cannot enqueue a wait on a future sync object that does not yet exist. The implementation provides monotonic timeline-style values on top of individual GL sync objects; it does not claim the native Vulkan timeline-semaphore feature.
 
@@ -215,8 +215,7 @@ Resource barriers are translated into GL memory-barrier bits based on destinatio
 - No native context/window creation or platform integration is included.
 - No presentation surface, swapchain, default-framebuffer acquired-image abstraction, resize/recreation, or swap-buffer execution is implemented yet. Even when a context provider reports a drawable, callers must not assume a usable Auralis presentation surface exists.
 - No mesh/task shader pipeline support.
-- No compute pipeline, dispatch, or compute queue.
-- No separate native compute/transfer queue.
+- No separate native compute/transfer queue. Compute work is serialized on the same context stream as graphics and copies.
 - Descriptor indexing and partially-bound/update-after-bind/variable-count descriptors are unsupported.
 - The current blend implementation supports per-color-attachment blend factors/equations, but blend enable and color-write mask must be identical for all color attachments in a pipeline; differing values are rejected.
 - Wide lines, depth bounds, sparse resources, timestamp queries, multi-viewport, and mesh/task features are not advertised until their execution paths are implemented.
@@ -226,6 +225,6 @@ Resource barriers are translated into GL memory-barrier bits based on destinatio
 
 ### Tests and verification
 
-The ordinary graphics test suite includes hardware-independent tests for provider registration/availability, texture targets, sampler translations, descriptor slot allocation, pipeline enum/vertex-format mappings, resource barriers, render-target validation, and mapped-memory lifetime. CI builds the graphics project and runs this test suite without requiring a GPU or display.
+The ordinary graphics test suite includes hardware-independent tests for provider registration/availability, texture targets, sampler translations, descriptor slot allocation, pipeline enum/vertex-format mappings, compute dispatch limit validation, resource barriers, render-target validation, and mapped-memory lifetime. CI builds the graphics project and runs this test suite without requiring a GPU or display.
 
 No real-context hardware smoke test has been run in this environment. A host/platform integration should gate such a test on an available desktop OpenGL 4.5 Core context and exercise device creation, shader compilation, resource allocation, an offscreen draw/copy, fence completion, and disposal. The backend currently has no mandatory windowing package; a test host may supply any suitable context provider.
