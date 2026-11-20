@@ -93,6 +93,8 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
     private OpenGLGraphicsRenderPipeline? _recordedPipeline;
     private OpenGLRenderTargetSet? _recordedTargets;
     private readonly Dictionary<uint, IGraphicsBuffer> _recordedVertexBuffers = new();
+    private readonly HashSet<uint> _recordedBoundSets = [];
+    private bool _hasRecordedViewport;
     private IGraphicsBuffer? _recordedIndexBuffer;
     private GraphicsIndexFormat _recordedIndexFormat;
     private ulong _recordedIndexOffset;
@@ -143,6 +145,8 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
         _recordedPipeline = null;
         _recordedTargets = null;
         _recordedVertexBuffers.Clear();
+        _recordedBoundSets.Clear();
+        _hasRecordedViewport = false;
         _recordedIndexBuffer = null;
         _recordedIndexOffset = 0;
     }
@@ -264,6 +268,7 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
         EnsureGraphicsQueue();
         GraphicsViewport value = viewport;
         value.Validate();
+        _hasRecordedViewport = true;
         _commands.Add(new OpenGLRecordedCommand { Kind = OpenGLCommandKind.SetViewport, Viewport = value });
     }
 
@@ -359,6 +364,7 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
 
         _recordedPipeline = openGlPipeline;
         _recordedVertexBuffers.Clear();
+        _recordedBoundSets.Clear();
         _recordedIndexBuffer = null;
         _commands.Add(new OpenGLRecordedCommand
         {
@@ -393,6 +399,7 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
             SetIndex = setIndex,
             BindingSet = openGlSet.Snapshot()
         });
+        _recordedBoundSets.Add(setIndex);
     }
 
     public void SetVertexBuffer(uint binding, IGraphicsBuffer buffer, ulong offset = 0)
@@ -583,6 +590,16 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
             throw new GraphicsValidationException("A render pipeline must be set before a draw.");
         if (_recordedTargets is null)
             throw new GraphicsValidationException("Offscreen rendering requires an explicit render-target set.");
+        if (!_hasRecordedViewport)
+            throw new GraphicsValidationException("Set a viewport before issuing a draw.");
+        ReadOnlyMemory<IGraphicsBindingLayout> layouts =
+            ((OpenGLGraphicsPipelineLayout)_recordedPipeline.Layout).BindingLayouts;
+        for (uint setIndex = 0; setIndex < (uint)layouts.Length; setIndex++)
+        {
+            if (!_recordedBoundSets.Contains(setIndex))
+                throw new GraphicsValidationException($"Descriptor set {setIndex} has not been bound for the active pipeline.");
+        }
+
         GraphicsRenderPipelineDescription pipeline = _recordedPipeline.Description;
         if (pipeline.SampleCount != _recordedTargets.Extent.SampleCount)
             throw new GraphicsValidationException("The bound render targets do not match the pipeline sample count.");
@@ -636,6 +653,9 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
         ReadOnlySpan<OpenGLRecordedCommand> commands = Commands;
         uint framebuffer = 0;
         OpenGLGraphicsRenderPipeline? activePipeline = null;
+        // Dynamic scissor state is command-list-local in the common API. Do not inherit an
+        // enable bit from a previously submitted list on this state-owning context.
+        gl.Disable(EnableCap.ScissorTest);
         int previousDrawFramebuffer = gl.GetInteger(GLEnum.DrawFramebufferBinding);
         int previousIndirectBuffer = gl.GetInteger(GLEnum.DrawIndirectBufferBinding);
         try
