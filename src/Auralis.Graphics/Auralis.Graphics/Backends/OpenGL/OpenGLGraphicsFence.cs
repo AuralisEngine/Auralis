@@ -149,7 +149,7 @@ internal sealed class OpenGLGraphicsFence : GraphicsDeviceObject, IGraphicsFence
         {
             ARB status = _syncApi.ClientWaitSync(
                 pair.Value,
-                SyncObjectMask.SyncFlushCommandsBit,
+                SyncObjectMask.Bit,
                 waitNanoseconds);
 
             if (status == ARB.AlreadySignaled || status == ARB.ConditionSatisfied)
