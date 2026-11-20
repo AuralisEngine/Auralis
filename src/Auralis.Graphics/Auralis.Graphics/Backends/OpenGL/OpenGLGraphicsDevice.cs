@@ -1,4 +1,6 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
+using System.Runtime.InteropServices;
 using Auralis.Graphics.Abstractions;
 using Auralis.Graphics.Commands;
 using Auralis.Graphics.Devices;
@@ -61,7 +63,11 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
     internal ArbPolygonOffsetClamp? PolygonOffsetClampApi => _polygonOffsetClampApi;
     internal ArbES2Compatibility ShaderBinaryApi => _shaderBinaryApi;
     internal ArbGlSpirv? SpirVApi => _spirvApi;
+    internal bool DebugLayerEnabled => _debugLayerEnabled;
     private int _disposeState;
+    private DebugProc? _debugCallback;
+    private GCHandle _debugUserData;
+    private bool _debugLayerEnabled;
 
     private OpenGLGraphicsDevice(
         IOpenGLContextProvider contextProvider,
@@ -273,6 +279,8 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
                 maxUniformBufferBindings, maxStorageBufferBindings, maxTextureUnits, maxImageUnits,
                 uniformBufferOffsetAlignment, storageBufferOffsetAlignment,
                 major, minor, vendor, renderer, version, capabilities);
+            if ((options.DebugOptions & GraphicsDebugOptions.EnableDebugLayer) != 0)
+                device.InitializeDebugOutput();
             gl = null;
             directStateAccess = null;
             textureViewApi = null;
@@ -564,6 +572,7 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
                     (nuint)sizeInBytes,
                     null,
                     OpenGLBufferStorageMapping.GetStorageFlags(bufferDescription));
+                LabelObject(ObjectIdentifier.Buffer, buffer, "Auralis Buffer");
 
                 OpenGLGraphicsBuffer resource = new(this, bufferDescription, buffer);
                 RegisterUnderContext(resource);
@@ -665,6 +674,116 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
         return new OpenGLGraphicsPresentationSurface(this, target, snapshot);
     }
 
+
+    /// <summary>Enables core KHR_debug output and roots the callback for its native lifetime.</summary>
+    private unsafe void InitializeDebugOutput()
+    {
+        _debugUserData = GCHandle.Alloc(this, GCHandleType.Normal);
+        DebugProc callback = OnDebugMessage;
+        _debugCallback = callback;
+
+        try
+        {
+            _gl.Enable(GLEnum.DebugOutput);
+            _gl.Enable(GLEnum.DebugOutputSynchronous);
+            // Keep actionable diagnostics while suppressing high-volume notification traffic.
+            _gl.DebugMessageControl(
+                GLEnum.DontCare,
+                GLEnum.DontCare,
+                GLEnum.DebugSeverityNotification,
+                0,
+                null,
+                false);
+            _gl.DebugMessageCallback(
+                callback,
+                (void*)GCHandle.ToIntPtr(_debugUserData));
+            _debugLayerEnabled = true;
+        }
+        catch
+        {
+            try
+            {
+                _gl.DebugMessageCallback(null!, null);
+                _gl.Disable(GLEnum.DebugOutputSynchronous);
+                _gl.Disable(GLEnum.DebugOutput);
+            }
+            finally
+            {
+                if (_debugUserData.IsAllocated)
+                    _debugUserData.Free();
+                _debugCallback = null;
+            }
+
+            throw;
+        }
+    }
+
+    /// <summary>Unregisters the native callback before releasing its delegate and GCHandle roots.</summary>
+    private unsafe void DisableDebugOutput()
+    {
+        if (!_debugLayerEnabled && !_debugUserData.IsAllocated)
+            return;
+
+        try
+        {
+            _gl.DebugMessageCallback(null!, null);
+            _gl.Disable(GLEnum.DebugOutputSynchronous);
+            _gl.Disable(GLEnum.DebugOutput);
+        }
+        finally
+        {
+            if (_debugUserData.IsAllocated)
+                _debugUserData.Free();
+            _debugCallback = null;
+            _debugLayerEnabled = false;
+        }
+    }
+
+    private static void OnDebugMessage(
+        GLEnum source,
+        GLEnum type,
+        int id,
+        GLEnum severity,
+        int length,
+        nint message,
+        nint userParam)
+    {
+        // Never let a managed exception cross the unmanaged driver callback boundary.
+        try
+        {
+            if (userParam == 0)
+                return;
+
+            GCHandle target = GCHandle.FromIntPtr(userParam);
+            if (target.Target is not OpenGLGraphicsDevice)
+                return;
+
+            string text = length > 0
+                ? Marshal.PtrToStringUTF8(message, length) ?? string.Empty
+                : string.Empty;
+            string formatted = $"OpenGL [{severity}] {type} #{id} ({source}): {text}";
+
+            if (severity == GLEnum.DebugSeverityHigh)
+                Trace.TraceError(formatted);
+            else if (severity == GLEnum.DebugSeverityMedium)
+                Trace.TraceWarning(formatted);
+            else
+                Trace.WriteLine(formatted);
+        }
+        catch (Exception exception)
+        {
+            try { Trace.TraceError("OpenGL debug callback failed: {0}", exception); }
+            catch { }
+        }
+    }
+
+    /// <summary>Assigns a KHR_debug object label when debug output was requested.</summary>
+    internal void LabelObject(ObjectIdentifier identifier, uint handle, string label)
+    {
+        if (_debugLayerEnabled && handle != 0)
+            _gl.ObjectLabel(identifier, handle, -1, label);
+    }
+
     public void Dispose()
     {
         lock (_contextGate)
@@ -702,6 +821,7 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
                 _internalFormatQuery.Dispose();
                 _samplerObjects.Dispose();
                 _textureViewApi.Dispose();
+                DisableDebugOutput();
                 _directStateAccess.Dispose();
                 _gl.Dispose();
             }

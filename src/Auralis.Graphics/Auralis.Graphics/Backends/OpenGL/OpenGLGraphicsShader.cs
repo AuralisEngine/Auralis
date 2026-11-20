@@ -111,6 +111,7 @@ internal sealed unsafe class OpenGLGraphicsShader : GraphicsDeviceObject, IGraph
                         $"OpenGL {(isGlsl ? "GLSL compilation" : "SPIR-V specialization")} failed ({stage}):\n{log}");
                 }
 
+                device.LabelObject(ObjectIdentifier.Shader, handle, $"Auralis {stage} Shader");
                 OpenGLGraphicsShader resource = new(device, shaderDescription, handle);
                 device.RegisterUnderContext(resource);
                 return resource;

@@ -96,42 +96,61 @@ internal sealed class OpenGLGraphicsCommandQueue : IGraphicsCommandQueue
 
             _device.WithContext(gl =>
             {
-                commandsIssued = true;
-                for (int i = 0; i < listCount; i++)
-                    lists[i].Execute(
-                        gl,
-                        _device.DirectStateAccess,
-                        _device.CopyImageApi,
-                        _device.ViewportApi,
-                        _device.BaseInstanceApi,
-                        _device.DrawIndirectApi,
-                        _device.MultiDrawIndirectApi,
-                        _device.ImageLoadStoreApi,
-                        _device.DrawBuffersBlendApi,
-                        _device.ComputeShaderApi);
-
-                completionSync = _device.SyncApi.FenceSync(
-                    SyncCondition.SyncGpuCommandsComplete,
-                    SyncBehaviorFlags.None);
-                if (completionSync == 0)
-                    throw new GraphicsException("OpenGL failed to create a submission completion sync.");
-
-                if (fence is not null)
-                    fence.SignalFromGpu(gl, signalValue);
-
-                _device.OnSubmissionQueued();
+                bool pushedDebugGroup = false;
                 try
                 {
-                    lock (_gate)
+                    if (_device.DebugLayerEnabled)
                     {
-                        _pending.Add(new PendingSubmission(lists, listCount, completionSync));
-                        submissionQueued = true;
+                        gl.PushDebugGroup(
+                            GLEnum.DebugSourceApplication,
+                            (uint)QueueType,
+                            -1,
+                            "Auralis command queue submission");
+                        pushedDebugGroup = true;
+                    }
+
+                    commandsIssued = true;
+                    for (int i = 0; i < listCount; i++)
+                        lists[i].Execute(
+                            gl,
+                            _device.DirectStateAccess,
+                            _device.CopyImageApi,
+                            _device.ViewportApi,
+                            _device.BaseInstanceApi,
+                            _device.DrawIndirectApi,
+                            _device.MultiDrawIndirectApi,
+                            _device.ImageLoadStoreApi,
+                            _device.DrawBuffersBlendApi,
+                            _device.ComputeShaderApi);
+
+                    completionSync = _device.SyncApi.FenceSync(
+                        SyncCondition.SyncGpuCommandsComplete,
+                        SyncBehaviorFlags.None);
+                    if (completionSync == 0)
+                        throw new GraphicsException("OpenGL failed to create a submission completion sync.");
+
+                    if (fence is not null)
+                        fence.SignalFromGpu(gl, signalValue);
+
+                    _device.OnSubmissionQueued();
+                    try
+                    {
+                        lock (_gate)
+                        {
+                            _pending.Add(new PendingSubmission(lists, listCount, completionSync));
+                            submissionQueued = true;
+                        }
+                    }
+                    catch
+                    {
+                        _device.OnSubmissionCompleted();
+                        throw;
                     }
                 }
-                catch
+                finally
                 {
-                    _device.OnSubmissionCompleted();
-                    throw;
+                    if (pushedDebugGroup)
+                        gl.PopDebugGroup();
                 }
             });
         }

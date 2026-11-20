@@ -52,6 +52,7 @@ internal sealed class OpenGLGraphicsTexture : GraphicsDeviceObject, IGraphicsTex
         try
         {
             AllocateStorage(dsa, handle, target, format, copy);
+            device.LabelObject(ObjectIdentifier.Texture, handle, "Auralis Texture");
             OpenGLGraphicsTexture texture = new(device, copy, handle);
             device.RegisterUnderContext(texture);
             return texture;
@@ -199,6 +200,7 @@ internal sealed class OpenGLGraphicsTextureView : GraphicsDeviceObject, IGraphic
                 copy.BaseArrayLayer,
                 copy.ArrayLayerCount);
 
+            device.LabelObject(ObjectIdentifier.Texture, handle, "Auralis Texture View");
             OpenGLGraphicsTextureView view = new(device, texture, copy, handle);
             device.RegisterUnderContext(view);
             return view;

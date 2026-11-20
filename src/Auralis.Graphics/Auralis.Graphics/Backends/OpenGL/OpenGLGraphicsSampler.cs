@@ -47,6 +47,7 @@ internal sealed class OpenGLGraphicsSampler : GraphicsDeviceObject, IGraphicsSam
         try
         {
             SetState(samplerObjects, device, handle, copy);
+            device.LabelObject(ObjectIdentifier.Sampler, handle, "Auralis Sampler");
             OpenGLGraphicsSampler sampler = new(device, copy, handle);
             device.RegisterUnderContext(sampler);
             return sampler;

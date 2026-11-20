@@ -91,10 +91,6 @@ internal sealed class OpenGLGraphicsRenderPipeline : GraphicsDeviceObject, IGrap
             description.Blend.Attachments,
             description.ColorFormats.Length,
             device.IndexedDrawBuffersApi is not null);
-        if (description.DepthStencil.DepthBoundsTestEnabled)
-            throw new GraphicsFeatureNotSupportedException(
-                GraphicsFeature.DepthBoundsTest, GraphicsFeature.DepthBoundsTest);
-
         ReadOnlySpan<GraphicsFormat> colorFormats = description.ColorFormats;
         ReadOnlySpan<GraphicsBlendAttachmentState> blendAttachments = description.Blend.Attachments;
         for (int i = 0; i < colorFormats.Length; i++)
@@ -163,6 +159,8 @@ internal sealed class OpenGLGraphicsRenderPipeline : GraphicsDeviceObject, IGrap
                     throw new GraphicsException("OpenGL failed to create a vertex-array object.");
 
                 ConfigureVertexArray(device.DirectStateAccess, vertexArray, description.VertexInput);
+                device.LabelObject(ObjectIdentifier.Program, program, "Auralis Graphics Pipeline Program");
+                device.LabelObject(ObjectIdentifier.VertexArray, vertexArray, "Auralis Graphics Pipeline Vertex Array");
                 OpenGLGraphicsRenderPipeline pipeline = new(device, description, program, vertexArray);
                 device.RegisterUnderContext(pipeline);
                 return pipeline;

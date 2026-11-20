@@ -17,11 +17,11 @@ internal static class OpenGLDeviceOptionsValidation
                 "The OpenGL backend consumes an already-selected context and cannot enumerate or select a physical adapter ID.");
 
         GraphicsDebugOptions unsupported = options.DebugOptions &
-            (GraphicsDebugOptions.EnableDebugLayer | GraphicsDebugOptions.EnableGpuBasedValidation);
+            GraphicsDebugOptions.EnableGpuBasedValidation;
         if (unsupported != GraphicsDebugOptions.None)
             throw new GraphicsBackendUnavailableException(
                 GraphicsBackend.OpenGL,
-                $"The requested OpenGL debug options are not implemented: {unsupported}. " +
-                "Common and backend validation checks remain enabled.");
+                $"The requested OpenGL debug option is not implemented: {unsupported}. " +
+                "GL_KHR_debug output is available when EnableDebugLayer is requested; GPU-based validation is not implemented.");
     }
 }

@@ -16,6 +16,21 @@ namespace Auralis.Graphics.Tests;
 public sealed class OpenGLBackendTests
 {
     [Fact]
+    public void DebugOptionsAllowKhrDebugButKeepGpuValidationUnsupported()
+    {
+        OpenGLDeviceOptionsValidation.Validate(new GraphicsDeviceOptions
+        {
+            DebugOptions = GraphicsDebugOptions.EnableDebugLayer
+        });
+
+        Assert.Throws<GraphicsBackendUnavailableException>(() =>
+            OpenGLDeviceOptionsValidation.Validate(new GraphicsDeviceOptions
+            {
+                DebugOptions = GraphicsDebugOptions.EnableGpuBasedValidation
+            }));
+    }
+
+    [Fact]
     public void SpirVValidationChecksExtensionHeaderAndAlignment()
     {
         byte[] valid = new byte[20];
