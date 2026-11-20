@@ -36,6 +36,7 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
     private readonly ArbDrawIndirect _drawIndirectApi;
     private readonly ArbMultiDrawIndirect _multiDrawIndirectApi;
     private readonly ArbShaderImageLoadStore _imageLoadStoreApi;
+    private readonly ArbDrawBuffersBlend _drawBuffersBlendApi;
     private readonly string _renderer;
     internal uint MaxUniformBufferBindings { get; }
     internal uint MaxStorageBufferBindings { get; }
@@ -59,6 +60,7 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
         ArbDrawIndirect drawIndirectApi,
         ArbMultiDrawIndirect multiDrawIndirectApi,
         ArbShaderImageLoadStore imageLoadStoreApi,
+        ArbDrawBuffersBlend drawBuffersBlendApi,
         uint maxUniformBufferBindings,
         uint maxStorageBufferBindings,
         uint maxTextureUnits,
@@ -85,6 +87,7 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
         _drawIndirectApi = drawIndirectApi;
         _multiDrawIndirectApi = multiDrawIndirectApi;
         _imageLoadStoreApi = imageLoadStoreApi;
+        _drawBuffersBlendApi = drawBuffersBlendApi;
         _renderer = renderer;
         MaxUniformBufferBindings = maxUniformBufferBindings;
         MaxStorageBufferBindings = maxStorageBufferBindings;
@@ -122,6 +125,7 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
         ArbDrawIndirect? drawIndirectApi = null;
         ArbMultiDrawIndirect? multiDrawIndirectApi = null;
         ArbShaderImageLoadStore? imageLoadStoreApi = null;
+        ArbDrawBuffersBlend? drawBuffersBlendApi = null;
         if (contextProvider.StateOwnership != OpenGLContextStateOwnership.Exclusive)
             throw new GraphicsBackendUnavailableException(
                 GraphicsBackend.OpenGL,
@@ -157,6 +161,7 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
             drawIndirectApi = new ArbDrawIndirect(gl.Context);
             multiDrawIndirectApi = new ArbMultiDrawIndirect(gl.Context);
             imageLoadStoreApi = new ArbShaderImageLoadStore(gl.Context);
+            drawBuffersBlendApi = new ArbDrawBuffersBlend(gl.Context);
 
             string vendor = gl.GetStringS(StringName.Vendor);
             string renderer = gl.GetStringS(StringName.Renderer);
@@ -175,7 +180,7 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
                 contextProvider, gl, directStateAccess, textureViewApi, samplerObjects,
                 internalFormatQuery, syncApi, copyImageApi, viewportApi,
                 baseInstanceApi, drawIndirectApi, multiDrawIndirectApi, imageLoadStoreApi,
-                maxUniformBufferBindings, maxStorageBufferBindings, maxTextureUnits, maxImageUnits,
+                drawBuffersBlendApi, maxUniformBufferBindings, maxStorageBufferBindings, maxTextureUnits, maxImageUnits,
                 uniformBufferOffsetAlignment, storageBufferOffsetAlignment,
                 major, minor, vendor, renderer, version, capabilities);
             gl = null;
@@ -190,10 +195,12 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
             drawIndirectApi = null;
             multiDrawIndirectApi = null;
             imageLoadStoreApi = null;
+            drawBuffersBlendApi = null;
             return device;
         }
         catch
         {
+            drawBuffersBlendApi?.Dispose();
             imageLoadStoreApi?.Dispose();
             multiDrawIndirectApi?.Dispose();
             drawIndirectApi?.Dispose();
@@ -297,6 +304,7 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
     internal ArbDrawIndirect DrawIndirectApi => _drawIndirectApi;
     internal ArbMultiDrawIndirect MultiDrawIndirectApi => _multiDrawIndirectApi;
     internal ArbShaderImageLoadStore ImageLoadStoreApi => _imageLoadStoreApi;
+    internal ArbDrawBuffersBlend DrawBuffersBlendApi => _drawBuffersBlendApi;
 
     internal T WithContext<T>(Func<GL, T> action)
     {
@@ -526,6 +534,7 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
                     foreach (IOpenGLNativeResource resource in _resources)
                         resource.ReleaseNative(_gl);
 
+                    _drawBuffersBlendApi.Dispose();
                     _imageLoadStoreApi.Dispose();
                     _multiDrawIndirectApi.Dispose();
                     _drawIndirectApi.Dispose();
