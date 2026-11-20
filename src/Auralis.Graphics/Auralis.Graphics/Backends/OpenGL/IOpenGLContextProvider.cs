@@ -1,4 +1,5 @@
 using Auralis.Graphics.Abstractions;
+using Auralis.Graphics.Presentation;
 
 namespace Auralis.Graphics.Backends.OpenGL;
 
@@ -46,6 +47,21 @@ public interface IOpenGLContextProvider : IDisposable
 
     /// <summary>Whether the context has a drawable that this provider can swap.</summary>
     bool SupportsPresentation { get; }
+
+    /// <summary>
+    /// Verifies that the supplied platform target identifies the exact drawable associated with this context.
+    /// The default framebuffer must never be presented to an unrelated HWND, X11 Window, layer, or surface.
+    /// </summary>
+    bool IsPresentationTargetCompatible(in GraphicsPresentationTargetSnapshot target);
+
+    /// <summary>Whether the provider can honor a requested swap interval/presentation policy.</summary>
+    bool SupportsPresentMode(GraphicsPresentMode presentMode);
+
+    /// <summary>
+    /// Applies the requested presentation policy to the context's drawable. Must throw when unsupported.
+    /// Platform-specific swap-interval APIs remain the provider's responsibility.
+    /// </summary>
+    void SetPresentMode(GraphicsPresentMode presentMode);
 
     /// <summary>Makes this context current on the calling thread, throwing if activation fails.</summary>
     void MakeCurrent();
