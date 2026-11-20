@@ -65,7 +65,7 @@ internal sealed unsafe class OpenGLGraphicsBuffer : GraphicsDeviceObject, IGraph
         OpenGLMappedMemoryManager manager = new(staging);
         if (Interlocked.CompareExchange(ref _mapped, manager, null) is not null)
         {
-            manager.Dispose();
+            manager.Invalidate();
             throw new InvalidOperationException("The buffer is already mapped.");
         }
 
@@ -97,7 +97,7 @@ internal sealed unsafe class OpenGLGraphicsBuffer : GraphicsDeviceObject, IGraph
         catch
         {
             Interlocked.CompareExchange(ref _mapped, null, manager);
-            manager.Dispose();
+            manager.Invalidate();
             _mappedOffset = 0;
             throw;
         }
@@ -131,14 +131,14 @@ internal sealed unsafe class OpenGLGraphicsBuffer : GraphicsDeviceObject, IGraph
         }
 
         if (ReferenceEquals(Interlocked.CompareExchange(ref _mapped, null, manager), manager))
-            manager.Dispose();
+            manager.Invalidate();
         _mappedOffset = 0;
     }
 
     protected override void DisposeCore()
     {
         OpenGLMappedMemoryManager? mapped = Interlocked.Exchange(ref _mapped, null);
-        mapped?.Dispose();
+        mapped?.Invalidate();
         _mappedOffset = 0;
         _device.ReleaseResource(this);
     }
@@ -146,7 +146,7 @@ internal sealed unsafe class OpenGLGraphicsBuffer : GraphicsDeviceObject, IGraph
     public void ReleaseNative(GL gl)
     {
         OpenGLMappedMemoryManager? mapped = Interlocked.Exchange(ref _mapped, null);
-        mapped?.Dispose();
+        mapped?.Invalidate();
         _mappedOffset = 0;
 
         uint handle = Interlocked.Exchange(ref _handle, 0);
