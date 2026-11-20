@@ -20,12 +20,17 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
     private readonly IOpenGLContextProvider _contextProvider;
     private readonly object _contextGate = new();
     private readonly ConcurrentBag<IOpenGLNativeResource> _resources = [];
+    private readonly ConcurrentQueue<IOpenGLNativeResource> _deferredResources = new();
+    private readonly object _queueGate = new();
+    private readonly OpenGLGraphicsCommandQueue?[] _queues = new OpenGLGraphicsCommandQueue?[3];
+    private int _pendingSubmissionCount;
     private readonly GL _gl;
     private readonly ArbDirectStateAccess _directStateAccess;
     private readonly ArbTextureView _textureViewApi;
     private readonly ArbSamplerObjects _samplerObjects;
     private readonly ArbInternalformatQuery _internalFormatQuery;
     private readonly ArbSync _syncApi;
+    private readonly ArbCopyImage _copyImageApi;
     private readonly string _renderer;
     private int _disposeState;
 
@@ -37,6 +42,7 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
         ArbSamplerObjects samplerObjects,
         ArbInternalformatQuery internalFormatQuery,
         ArbSync syncApi,
+        ArbCopyImage copyImageApi,
         int major,
         int minor,
         string vendor,
@@ -51,6 +57,7 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
         _samplerObjects = samplerObjects;
         _internalFormatQuery = internalFormatQuery;
         _syncApi = syncApi;
+        _copyImageApi = copyImageApi;
         _renderer = renderer;
         Capabilities = capabilities;
         Backend = GraphicsBackend.OpenGL;
@@ -76,6 +83,7 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
         ArbSamplerObjects? samplerObjects = null;
         ArbInternalformatQuery? internalFormatQuery = null;
         ArbSync? syncApi = null;
+        ArbCopyImage? copyImageApi = null;
         contextProvider.MakeCurrent();
         try
         {
@@ -100,6 +108,7 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
             samplerObjects = new ArbSamplerObjects(gl.Context);
             internalFormatQuery = new ArbInternalformatQuery(gl.Context);
             syncApi = new ArbSync(gl.Context);
+            copyImageApi = new ArbCopyImage(gl.Context);
 
             string vendor = gl.GetStringS(StringName.Vendor);
             string renderer = gl.GetStringS(StringName.Renderer);
@@ -109,17 +118,19 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
 
             OpenGLGraphicsDevice device = new(
                 contextProvider, gl, directStateAccess, textureViewApi, samplerObjects,
-                internalFormatQuery, syncApi, major, minor, vendor, renderer, version, capabilities);
+                internalFormatQuery, syncApi, copyImageApi, major, minor, vendor, renderer, version, capabilities);
             gl = null;
             directStateAccess = null;
             textureViewApi = null;
             samplerObjects = null;
             internalFormatQuery = null;
             syncApi = null;
+            copyImageApi = null;
             return device;
         }
         catch
         {
+            copyImageApi?.Dispose();
             syncApi?.Dispose();
             internalFormatQuery?.Dispose();
             samplerObjects?.Dispose();
@@ -204,9 +215,14 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
         GraphicsFormatCapabilities[] formats = OpenGLFormatCapabilities.Query(
             gl, internalFormatQuery, hasInternalFormatQuery2);
 
+        GraphicsQueueCapabilities queues = GraphicsQueueCapabilities.Graphics |
+                                            GraphicsQueueCapabilities.Copy;
+        if (hasCompute)
+            queues |= GraphicsQueueCapabilities.Compute;
+
         return new GraphicsDeviceCapabilities(
             new GraphicsFeatureSet(features),
-            GraphicsQueueCapabilities.None,
+            queues,
             limits,
             formats);
     }
@@ -217,6 +233,7 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
     internal ArbTextureView TextureViewApi => _textureViewApi;
     internal ArbSamplerObjects SamplerObjects => _samplerObjects;
     internal ArbSync SyncApi => _syncApi;
+    internal ArbCopyImage CopyImageApi => _copyImageApi;
 
     internal T WithContext<T>(Func<GL, T> action)
     {
@@ -256,6 +273,12 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
             if (IsDisposed)
                 return;
 
+            if (Volatile.Read(ref _pendingSubmissionCount) != 0)
+            {
+                _deferredResources.Enqueue(resource);
+                return;
+            }
+
             _contextProvider.MakeCurrent();
             try
             {
@@ -268,11 +291,45 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
         }
     }
 
-    public IGraphicsCommandQueue GetQueue(GraphicsQueueType queueType, uint index = 0) =>
-        throw new NotSupportedException("Command queues and command-list execution are not part of the initial OpenGL backend increment.");
+    internal void OnSubmissionQueued() => Interlocked.Increment(ref _pendingSubmissionCount);
 
-    public IGraphicsQueue GetPresentationQueue(uint index = 0) =>
-        throw new NotSupportedException("Presentation queues are not implemented yet.");
+    internal void OnSubmissionCompleted()
+    {
+        int remaining = Interlocked.Decrement(ref _pendingSubmissionCount);
+        if (remaining < 0)
+            throw new InvalidOperationException("OpenGL submission lifetime accounting became unbalanced.");
+
+        if (remaining != 0)
+            return;
+
+        while (_deferredResources.TryDequeue(out IOpenGLNativeResource? resource))
+            resource.ReleaseNative(_gl);
+    }
+
+    public IGraphicsCommandQueue GetQueue(GraphicsQueueType queueType, uint index = 0)
+    {
+        ObjectDisposedException.ThrowIf(IsDisposed, this);
+        if (index != 0)
+            throw new GraphicsValidationException("The OpenGL backend exposes one logical queue per queue role.");
+        if (!Enum.IsDefined(queueType))
+            throw new ArgumentOutOfRangeException(nameof(queueType));
+        if (queueType == GraphicsQueueType.Compute &&
+            !Capabilities.Features.Supports(GraphicsFeature.ComputeShaders))
+            throw new GraphicsFeatureNotSupportedException(
+                GraphicsFeature.ComputeShaders, GraphicsFeature.ComputeShaders);
+
+        lock (_queueGate)
+        {
+            return _queues[(int)queueType] ??= new OpenGLGraphicsCommandQueue(this, queueType);
+        }
+    }
+
+    public IGraphicsQueue GetPresentationQueue(uint index = 0)
+    {
+        if (index != 0)
+            throw new GraphicsValidationException("The OpenGL backend exposes one presentation-queue candidate.");
+        return GetQueue(GraphicsQueueType.Graphics, 0);
+    }
 
     public unsafe IGraphicsBuffer CreateBuffer(in GraphicsBufferDescription description)
     {
@@ -379,10 +436,17 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
                 _contextProvider.MakeCurrent();
                 try
                 {
+                    foreach (OpenGLGraphicsCommandQueue? queue in _queues)
+                        queue?.DrainUnderContext(_gl);
+
+                    _gl.Finish();
+                    while (_deferredResources.TryDequeue(out IOpenGLNativeResource? deferred))
+                        deferred.ReleaseNative(_gl);
+
                     foreach (IOpenGLNativeResource resource in _resources)
                         resource.ReleaseNative(_gl);
 
-                    _gl.Finish();
+                    _copyImageApi.Dispose();
                     _syncApi.Dispose();
                     _internalFormatQuery.Dispose();
                     _samplerObjects.Dispose();
