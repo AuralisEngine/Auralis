@@ -128,6 +128,7 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        OpenGLDeviceOptionsValidation.Validate(options);
         GL? gl = null;
         ArbDirectStateAccess? directStateAccess = null;
         ArbTextureView? textureViewApi = null;
