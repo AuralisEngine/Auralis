@@ -181,7 +181,7 @@ internal sealed class OpenGLGraphicsRenderPipeline : GraphicsDeviceObject, IGrap
         }
     }
 
-    internal void Apply(GL gl)
+    internal void Apply(GL gl, ArbDrawBuffersBlend drawBuffersBlend)
     {
         ThrowIfDisposed();
         gl.UseProgram(_program);
@@ -223,7 +223,7 @@ internal sealed class OpenGLGraphicsRenderPipeline : GraphicsDeviceObject, IGrap
         gl.LineWidth(rasterization.LineWidth);
 
         ApplyDepthStencil(gl, Description.DepthStencil);
-        ApplyBlend(gl, _device.DrawBuffersBlendApi, Description.Blend, Description.ColorFormats.Length);
+        ApplyBlend(gl, drawBuffersBlend, Description.Blend, Description.ColorFormats.Length);
 
         if (Description.Tessellation is { } tessellation)
             gl.PatchParameter(PatchParameterName.Vertices, checked((int)tessellation.PatchControlPoints));
