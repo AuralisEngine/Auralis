@@ -92,9 +92,8 @@ internal sealed class OpenGLGraphicsPresentationSurface : GraphicsDeviceObject, 
                 "The selected queue cannot present to the drawable represented by this OpenGL surface.");
 
         if (!_device.ContextProvider.SupportsPresentMode(copy.PresentMode))
-            throw new GraphicsFeatureNotSupportedException(
-                GraphicsFeature.None,
-                GraphicsFeature.None);
+            throw new GraphicsValidationException(
+                $"The OpenGL context provider cannot apply present mode {copy.PresentMode}.");
 
         _device.ContextProvider.SetPresentMode(copy.PresentMode);
         GraphicsPresentationTargetSnapshot snapshot = RefreshSnapshot();
