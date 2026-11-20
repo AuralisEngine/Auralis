@@ -34,7 +34,7 @@ internal sealed class OpenGLGraphicsShader : GraphicsDeviceObject, IGraphicsShad
         }
     }
 
-    protected override void DisposeCore() => _device.WithContext(ReleaseNative);
+    protected override void DisposeCore() => _device.ReleaseResource(this);
 
     public void ReleaseNative(GL gl)
     {
@@ -66,33 +66,31 @@ internal sealed class OpenGLGraphicsShader : GraphicsDeviceObject, IGraphicsShad
         if (source.IndexOf('\0') >= 0)
             throw new GraphicsValidationException("GLSL source cannot contain embedded null characters.");
 
-        GraphicsShaderStage stage = description.Stage;
-        uint shader = 0;
-        try
+        GraphicsShaderDescription shaderDescription = description;
+        GraphicsShaderStage stage = shaderDescription.Stage;
+        return device.WithContext(gl =>
         {
-            shader = device.WithContext(gl =>
+            uint handle = gl.CreateShader(ToShaderType(stage));
+            try
             {
-                uint handle = gl.CreateShader(ToShaderType(stage));
                 gl.ShaderSource(handle, source);
                 gl.CompileShader(handle);
                 gl.GetShader(handle, ShaderParameterName.CompileStatus, out int status);
                 if (status == 0)
                 {
                     string log = gl.GetShaderInfoLog(handle);
-                    gl.DeleteShader(handle);
                     throw new GraphicsException($"OpenGL GLSL compilation failed ({stage}):\n{log}");
                 }
 
-                return handle;
-            });
-
-            return new OpenGLGraphicsShader(device, description, shader);
-        }
-        catch
-        {
-            if (shader != 0)
-                device.WithContext(gl => gl.DeleteShader(shader));
-            throw;
-        }
+                OpenGLGraphicsShader resource = new(device, shaderDescription, handle);
+                device.RegisterUnderContext(resource);
+                return resource;
+            }
+            catch
+            {
+                gl.DeleteShader(handle);
+                throw;
+            }
+        });
     }
 }
