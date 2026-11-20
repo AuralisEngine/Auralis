@@ -137,24 +137,30 @@ internal sealed class OpenGLGraphicsCommandQueue : IGraphicsCommandQueue
         }
         catch
         {
-            if (commandsIssued && !_device.IsDisposed)
+            // Once queued, the pending-submission record owns the pooled list array and lifecycle
+            // transitions. A later ReleaseCurrent failure must not roll back that accepted work
+            // or complete/return the same entries twice.
+            if (!submissionQueued)
             {
-                _device.WithContext(gl =>
+                if (commandsIssued && !_device.IsDisposed)
                 {
-                    gl.Finish();
-                    if (completionSync != 0 && !submissionQueued)
-                        _device.SyncApi.DeleteSync(completionSync);
-                });
-            }
-            else if (completionSync != 0 && !_device.IsDisposed && !submissionQueued)
-            {
-                _device.WithContext(gl => _device.SyncApi.DeleteSync(completionSync));
-            }
+                    _device.WithContext(gl =>
+                    {
+                        gl.Finish();
+                        if (completionSync != 0)
+                            _device.SyncApi.DeleteSync(completionSync);
+                    });
+                }
+                else if (completionSync != 0 && !_device.IsDisposed)
+                {
+                    _device.WithContext(gl => _device.SyncApi.DeleteSync(completionSync));
+                }
 
-            for (int i = 0; i < submittedCount; i++)
-            {
-                if (lists[i].Lifecycle.State == GraphicsCommandListState.Pending)
-                    lists[i].Complete();
+                for (int i = 0; i < submittedCount; i++)
+                {
+                    if (lists[i].Lifecycle.State == GraphicsCommandListState.Pending)
+                        lists[i].Complete();
+                }
             }
 
             throw;

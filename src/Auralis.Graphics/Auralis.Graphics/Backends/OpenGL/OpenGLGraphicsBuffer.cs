@@ -118,23 +118,16 @@ internal sealed unsafe class OpenGLGraphicsBuffer : GraphicsDeviceObject, IGraph
 
     protected override void DisposeCore()
     {
-        try
-        {
-            // Device disposal already drains the registered native resource set. A late resource
-            // disposal must not reactivate an already disposed context.
-            if (!_device.IsDisposed)
-                _device.ReleaseResource(this);
-        }
-        finally
-        {
-            lock (_mappingGate)
-            {
-                _mapped?.Invalidate();
-                _mapped = null;
-                // If destruction was deferred by an in-flight submission, ReleaseNative will
-                // unmap the driver pointer after that submission completes.
-            }
-        }
+        // Invalidate new Memory/Span/Pin access immediately, but retain the manager object until
+        // ReleaseNative runs. Deferred destruction must still observe existing MemoryHandle pins
+        // before unmapping the driver pointer.
+        lock (_mappingGate)
+            _mapped?.Invalidate();
+
+        // Device disposal drains registered resources under its current context. A late Dispose
+        // must not reactivate a context that the device has already torn down.
+        if (!_device.IsDisposed)
+            _device.ReleaseResource(this);
     }
 
     public void ReleaseNative(GL gl)

@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Runtime.InteropServices;
 using Auralis.Graphics.Abstractions;
 using Auralis.Graphics.Backends.OpenGL;
@@ -504,6 +505,30 @@ public sealed class OpenGLBackendTests
             throw new NotSupportedException();
         public void Unmap() => throw new NotSupportedException();
         protected override void DisposeCore() { }
+    }
+
+    [Fact]
+    public void MappedMemoryCannotBeUnmappedWhilePinned()
+    {
+        nint memoryPointer = Marshal.AllocHGlobal(4);
+        try
+        {
+            var manager = new OpenGLMappedMemoryManager(memoryPointer, 4);
+            Memory<byte> memory = manager.Memory;
+            MemoryHandle pin = memory.Pin();
+
+            Assert.Throws<InvalidOperationException>(manager.ValidateCanUnmap);
+
+            pin.Dispose();
+            manager.ValidateCanUnmap();
+
+            manager.Invalidate();
+            Assert.Throws<ObjectDisposedException>(() => _ = memory.Span[0]);
+        }
+        finally
+        {
+            Marshal.FreeHGlobal(memoryPointer);
+        }
     }
 
     [Fact]
