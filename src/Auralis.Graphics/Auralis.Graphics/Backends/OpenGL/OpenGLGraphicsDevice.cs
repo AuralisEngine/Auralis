@@ -187,34 +187,13 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
             string renderer = gl.GetStringS(StringName.Renderer);
             string version = gl.GetStringS(StringName.Version);
             GraphicsDeviceCapabilities capabilities = QueryCapabilities(
-                gl, major, minor, internalFormatQuery, contextProvider.SupportsPresentation);
+                gl, major, minor, internalFormatQuery, uniformBufferObjectApi!, contextProvider.SupportsPresentation);
             uint maxUniformBufferBindings = ToUInt(gl.GetInteger(GLEnum.MaxUniformBufferBindings));
             uint maxStorageBufferBindings = ToUInt(gl.GetInteger(GLEnum.MaxShaderStorageBufferBindings));
             uint maxTextureUnits = ToUInt(gl.GetInteger(GLEnum.MaxCombinedTextureImageUnits));
             uint maxImageUnits = ToUInt(gl.GetInteger(GLEnum.MaxImageUnits));
             uint uniformBufferOffsetAlignment = ToUInt(gl.GetInteger(GLEnum.UniformBufferOffsetAlignment));
             uint storageBufferOffsetAlignment = ToUInt(gl.GetInteger(GLEnum.ShaderStorageBufferOffsetAlignment));
-            uint maxComputeWorkGroupSizeX = 0;
-            uint maxComputeWorkGroupSizeY = 0;
-            uint maxComputeWorkGroupSizeZ = 0;
-            uint maxComputeWorkGroupCountX = 0;
-            uint maxComputeWorkGroupCountY = 0;
-            uint maxComputeWorkGroupCountZ = 0;
-            if (computeShaderApi is not null)
-            {
-                uniformBufferObjectApi.GetInteger(GetPName.MaxComputeWorkGroupSize, 0, out int sizeX);
-                uniformBufferObjectApi.GetInteger(GetPName.MaxComputeWorkGroupSize, 1, out int sizeY);
-                uniformBufferObjectApi.GetInteger(GetPName.MaxComputeWorkGroupSize, 2, out int sizeZ);
-                uniformBufferObjectApi.GetInteger(GetPName.MaxComputeWorkGroupCount, 0, out int countX);
-                uniformBufferObjectApi.GetInteger(GetPName.MaxComputeWorkGroupCount, 1, out int countY);
-                uniformBufferObjectApi.GetInteger(GetPName.MaxComputeWorkGroupCount, 2, out int countZ);
-                maxComputeWorkGroupSizeX = ToUInt(sizeX);
-                maxComputeWorkGroupSizeY = ToUInt(sizeY);
-                maxComputeWorkGroupSizeZ = ToUInt(sizeZ);
-                maxComputeWorkGroupCountX = ToUInt(countX);
-                maxComputeWorkGroupCountY = ToUInt(countY);
-                maxComputeWorkGroupCountZ = ToUInt(countZ);
-            }
             cancellationToken.ThrowIfCancellationRequested();
 
             OpenGLGraphicsDevice device = new(
@@ -273,6 +252,7 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
         int major,
         int minor,
         ArbInternalformatQuery internalFormatQuery,
+        ArbUniformBufferObject uniformBufferObjectApi,
         bool supportsPresentation)
     {
         static bool AtLeast(int major, int minor, int requiredMajor, int requiredMinor) =>
@@ -309,6 +289,15 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
         uint maxComputeX = 0;
         uint maxComputeY = 0;
         uint maxComputeZ = 0;
+        if (hasCompute)
+        {
+            uniformBufferObjectApi.GetInteger(GetPName.MaxComputeWorkGroupSize, 0, out int sizeX);
+            uniformBufferObjectApi.GetInteger(GetPName.MaxComputeWorkGroupSize, 1, out int sizeY);
+            uniformBufferObjectApi.GetInteger(GetPName.MaxComputeWorkGroupSize, 2, out int sizeZ);
+            maxComputeX = ToUInt(sizeX);
+            maxComputeY = ToUInt(sizeY);
+            maxComputeZ = ToUInt(sizeZ);
+        }
         uint maxPatchSize = hasTessellation ? ToUInt(gl.GetInteger(GLEnum.MaxPatchVertices)) : 0;
         float maxAnisotropy = 0;
         if (hasAnisotropy)
@@ -317,7 +306,7 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
         GraphicsDeviceLimits limits = new(
             0, maxTexture, maxTexture, maxTexture3D, maxArrayLayers,
             maxVertexAttributes, maxVertexBindings, 0,
-            maxComputeInvocations, maxComputeWorkGroupSizeX, maxComputeWorkGroupSizeY, maxComputeWorkGroupSizeZ,
+            maxComputeInvocations, maxComputeX, maxComputeY, maxComputeZ,
             maxAnisotropy, maxPatchSize);
 
         bool hasInternalFormatQuery2 = AtLeast(major, minor, 4, 3) ||
@@ -325,10 +314,10 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
         GraphicsFormatCapabilities[] formats = OpenGLFormatCapabilities.Query(
             gl, internalFormatQuery, hasInternalFormatQuery2);
 
-        // Compute shaders are available at the API level, but the command-list dispatch path is
-        // not implemented yet; do not advertise a compute-capable queue until it is executable.
         GraphicsQueueCapabilities queues = GraphicsQueueCapabilities.Graphics |
                                             GraphicsQueueCapabilities.Copy;
+        if (hasCompute)
+            queues |= GraphicsQueueCapabilities.Compute;
         if (hasCompute)
             queues |= GraphicsQueueCapabilities.Compute;
         if (supportsPresentation)
@@ -435,10 +424,6 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
             throw new GraphicsValidationException("The OpenGL backend exposes one logical queue per queue role.");
         if (!Enum.IsDefined(queueType))
             throw new ArgumentOutOfRangeException(nameof(queueType));
-        if (queueType == GraphicsQueueType.Compute)
-            throw new GraphicsException(
-                "Compute shaders are available, but OpenGL compute command recording and dispatch are not implemented yet.");
-
         lock (_queueGate)
         {
             if (queueType == GraphicsQueueType.Compute &&
