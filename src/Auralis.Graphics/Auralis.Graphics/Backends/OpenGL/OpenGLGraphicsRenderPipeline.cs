@@ -79,6 +79,27 @@ internal sealed class OpenGLGraphicsRenderPipeline : GraphicsDeviceObject, IGrap
         if (description.Rasterization.DepthBiasClamp != 0)
             throw new GraphicsValidationException(
                 "Depth-bias clamping requires GL_ARB_polygon_offset_clamp, which is not enabled by this backend.");
+        if (description.Rasterization.LineWidth != 1)
+            throw new GraphicsValidationException(
+                "Non-unit line widths are not advertised or implemented by this OpenGL backend.");
+        if (description.DepthStencil.DepthBoundsTestEnabled)
+            throw new GraphicsFeatureNotSupportedException(
+                GraphicsFeature.DepthBoundsTest, GraphicsFeature.DepthBoundsTest);
+
+        ReadOnlySpan<GraphicsFormat> colorFormats = description.ColorFormats;
+        ReadOnlySpan<GraphicsBlendAttachmentState> blendAttachments = description.Blend.Attachments;
+        for (int i = 0; i < colorFormats.Length; i++)
+        {
+            GraphicsBlendAttachmentState blend = blendAttachments.IsEmpty
+                ? default
+                : blendAttachments[i];
+            if (blend.BlendEnabled &&
+                !device.Capabilities.SupportsFormat(colorFormats[i], GraphicsFormatSupport.Blend))
+            {
+                throw new GraphicsValidationException(
+                    $"Color attachment format {colorFormats[i]} does not support blending on this OpenGL context.");
+            }
+        }
 
         if (description.VertexInput is { } vertexInput)
         {
@@ -97,9 +118,28 @@ internal sealed class OpenGLGraphicsRenderPipeline : GraphicsDeviceObject, IGrap
             ReadOnlySpan<GraphicsVertexAttribute> attributes = vertexInput.Attributes;
             for (int i = 0; i < attributes.Length; i++)
             {
-                if (maxAttributes != 0 && attributes[i].Location >= maxAttributes)
+                GraphicsVertexAttribute attribute = attributes[i];
+                if (maxAttributes != 0 && attribute.Location >= maxAttributes)
                     throw new GraphicsValidationException(
-                        $"Vertex attribute location {attributes[i].Location} exceeds the OpenGL limit {maxAttributes}.");
+                        $"Vertex attribute location {attribute.Location} exceeds the OpenGL limit {maxAttributes}.");
+
+                GraphicsVertexBufferLayout buffer = default;
+                bool found = false;
+                for (int bindingIndex = 0; bindingIndex < buffers.Length; bindingIndex++)
+                {
+                    if (buffers[bindingIndex].Binding != attribute.Binding)
+                        continue;
+                    buffer = buffers[bindingIndex];
+                    found = true;
+                    break;
+                }
+
+                if (!found)
+                    throw new GraphicsValidationException($"Vertex attribute {attribute.Location} references a missing binding.");
+                uint byteSize = OpenGLPipelineMapping.GetVertexFormatByteSize(attribute.Format);
+                if (byteSize == 0 || attribute.Offset > buffer.Stride || byteSize > buffer.Stride - attribute.Offset)
+                    throw new GraphicsValidationException(
+                        $"Vertex attribute {attribute.Location} extends beyond stride {buffer.Stride}.");
             }
         }
 
