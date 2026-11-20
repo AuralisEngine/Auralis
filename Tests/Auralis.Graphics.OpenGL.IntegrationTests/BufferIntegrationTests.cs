@@ -17,7 +17,7 @@ public sealed class BufferIntegrationTests(OpenGLIntegrationFixture fixture)
             new GraphicsBufferDescription(
                 length,
                 GraphicsBufferUsage.CopySource,
-                GraphicsMemoryAccess.CpuToGpu));
+                GraphicsMemoryAccess.CpuReadWrite));
 
         Memory<byte> mapped = buffer.Map(GraphicsMapMode.Write);
         try
