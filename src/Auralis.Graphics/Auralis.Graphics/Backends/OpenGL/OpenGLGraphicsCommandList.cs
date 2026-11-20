@@ -1178,8 +1178,9 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
     private void EnsureRecording()
     {
         ThrowIfDisposed();
-        if (State != GraphicsCommandListState.Recording)
-            _lifecycle.EnsureRecording();
+        // Recording is deliberately CPU-only. Do not call the public State getter here:
+        // that getter polls GLsync completion and makes the native context current.
+        _lifecycle.EnsureRecording();
     }
 
     private void EnsureOwned(IGraphicsDeviceObject resource)
