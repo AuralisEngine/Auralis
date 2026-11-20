@@ -141,13 +141,13 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
         uint maxComputeInvocations = hasCompute
             ? ToUInt(gl.GetInteger(GLEnum.MaxComputeWorkGroupInvocations))
             : 0;
-        uint maxComputeX = hasCompute ? ToUInt(gl.GetInteger(GLEnum.MaxComputeWorkGroupSize, 0)) : 0;
-        uint maxComputeY = hasCompute ? ToUInt(gl.GetInteger(GLEnum.MaxComputeWorkGroupSize, 1)) : 0;
-        uint maxComputeZ = hasCompute ? ToUInt(gl.GetInteger(GLEnum.MaxComputeWorkGroupSize, 2)) : 0;
+        uint maxComputeX = 0;
+        uint maxComputeY = 0;
+        uint maxComputeZ = 0;
         uint maxPatchSize = hasTessellation ? ToUInt(gl.GetInteger(GLEnum.MaxPatchVertices)) : 0;
         float maxAnisotropy = 0;
         if (hasAnisotropy)
-            gl.GetFloat(GLEnum.MaxTextureMaxAnisotropyExt, out maxAnisotropy);
+            gl.GetFloat(GLEnum.MaxTextureMaxAnisotropy, out maxAnisotropy);
 
         GraphicsDeviceLimits limits = new(
             0, maxTexture, maxTexture, maxTexture3D, maxArrayLayers,
