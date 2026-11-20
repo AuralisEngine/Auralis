@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.Text;
 using System.Runtime.InteropServices;
 using Auralis.Graphics.Abstractions;
 using Auralis.Graphics.Commands;
@@ -778,10 +779,38 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
     }
 
     /// <summary>Assigns a KHR_debug object label when debug output was requested.</summary>
-    internal void LabelObject(ObjectIdentifier identifier, uint handle, string label)
+    internal unsafe void LabelObject(ObjectIdentifier identifier, uint handle, string label)
     {
-        if (_debugLayerEnabled && handle != 0)
-            _gl.ObjectLabel(identifier, handle, -1, label);
+        if (!_debugLayerEnabled || handle == 0)
+            return;
+
+        int byteCount = Encoding.UTF8.GetByteCount(label);
+        Span<byte> utf8 = byteCount <= 128
+            ? stackalloc byte[byteCount]
+            : new byte[byteCount];
+        Encoding.UTF8.GetBytes(label.AsSpan(), utf8);
+        fixed (byte* pointer = utf8)
+            _gl.ObjectLabel((GLEnum)identifier, handle, checked((uint)byteCount), pointer);
+    }
+
+    internal unsafe void PushDebugGroup(GLEnum source, uint id, string message)
+    {
+        if (!_debugLayerEnabled)
+            return;
+
+        int byteCount = Encoding.UTF8.GetByteCount(message);
+        Span<byte> utf8 = byteCount <= 128
+            ? stackalloc byte[byteCount]
+            : new byte[byteCount];
+        Encoding.UTF8.GetBytes(message.AsSpan(), utf8);
+        fixed (byte* pointer = utf8)
+            _gl.PushDebugGroup(source, id, checked((uint)byteCount), pointer);
+    }
+
+    internal void PopDebugGroup()
+    {
+        if (_debugLayerEnabled)
+            _gl.PopDebugGroup();
     }
 
     public void Dispose()

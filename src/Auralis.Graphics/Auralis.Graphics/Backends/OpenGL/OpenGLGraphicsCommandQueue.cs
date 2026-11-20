@@ -101,10 +101,9 @@ internal sealed class OpenGLGraphicsCommandQueue : IGraphicsCommandQueue
                 {
                     if (_device.DebugLayerEnabled)
                     {
-                        gl.PushDebugGroup(
+                        _device.PushDebugGroup(
                             GLEnum.DebugSourceApplication,
                             (uint)QueueType,
-                            -1,
                             "Auralis command queue submission");
                         pushedDebugGroup = true;
                     }
@@ -150,7 +149,7 @@ internal sealed class OpenGLGraphicsCommandQueue : IGraphicsCommandQueue
                 finally
                 {
                     if (pushedDebugGroup)
-                        gl.PopDebugGroup();
+                        _device.PopDebugGroup();
                 }
             });
         }
