@@ -258,6 +258,20 @@ public sealed class OpenGLBackendTests
         Assert.Equal(BufferStorageMask.DynamicStorageBit, OpenGLBufferStorageMapping.GetStorageFlags(cpuReadWrite));
     }
 
+
+    [Fact]
+    public void VertexFormatByteSizesSupportOnlyMappedOpenGLAttributeFormats()
+    {
+        Assert.Equal(1u, OpenGLPipelineMapping.GetVertexFormatByteSize(GraphicsFormat.R8UNorm));
+        Assert.Equal(2u, OpenGLPipelineMapping.GetVertexFormatByteSize(GraphicsFormat.RG8UNorm));
+        Assert.Equal(4u, OpenGLPipelineMapping.GetVertexFormatByteSize(GraphicsFormat.RGBA8UNorm));
+        Assert.Equal(8u, OpenGLPipelineMapping.GetVertexFormatByteSize(GraphicsFormat.RGBA16Float));
+        Assert.Equal(12u, OpenGLPipelineMapping.GetVertexFormatByteSize(GraphicsFormat.RGB32Float));
+        Assert.Equal(16u, OpenGLPipelineMapping.GetVertexFormatByteSize(GraphicsFormat.RGBA32Float));
+        Assert.Equal(0u, OpenGLPipelineMapping.GetVertexFormatByteSize(GraphicsFormat.BGRA8UNorm));
+        Assert.Equal(0u, OpenGLPipelineMapping.GetVertexFormatByteSize(GraphicsFormat.D32Float));
+    }
+
     [Fact]
     public void TextureDescriptionsMapToTheExpectedDesktopOpenGLTargets()
     {
