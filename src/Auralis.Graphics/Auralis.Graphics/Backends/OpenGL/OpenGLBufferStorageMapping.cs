@@ -18,15 +18,4 @@ internal static class OpenGLBufferStorageMapping
             : (BufferStorageMask)0;
     }
 
-    internal static BufferUsageARB GetUsageHint(GraphicsBufferDescription description) =>
-        description.MemoryAccess switch
-        {
-            GraphicsMemoryAccess.GpuOnly when description.MemoryPreference == GraphicsMemoryPreference.DeviceLocal =>
-                BufferUsageARB.StaticDraw,
-            GraphicsMemoryAccess.GpuOnly => BufferUsageARB.StaticDraw,
-            GraphicsMemoryAccess.CpuToGpu => BufferUsageARB.DynamicDraw,
-            GraphicsMemoryAccess.GpuToCpu => BufferUsageARB.StreamRead,
-            GraphicsMemoryAccess.CpuReadWrite => BufferUsageARB.DynamicCopy,
-            _ => throw new ArgumentOutOfRangeException(nameof(description))
-        };
 }
