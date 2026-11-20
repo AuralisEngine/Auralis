@@ -194,6 +194,19 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
             uint maxImageUnits = ToUInt(gl.GetInteger(GLEnum.MaxImageUnits));
             uint uniformBufferOffsetAlignment = ToUInt(gl.GetInteger(GLEnum.UniformBufferOffsetAlignment));
             uint storageBufferOffsetAlignment = ToUInt(gl.GetInteger(GLEnum.ShaderStorageBufferOffsetAlignment));
+            uint maxComputeWorkGroupCountX = 0;
+            uint maxComputeWorkGroupCountY = 0;
+            uint maxComputeWorkGroupCountZ = 0;
+            if (computeShaderApi is not null)
+            {
+                uniformBufferObjectApi!.GetInteger(GetPName.MaxComputeWorkGroupCount, 0, out int countX);
+                uniformBufferObjectApi.GetInteger(GetPName.MaxComputeWorkGroupCount, 1, out int countY);
+                uniformBufferObjectApi.GetInteger(GetPName.MaxComputeWorkGroupCount, 2, out int countZ);
+                maxComputeWorkGroupCountX = ToUInt(countX);
+                maxComputeWorkGroupCountY = ToUInt(countY);
+                maxComputeWorkGroupCountZ = ToUInt(countZ);
+            }
+
             cancellationToken.ThrowIfCancellationRequested();
 
             OpenGLGraphicsDevice device = new(
