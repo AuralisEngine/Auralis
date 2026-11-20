@@ -228,6 +228,36 @@ public sealed class OpenGLBackendTests
             OpenGLComputeDispatchValidation.Validate(1, 1, 8, 65535, 65535, 7));
     }
 
+
+    [Fact]
+    public void BufferStorageFlagsReflectCpuWriteAccessWithoutClaimingNativeHeapPlacement()
+    {
+        GraphicsBufferDescription gpuOnly = new(
+            256, GraphicsBufferUsage.Storage,
+            GraphicsMemoryAccess.GpuOnly,
+            GraphicsMemoryPreference.DeviceLocal);
+        GraphicsBufferDescription cpuToGpu = gpuOnly with
+        {
+            MemoryAccess = GraphicsMemoryAccess.CpuToGpu,
+            MemoryPreference = GraphicsMemoryPreference.HostVisible
+        };
+        GraphicsBufferDescription gpuToCpu = gpuOnly with
+        {
+            MemoryAccess = GraphicsMemoryAccess.GpuToCpu,
+            MemoryPreference = GraphicsMemoryPreference.HostCached
+        };
+        GraphicsBufferDescription cpuReadWrite = gpuOnly with
+        {
+            MemoryAccess = GraphicsMemoryAccess.CpuReadWrite,
+            MemoryPreference = GraphicsMemoryPreference.HostVisible
+        };
+
+        Assert.Equal((BufferStorageMask)0, OpenGLBufferStorageMapping.GetStorageFlags(gpuOnly));
+        Assert.Equal(BufferStorageMask.DynamicStorageBit, OpenGLBufferStorageMapping.GetStorageFlags(cpuToGpu));
+        Assert.Equal((BufferStorageMask)0, OpenGLBufferStorageMapping.GetStorageFlags(gpuToCpu));
+        Assert.Equal(BufferStorageMask.DynamicStorageBit, OpenGLBufferStorageMapping.GetStorageFlags(cpuReadWrite));
+    }
+
     [Fact]
     public void TextureDescriptionsMapToTheExpectedDesktopOpenGLTargets()
     {
