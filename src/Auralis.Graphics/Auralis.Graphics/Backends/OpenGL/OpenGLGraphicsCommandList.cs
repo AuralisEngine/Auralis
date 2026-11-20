@@ -248,6 +248,7 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
             Kind = OpenGLCommandKind.SetRenderTargets,
             RenderTargets = new OpenGLRenderTargetSet(colors, depthStencilTarget, extent)
         });
+        _recordedTargets = _commands[^1].RenderTargets;
         _recordedColorTargetCount = (uint)colors.Length;
         _recordedHasDepthStencil = depthStencilTarget is not null;
         _renderTargetsDepthFormat = depthStencilTarget is null
@@ -357,6 +358,8 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
             throw new GraphicsValidationException("The render pipeline belongs to an incompatible backend.");
 
         _recordedPipeline = openGlPipeline;
+        _recordedVertexBuffers.Clear();
+        _recordedIndexBuffer = null;
         _commands.Add(new OpenGLRecordedCommand
         {
             Kind = OpenGLCommandKind.SetRenderPipeline,
@@ -619,14 +622,21 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
     public void Dispatch(uint groupCountX, uint groupCountY = 1, uint groupCountZ = 1) => throw Unsupported("Compute dispatch");
     public void DispatchIndirect(IGraphicsBuffer arguments, ulong offset) => throw Unsupported("Indirect compute dispatch");
 
-    internal void Execute(
+    internal unsafe void Execute(
         GL gl,
         ArbDirectStateAccess dsa,
         ArbCopyImage copyImage,
-        ArbViewportArray viewportApi)
+        ArbViewportArray viewportApi,
+        ArbBaseInstance baseInstanceApi,
+        ArbDrawIndirect drawIndirectApi,
+        ArbMultiDrawIndirect multiDrawIndirectApi,
+        ArbShaderImageLoadStore imageLoadStoreApi)
     {
         ReadOnlySpan<OpenGLRecordedCommand> commands = Commands;
         uint framebuffer = 0;
+        OpenGLGraphicsRenderPipeline? activePipeline = null;
+        int previousDrawFramebuffer = gl.GetInteger(GLEnum.DrawFramebufferBinding);
+        int previousIndirectBuffer = gl.GetInteger(GLEnum.DrawIndirectBufferBinding);
         try
         {
             for (int i = 0; i < commands.Length; i++)
@@ -652,6 +662,7 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
                         if (framebuffer != 0)
                             gl.DeleteFramebuffer(framebuffer);
                         framebuffer = CreateFramebuffer(gl, dsa, command.RenderTargets!);
+                        gl.BindFramebuffer(FramebufferTarget.DrawFramebuffer, framebuffer);
                         break;
                     case OpenGLCommandKind.SetViewport:
                         GraphicsViewport viewport = command.Viewport;
@@ -679,6 +690,103 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
                         EnsureFramebuffer(framebuffer);
                         ClearDepthStencil(dsa, framebuffer, command);
                         break;
+                    case OpenGLCommandKind.SetRenderPipeline:
+                        activePipeline = command.RenderPipeline!;
+                        activePipeline.Apply(gl);
+                        break;
+                    case OpenGLCommandKind.SetBindingSet:
+                        if (activePipeline?.Layout is not OpenGLGraphicsPipelineLayout activeLayout)
+                            throw new GraphicsValidationException("A render pipeline must be active before descriptor sets are bound.");
+                        command.BindingSet!.Bind(gl, dsa, activeLayout, command.SetIndex);
+                        break;
+                    case OpenGLCommandKind.SetVertexBuffer:
+                        if (activePipeline is null)
+                            throw new GraphicsValidationException("A render pipeline must be active before vertex buffers are bound.");
+                        dsa.VertexArrayVertexBuffer(
+                            activePipeline.VertexArray,
+                            command.VertexBinding,
+                            ((OpenGLGraphicsBuffer)command.VertexBuffer!).Handle,
+                            checked((nint)command.BufferOffset),
+                            command.Stride);
+                        break;
+                    case OpenGLCommandKind.SetIndexBuffer:
+                        if (activePipeline is null)
+                            throw new GraphicsValidationException("A render pipeline must be active before an index buffer is bound.");
+                        dsa.VertexArrayElementBuffer(
+                            activePipeline.VertexArray,
+                            ((OpenGLGraphicsBuffer)command.IndexBuffer!).Handle);
+                        break;
+                    case OpenGLCommandKind.Draw:
+                        if (activePipeline is null)
+                            throw new GraphicsValidationException("A render pipeline must be active before drawing.");
+                        baseInstanceApi.DrawArraysInstancedBaseInstance(
+                            activePipeline.Topology,
+                            checked((int)command.FirstVertex),
+                            command.VertexCount,
+                            command.InstanceCount,
+                            command.FirstInstance);
+                        break;
+                    case OpenGLCommandKind.DrawIndexed:
+                        if (activePipeline is null)
+                            throw new GraphicsValidationException("A render pipeline must be active before indexed drawing.");
+                        baseInstanceApi.DrawElementsInstancedBaseVertexBaseInstance(
+                            activePipeline.Topology,
+                            command.IndexCount,
+                            command.IndexFormat == GraphicsIndexFormat.UInt16
+                                ? DrawElementsType.UnsignedShort
+                                : DrawElementsType.UnsignedInt,
+                            (void*)command.BufferOffset,
+                            command.InstanceCount,
+                            command.BaseVertex,
+                            command.FirstInstance);
+                        break;
+                    case OpenGLCommandKind.DrawIndirect:
+                        if (activePipeline is null)
+                            throw new GraphicsValidationException("A render pipeline must be active before indirect drawing.");
+                        gl.BindBuffer(
+                            BufferTargetARB.DrawIndirectBuffer,
+                            ((OpenGLGraphicsBuffer)command.SourceBuffer!).Handle);
+                        if (command.DrawCount == 1)
+                        {
+                            drawIndirectApi.DrawArraysIndirect(
+                                activePipeline.Topology,
+                                (void*)command.BufferOffset);
+                        }
+                        else
+                        {
+                            multiDrawIndirectApi.MultiDrawArraysIndirect(
+                                activePipeline.Topology,
+                                (void*)command.BufferOffset,
+                                command.DrawCount,
+                                command.Stride);
+                        }
+                        break;
+                    case OpenGLCommandKind.DrawIndexedIndirect:
+                        if (activePipeline is null)
+                            throw new GraphicsValidationException("A render pipeline must be active before indexed indirect drawing.");
+                        gl.BindBuffer(
+                            BufferTargetARB.DrawIndirectBuffer,
+                            ((OpenGLGraphicsBuffer)command.SourceBuffer!).Handle);
+                        DrawElementsType indexType = command.IndexFormat == GraphicsIndexFormat.UInt16
+                            ? DrawElementsType.UnsignedShort
+                            : DrawElementsType.UnsignedInt;
+                        if (command.DrawCount == 1)
+                        {
+                            drawIndirectApi.DrawElementsIndirect(
+                                activePipeline.Topology,
+                                indexType,
+                                (void*)command.BufferOffset);
+                        }
+                        else
+                        {
+                            multiDrawIndirectApi.MultiDrawElementsIndirect(
+                                activePipeline.Topology,
+                                indexType,
+                                (void*)command.BufferOffset,
+                                command.DrawCount,
+                                command.Stride);
+                        }
+                        break;
                     default:
                         throw new GraphicsException($"Unknown recorded OpenGL command kind: {command.Kind}.");
                 }
@@ -686,6 +794,12 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
         }
         finally
         {
+            gl.BindBuffer(
+                BufferTargetARB.DrawIndirectBuffer,
+                unchecked((uint)previousIndirectBuffer));
+            gl.BindFramebuffer(
+                FramebufferTarget.DrawFramebuffer,
+                unchecked((uint)previousDrawFramebuffer));
             if (framebuffer != 0)
                 gl.DeleteFramebuffer(framebuffer);
         }
