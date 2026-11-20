@@ -114,7 +114,7 @@ internal sealed class OpenGLGraphicsSwapChain : GraphicsDeviceObject, IGraphicsS
                     {
                         ARB wait = _device.SyncApi.ClientWaitSync(
                             image.PresentSync,
-                            SyncObjectMask.None,
+                            (SyncObjectMask)0,
                             remainingNanoseconds);
 
                         if (wait == ARB.TimeoutExpired)
