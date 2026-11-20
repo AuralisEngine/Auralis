@@ -155,12 +155,10 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
     internal void Register(IOpenGLNativeResource resource) => _resources.Add(resource);
 
     public IGraphicsCommandQueue GetQueue(GraphicsQueueType queueType, uint index = 0) =>
-        throw new GraphicsBackendUnavailableException(Backend,
-            "Command queues and command-list execution are not part of the initial OpenGL backend increment.");
+        throw new NotSupportedException("Command queues and command-list execution are not part of the initial OpenGL backend increment.");
 
     public IGraphicsQueue GetPresentationQueue(uint index = 0) =>
-        throw new GraphicsBackendUnavailableException(Backend,
-            "Presentation queues are not implemented yet.");
+        throw new NotSupportedException("Presentation queues are not implemented yet.");
 
     public IGraphicsBuffer CreateBuffer(in GraphicsBufferDescription description)
     {
@@ -168,9 +166,6 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
         Capabilities.ValidateBufferDescription(description);
         if (description.SizeInBytes > (ulong)nuint.MaxValue)
             throw new GraphicsValidationException("The requested buffer is larger than the native addressable size.");
-        if (description.MemoryAccess is GraphicsMemoryAccess.GpuToCpu or GraphicsMemoryAccess.CpuReadWrite)
-            throw new GraphicsValidationException("GPU-to-CPU buffer reads are not enabled in this initial backend increment.");
-
         uint handle = WithContext(gl =>
         {
             uint buffer = gl.GenBuffer();
@@ -202,31 +197,31 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
     }
 
     public IGraphicsTexture CreateTexture(in GraphicsTextureDescription description) =>
-        throw new GraphicsBackendUnavailableException(Backend, "Texture allocation and format capability discovery are not implemented yet.");
+        throw new NotSupportedException("Texture allocation and format capability discovery are not implemented yet.");
 
     public IGraphicsSampler CreateSampler(in GraphicsSamplerDescription description) =>
-        throw new GraphicsBackendUnavailableException(Backend, "Sampler creation is not implemented yet.");
+        throw new NotSupportedException("Sampler creation is not implemented yet.");
 
     public IGraphicsBindingLayout CreateBindingLayout(GraphicsBindingLayoutDescription description) =>
-        throw new GraphicsBackendUnavailableException(Backend, "Descriptor binding layouts are not implemented yet.");
+        throw new NotSupportedException("Descriptor binding layouts are not implemented yet.");
 
     public IGraphicsPipelineLayout CreatePipelineLayout(ReadOnlySpan<IGraphicsBindingLayout> bindingLayouts) =>
-        throw new GraphicsBackendUnavailableException(Backend, "Pipeline layouts are not implemented yet.");
+        throw new NotSupportedException("Pipeline layouts are not implemented yet.");
 
     public IGraphicsBindingSet CreateBindingSet(IGraphicsBindingLayout bindingLayout) =>
-        throw new GraphicsBackendUnavailableException(Backend, "Binding sets are not implemented yet.");
+        throw new NotSupportedException("Binding sets are not implemented yet.");
 
     public IGraphicsRenderPipeline CreateRenderPipeline(GraphicsRenderPipelineDescription description) =>
-        throw new GraphicsBackendUnavailableException(Backend, "Render pipeline creation is not implemented yet.");
+        throw new NotSupportedException("Render pipeline creation is not implemented yet.");
 
     public IGraphicsComputePipeline CreateComputePipeline(GraphicsComputePipelineDescription description) =>
-        throw new GraphicsBackendUnavailableException(Backend, "Compute pipeline creation is not implemented yet.");
+        throw new NotSupportedException("Compute pipeline creation is not implemented yet.");
 
     public IGraphicsFence CreateFence(ulong initialValue = 0) =>
-        throw new GraphicsBackendUnavailableException(Backend, "Fence synchronization is not implemented yet.");
+        throw new NotSupportedException("Fence synchronization is not implemented yet.");
 
     public IGraphicsPresentationSurface CreatePresentationSurface(IGraphicsPresentationTarget target) =>
-        throw new GraphicsBackendUnavailableException(Backend, "Presentation surfaces and swapchains are not implemented yet.");
+        throw new NotSupportedException("Presentation surfaces and swapchains are not implemented yet.");
 
     public void Dispose()
     {

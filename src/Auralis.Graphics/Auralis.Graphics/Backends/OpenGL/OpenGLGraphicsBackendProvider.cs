@@ -51,6 +51,9 @@ public sealed class OpenGLGraphicsBackendProvider : IGraphicsBackendProvider
         if (options.Adapter is { } requested && !requested.IsDefault)
             throw new GraphicsBackendUnavailableException(Backend,
                 "The injected context provider cannot select among physical adapters.");
+        if (options.DebugOptions != GraphicsDebugOptions.None)
+            throw new NotSupportedException(
+                "OpenGL debug-context options must be configured by the host before supplying the context.");
 
         IGraphicsDevice device = OpenGLGraphicsDevice.Create(_contextProvider, options, cancellationToken);
         return ValueTask.FromResult(device);
