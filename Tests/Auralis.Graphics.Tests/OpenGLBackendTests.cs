@@ -1,6 +1,7 @@
 using Auralis.Graphics.Abstractions;
 using Auralis.Graphics.Backends.OpenGL;
 using Auralis.Graphics.Devices;
+using Auralis.Graphics.Pipelines;
 using Auralis.Graphics.Resources;
 using Auralis.Graphics.Synchronization;
 using Silk.NET.OpenGL;
@@ -70,6 +71,108 @@ public sealed class OpenGLBackendTests
     }
 
 
+
+
+    [Fact]
+    public void DescriptorBindingSlotsAreStableAcrossSetsAndInputOrder()
+    {
+        var firstSet = new GraphicsBindingLayoutDescription(
+        [
+            new(7, GraphicsDescriptorType.SampledTexture, 2, GraphicsShaderStages.Fragment),
+            new(3, GraphicsDescriptorType.UniformBuffer, 1, GraphicsShaderStages.Vertex),
+            new(1, GraphicsDescriptorType.StorageBuffer, 2, GraphicsShaderStages.Compute),
+            new(5, GraphicsDescriptorType.StorageTexture, 1, GraphicsShaderStages.Compute)
+        ]);
+        var secondSet = new GraphicsBindingLayoutDescription(
+        [
+            new(8, GraphicsDescriptorType.UniformBuffer, 2, GraphicsShaderStages.Vertex),
+            new(1, GraphicsDescriptorType.CombinedTextureSampler, 1, GraphicsShaderStages.Fragment),
+            new(0, GraphicsDescriptorType.StorageBuffer, 1, GraphicsShaderStages.Compute)
+        ]);
+
+        OpenGLDescriptorMapping[] mappings = OpenGLDescriptorBindingAllocator.Allocate(
+            [firstSet, secondSet],
+            maxUniformBufferBindings: 4,
+            maxStorageBufferBindings: 4,
+            maxTextureUnits: 4,
+            maxImageUnits: 2);
+
+        static uint Slot(
+            ReadOnlySpan<OpenGLDescriptorMapping> values,
+            uint setIndex,
+            uint binding)
+        {
+            for (int i = 0; i < values.Length; i++)
+            {
+                if (values[i].SetIndex == setIndex && values[i].Description.Binding == binding)
+                    return values[i].BaseSlot;
+            }
+
+            throw new Xunit.Sdk.XunitException($"Missing descriptor mapping for set {setIndex}, binding {binding}.");
+        }
+
+        Assert.Equal(0u, Slot(mappings, 0, 3)); // UBO namespace
+        Assert.Equal(0u, Slot(mappings, 0, 1)); // SSBO namespace
+        Assert.Equal(2u, Slot(mappings, 1, 0)); // SSBO namespace continues across sets
+        Assert.Equal(0u, Slot(mappings, 0, 7)); // Texture-unit namespace
+        Assert.Equal(2u, Slot(mappings, 1, 1)); // Combined texture/sampler follows sampled texture array
+        Assert.Equal(0u, Slot(mappings, 0, 5)); // Image-unit namespace
+        Assert.Equal(1u, Slot(mappings, 1, 8)); // UBO namespace continues across sets
+    }
+
+    [Fact]
+    public void DescriptorBindingSlotAllocatorRejectsBindingPointOverflow()
+    {
+        var layout = new GraphicsBindingLayoutDescription(
+        [
+            new(0, GraphicsDescriptorType.UniformBuffer, 2, GraphicsShaderStages.Vertex)
+        ]);
+
+        Assert.Throws<GraphicsValidationException>(() =>
+            OpenGLDescriptorBindingAllocator.Allocate(
+                [layout],
+                maxUniformBufferBindings: 1,
+                maxStorageBufferBindings: 1,
+                maxTextureUnits: 1,
+                maxImageUnits: 1));
+    }
+
+    [Fact]
+    public void RenderPipelineEnumsMapToSilkOpenGLEnums()
+    {
+        Assert.Equal(PrimitiveType.Triangles,
+            OpenGLPipelineMapping.ToPrimitiveType(GraphicsPrimitiveTopology.TriangleList));
+        Assert.Equal(PrimitiveType.Patches,
+            OpenGLPipelineMapping.ToPrimitiveType(GraphicsPrimitiveTopology.PatchList));
+        Assert.Equal(DepthFunction.Lequal,
+            OpenGLPipelineMapping.ToDepthFunction(GraphicsCompareOperation.LessEqual));
+        Assert.Equal(StencilOp.IncrWrap,
+            OpenGLPipelineMapping.ToStencilOperation(GraphicsStencilOperation.IncrementWrap));
+        Assert.Equal(BlendingFactor.OneMinusSrcAlpha,
+            OpenGLPipelineMapping.ToBlendFactor(GraphicsBlendFactor.OneMinusSourceAlpha));
+        Assert.Equal(BlendEquationModeEXT.FuncReverseSubtract,
+            OpenGLPipelineMapping.ToBlendEquation(GraphicsBlendOperation.ReverseSubtract));
+
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            OpenGLPipelineMapping.ToPrimitiveType((GraphicsPrimitiveTopology)int.MaxValue));
+    }
+
+    [Fact]
+    public void VertexFormatMappingDistinguishesNormalizedAndIntegerInputs()
+    {
+        Assert.True(OpenGLPipelineMapping.TryGetVertexFormat(GraphicsFormat.RGBA8UNorm, out OpenGLVertexFormat normalized));
+        Assert.Equal(4, normalized.ComponentCount);
+        Assert.False(normalized.IsInteger);
+        Assert.True(normalized.Normalized);
+
+        Assert.True(OpenGLPipelineMapping.TryGetVertexFormat(GraphicsFormat.R32UInt, out OpenGLVertexFormat integer));
+        Assert.Equal(1, integer.ComponentCount);
+        Assert.True(integer.IsInteger);
+        Assert.False(integer.Normalized);
+
+        Assert.False(OpenGLPipelineMapping.TryGetVertexFormat(GraphicsFormat.BGRA8UNorm, out _));
+        Assert.False(OpenGLPipelineMapping.TryGetVertexFormat(GraphicsFormat.D32Float, out _));
+    }
 
     [Fact]
     public void TextureDescriptionsMapToTheExpectedDesktopOpenGLTargets()
