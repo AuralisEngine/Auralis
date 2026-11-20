@@ -206,6 +206,16 @@ internal static class OpenGLFormatCapabilities
         return true;
     }
 
+    internal static bool IsUnsignedInteger(GraphicsFormat format) => format is
+        GraphicsFormat.R8UInt or GraphicsFormat.RG8UInt or GraphicsFormat.RGBA8UInt or
+        GraphicsFormat.R16UInt or GraphicsFormat.RG16UInt or GraphicsFormat.RGBA16UInt or
+        GraphicsFormat.R32UInt or GraphicsFormat.RG32UInt or GraphicsFormat.RGBA32UInt;
+
+    internal static bool IsSignedInteger(GraphicsFormat format) => format is
+        GraphicsFormat.R8SInt or GraphicsFormat.RG8SInt or GraphicsFormat.RGBA8SInt or
+        GraphicsFormat.R16SInt or GraphicsFormat.RG16SInt or GraphicsFormat.RGBA16SInt or
+        GraphicsFormat.R32SInt or GraphicsFormat.RG32SInt or GraphicsFormat.RGBA32SInt;
+
     private static bool IsDepthStencil(GraphicsFormat format) =>
         format is GraphicsFormat.D16UNorm or GraphicsFormat.D24UNormS8UInt or
             GraphicsFormat.D32Float or GraphicsFormat.D32FloatS8UInt;
