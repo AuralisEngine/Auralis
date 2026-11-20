@@ -71,11 +71,11 @@ internal sealed unsafe class OpenGLGraphicsBuffer : GraphicsDeviceObject, IGraph
 
                 MapBufferAccessMask access = mode switch
                 {
-                    GraphicsMapMode.Read => MapBufferAccessMask.MapReadBit,
+                    GraphicsMapMode.Read => MapBufferAccessMask.ReadBit,
                     GraphicsMapMode.Write =>
-                        MapBufferAccessMask.MapWriteBit | MapBufferAccessMask.MapInvalidateRangeBit,
+                        MapBufferAccessMask.WriteBit | MapBufferAccessMask.InvalidateRangeBit,
                     GraphicsMapMode.ReadWrite =>
-                        MapBufferAccessMask.MapReadBit | MapBufferAccessMask.MapWriteBit,
+                        MapBufferAccessMask.ReadBit | MapBufferAccessMask.WriteBit,
                     _ => throw new ArgumentOutOfRangeException(nameof(mode))
                 };
 

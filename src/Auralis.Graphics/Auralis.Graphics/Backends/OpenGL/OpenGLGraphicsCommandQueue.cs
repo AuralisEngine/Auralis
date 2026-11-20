@@ -77,6 +77,7 @@ internal sealed class OpenGLGraphicsCommandQueue : IGraphicsCommandQueue
             throw new ArgumentException("A non-zero signal value requires a signal fence.", nameof(signalValue));
         }
 
+        int listCount = commandLists.Length;
         OpenGLGraphicsCommandList[] lists = ArrayPool<OpenGLGraphicsCommandList>.Shared.Rent(commandLists.Length);
         for (int i = 0; i < commandLists.Length; i++)
             lists[i] = (OpenGLGraphicsCommandList)commandLists[i];
@@ -96,7 +97,7 @@ internal sealed class OpenGLGraphicsCommandQueue : IGraphicsCommandQueue
             _device.WithContext(gl =>
             {
                 commandsIssued = true;
-                for (int i = 0; i < commandLists.Length; i++)
+                for (int i = 0; i < listCount; i++)
                     lists[i].Execute(
                         gl,
                         _device.DirectStateAccess,
@@ -123,7 +124,7 @@ internal sealed class OpenGLGraphicsCommandQueue : IGraphicsCommandQueue
                 {
                     lock (_gate)
                     {
-                        _pending.Add(new PendingSubmission(lists, commandLists.Length, completionSync));
+                        _pending.Add(new PendingSubmission(lists, listCount, completionSync));
                         submissionQueued = true;
                     }
                 }
