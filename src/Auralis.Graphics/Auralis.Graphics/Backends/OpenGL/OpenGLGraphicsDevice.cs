@@ -33,6 +33,12 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
     private readonly ArbCopyImage _copyImageApi;
     private readonly ArbViewportArray _viewportApi;
     private readonly string _renderer;
+    internal uint MaxUniformBufferBindings { get; }
+    internal uint MaxStorageBufferBindings { get; }
+    internal uint MaxTextureUnits { get; }
+    internal uint MaxImageUnits { get; }
+    internal uint UniformBufferOffsetAlignment { get; }
+    internal uint StorageBufferOffsetAlignment { get; }
     private int _disposeState;
 
     private OpenGLGraphicsDevice(
@@ -45,6 +51,12 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
         ArbSync syncApi,
         ArbCopyImage copyImageApi,
         ArbViewportArray viewportApi,
+        uint maxUniformBufferBindings,
+        uint maxStorageBufferBindings,
+        uint maxTextureUnits,
+        uint maxImageUnits,
+        uint uniformBufferOffsetAlignment,
+        uint storageBufferOffsetAlignment,
         int major,
         int minor,
         string vendor,
@@ -62,6 +74,12 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
         _copyImageApi = copyImageApi;
         _viewportApi = viewportApi;
         _renderer = renderer;
+        MaxUniformBufferBindings = maxUniformBufferBindings;
+        MaxStorageBufferBindings = maxStorageBufferBindings;
+        MaxTextureUnits = maxTextureUnits;
+        MaxImageUnits = maxImageUnits;
+        UniformBufferOffsetAlignment = Math.Max(1u, uniformBufferOffsetAlignment);
+        StorageBufferOffsetAlignment = Math.Max(1u, storageBufferOffsetAlignment);
         Capabilities = capabilities;
         Backend = GraphicsBackend.OpenGL;
         Adapter = new GraphicsAdapterInfo(default, renderer, GraphicsAdapterType.Unknown, 0, 0, 0);
@@ -125,11 +143,19 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
             string version = gl.GetStringS(StringName.Version);
             GraphicsDeviceCapabilities capabilities = QueryCapabilities(
                 gl, major, minor, internalFormatQuery, contextProvider.SupportsPresentation);
+            uint maxUniformBufferBindings = ToUInt(gl.GetInteger(GLEnum.MaxUniformBufferBindings));
+            uint maxStorageBufferBindings = ToUInt(gl.GetInteger(GLEnum.MaxShaderStorageBufferBindings));
+            uint maxTextureUnits = ToUInt(gl.GetInteger(GLEnum.MaxCombinedTextureImageUnits));
+            uint maxImageUnits = ToUInt(gl.GetInteger(GLEnum.MaxImageUnits));
+            uint uniformBufferOffsetAlignment = ToUInt(gl.GetInteger(GLEnum.UniformBufferOffsetAlignment));
+            uint storageBufferOffsetAlignment = ToUInt(gl.GetInteger(GLEnum.ShaderStorageBufferOffsetAlignment));
             cancellationToken.ThrowIfCancellationRequested();
 
             OpenGLGraphicsDevice device = new(
                 contextProvider, gl, directStateAccess, textureViewApi, samplerObjects,
                 internalFormatQuery, syncApi, copyImageApi, viewportApi,
+                maxUniformBufferBindings, maxStorageBufferBindings, maxTextureUnits, maxImageUnits,
+                uniformBufferOffsetAlignment, storageBufferOffsetAlignment,
                 major, minor, vendor, renderer, version, capabilities);
             gl = null;
             directStateAccess = null;
@@ -207,7 +233,7 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
 
         GraphicsDeviceLimits limits = new(
             0, maxTexture, maxTexture, maxTexture3D, maxArrayLayers,
-            maxVertexAttributes, maxVertexBindings, maxUniformBindings,
+            maxVertexAttributes, maxVertexBindings, 0,
             maxComputeInvocations, maxComputeX, maxComputeY, maxComputeZ,
             maxAnisotropy, maxPatchSize);
 
@@ -401,17 +427,33 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
             this, _directStateAccess, _samplerObjects, samplerDescription));
     }
 
-    public IGraphicsBindingLayout CreateBindingLayout(GraphicsBindingLayoutDescription description) =>
-        throw new NotSupportedException("Descriptor binding layouts are not implemented yet.");
+    public IGraphicsBindingLayout CreateBindingLayout(GraphicsBindingLayoutDescription description)
+    {
+        ObjectDisposedException.ThrowIf(IsDisposed, this);
+        return new OpenGLGraphicsBindingLayout(this, description);
+    }
 
-    public IGraphicsPipelineLayout CreatePipelineLayout(ReadOnlySpan<IGraphicsBindingLayout> bindingLayouts) =>
-        throw new NotSupportedException("Pipeline layouts are not implemented yet.");
+    public IGraphicsPipelineLayout CreatePipelineLayout(ReadOnlySpan<IGraphicsBindingLayout> bindingLayouts)
+    {
+        ObjectDisposedException.ThrowIf(IsDisposed, this);
+        return new OpenGLGraphicsPipelineLayout(this, bindingLayouts);
+    }
 
-    public IGraphicsBindingSet CreateBindingSet(IGraphicsBindingLayout bindingLayout) =>
-        throw new NotSupportedException("Binding sets are not implemented yet.");
+    public IGraphicsBindingSet CreateBindingSet(IGraphicsBindingLayout bindingLayout)
+    {
+        ObjectDisposedException.ThrowIf(IsDisposed, this);
+        ArgumentNullException.ThrowIfNull(bindingLayout);
+        if (bindingLayout is not OpenGLGraphicsBindingLayout openGlLayout ||
+            !ReferenceEquals(openGlLayout.Device, this))
+            throw new GraphicsValidationException("The binding layout must be created by this OpenGL device.");
+        return new OpenGLGraphicsBindingSet(openGlLayout);
+    }
 
-    public IGraphicsRenderPipeline CreateRenderPipeline(GraphicsRenderPipelineDescription description) =>
-        throw new NotSupportedException("Render pipeline creation is not implemented yet.");
+    public IGraphicsRenderPipeline CreateRenderPipeline(GraphicsRenderPipelineDescription description)
+    {
+        ObjectDisposedException.ThrowIf(IsDisposed, this);
+        return OpenGLGraphicsRenderPipeline.Create(this, description);
+    }
 
     public IGraphicsComputePipeline CreateComputePipeline(GraphicsComputePipelineDescription description) =>
         throw new NotSupportedException("Compute pipeline creation is not implemented yet.");
