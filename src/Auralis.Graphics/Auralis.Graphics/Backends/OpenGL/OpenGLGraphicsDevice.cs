@@ -37,7 +37,12 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
     private readonly ArbMultiDrawIndirect _multiDrawIndirectApi;
     private readonly ArbShaderImageLoadStore _imageLoadStoreApi;
     private readonly ArbDrawBuffersBlend _drawBuffersBlendApi;
+    private readonly ArbComputeShader _computeShaderApi;
+    private readonly ArbUniformBufferObject _uniformBufferObjectApi;
     private readonly string _renderer;
+    internal uint MaxComputeWorkGroupCountX { get; }
+    internal uint MaxComputeWorkGroupCountY { get; }
+    internal uint MaxComputeWorkGroupCountZ { get; }
     internal uint MaxUniformBufferBindings { get; }
     internal uint MaxStorageBufferBindings { get; }
     internal uint MaxTextureUnits { get; }
@@ -61,6 +66,11 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
         ArbMultiDrawIndirect multiDrawIndirectApi,
         ArbShaderImageLoadStore imageLoadStoreApi,
         ArbDrawBuffersBlend drawBuffersBlendApi,
+        ArbComputeShader computeShaderApi,
+        ArbUniformBufferObject uniformBufferObjectApi,
+        uint maxComputeWorkGroupCountX,
+        uint maxComputeWorkGroupCountY,
+        uint maxComputeWorkGroupCountZ,
         uint maxUniformBufferBindings,
         uint maxStorageBufferBindings,
         uint maxTextureUnits,
@@ -88,7 +98,12 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
         _multiDrawIndirectApi = multiDrawIndirectApi;
         _imageLoadStoreApi = imageLoadStoreApi;
         _drawBuffersBlendApi = drawBuffersBlendApi;
+        _computeShaderApi = computeShaderApi;
+        _uniformBufferObjectApi = uniformBufferObjectApi;
         _renderer = renderer;
+        MaxComputeWorkGroupCountX = maxComputeWorkGroupCountX;
+        MaxComputeWorkGroupCountY = maxComputeWorkGroupCountY;
+        MaxComputeWorkGroupCountZ = maxComputeWorkGroupCountZ;
         MaxUniformBufferBindings = maxUniformBufferBindings;
         MaxStorageBufferBindings = maxStorageBufferBindings;
         MaxTextureUnits = maxTextureUnits;
@@ -126,6 +141,8 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
         ArbMultiDrawIndirect? multiDrawIndirectApi = null;
         ArbShaderImageLoadStore? imageLoadStoreApi = null;
         ArbDrawBuffersBlend? drawBuffersBlendApi = null;
+        ArbComputeShader? computeShaderApi = null;
+        ArbUniformBufferObject? uniformBufferObjectApi = null;
         if (contextProvider.StateOwnership != OpenGLContextStateOwnership.Exclusive)
             throw new GraphicsBackendUnavailableException(
                 GraphicsBackend.OpenGL,
@@ -162,6 +179,9 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
             multiDrawIndirectApi = new ArbMultiDrawIndirect(gl.Context);
             imageLoadStoreApi = new ArbShaderImageLoadStore(gl.Context);
             drawBuffersBlendApi = new ArbDrawBuffersBlend(gl.Context);
+            if (major > 4 || (major == 4 && minor >= 3))
+                computeShaderApi = new ArbComputeShader(gl.Context);
+            uniformBufferObjectApi = new ArbUniformBufferObject(gl.Context);
 
             string vendor = gl.GetStringS(StringName.Vendor);
             string renderer = gl.GetStringS(StringName.Renderer);
@@ -174,13 +194,36 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
             uint maxImageUnits = ToUInt(gl.GetInteger(GLEnum.MaxImageUnits));
             uint uniformBufferOffsetAlignment = ToUInt(gl.GetInteger(GLEnum.UniformBufferOffsetAlignment));
             uint storageBufferOffsetAlignment = ToUInt(gl.GetInteger(GLEnum.ShaderStorageBufferOffsetAlignment));
+            uint maxComputeWorkGroupSizeX = 0;
+            uint maxComputeWorkGroupSizeY = 0;
+            uint maxComputeWorkGroupSizeZ = 0;
+            uint maxComputeWorkGroupCountX = 0;
+            uint maxComputeWorkGroupCountY = 0;
+            uint maxComputeWorkGroupCountZ = 0;
+            if (computeShaderApi is not null)
+            {
+                uniformBufferObjectApi.GetInteger(GetPName.MaxComputeWorkGroupSize, 0, out int sizeX);
+                uniformBufferObjectApi.GetInteger(GetPName.MaxComputeWorkGroupSize, 1, out int sizeY);
+                uniformBufferObjectApi.GetInteger(GetPName.MaxComputeWorkGroupSize, 2, out int sizeZ);
+                uniformBufferObjectApi.GetInteger(GetPName.MaxComputeWorkGroupCount, 0, out int countX);
+                uniformBufferObjectApi.GetInteger(GetPName.MaxComputeWorkGroupCount, 1, out int countY);
+                uniformBufferObjectApi.GetInteger(GetPName.MaxComputeWorkGroupCount, 2, out int countZ);
+                maxComputeWorkGroupSizeX = ToUInt(sizeX);
+                maxComputeWorkGroupSizeY = ToUInt(sizeY);
+                maxComputeWorkGroupSizeZ = ToUInt(sizeZ);
+                maxComputeWorkGroupCountX = ToUInt(countX);
+                maxComputeWorkGroupCountY = ToUInt(countY);
+                maxComputeWorkGroupCountZ = ToUInt(countZ);
+            }
             cancellationToken.ThrowIfCancellationRequested();
 
             OpenGLGraphicsDevice device = new(
                 contextProvider, gl, directStateAccess, textureViewApi, samplerObjects,
                 internalFormatQuery, syncApi, copyImageApi, viewportApi,
                 baseInstanceApi, drawIndirectApi, multiDrawIndirectApi, imageLoadStoreApi,
-                drawBuffersBlendApi, maxUniformBufferBindings, maxStorageBufferBindings, maxTextureUnits, maxImageUnits,
+                drawBuffersBlendApi, computeShaderApi, uniformBufferObjectApi,
+                maxComputeWorkGroupCountX, maxComputeWorkGroupCountY, maxComputeWorkGroupCountZ,
+                maxUniformBufferBindings, maxStorageBufferBindings, maxTextureUnits, maxImageUnits,
                 uniformBufferOffsetAlignment, storageBufferOffsetAlignment,
                 major, minor, vendor, renderer, version, capabilities);
             gl = null;
@@ -196,10 +239,14 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
             multiDrawIndirectApi = null;
             imageLoadStoreApi = null;
             drawBuffersBlendApi = null;
+            computeShaderApi = null;
+            uniformBufferObjectApi = null;
             return device;
         }
         catch
         {
+            uniformBufferObjectApi?.Dispose();
+            computeShaderApi?.Dispose();
             drawBuffersBlendApi?.Dispose();
             imageLoadStoreApi?.Dispose();
             multiDrawIndirectApi?.Dispose();
@@ -270,7 +317,7 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
         GraphicsDeviceLimits limits = new(
             0, maxTexture, maxTexture, maxTexture3D, maxArrayLayers,
             maxVertexAttributes, maxVertexBindings, 0,
-            maxComputeInvocations, maxComputeX, maxComputeY, maxComputeZ,
+            maxComputeInvocations, maxComputeWorkGroupSizeX, maxComputeWorkGroupSizeY, maxComputeWorkGroupSizeZ,
             maxAnisotropy, maxPatchSize);
 
         bool hasInternalFormatQuery2 = AtLeast(major, minor, 4, 3) ||
@@ -282,6 +329,8 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
         // not implemented yet; do not advertise a compute-capable queue until it is executable.
         GraphicsQueueCapabilities queues = GraphicsQueueCapabilities.Graphics |
                                             GraphicsQueueCapabilities.Copy;
+        if (hasCompute)
+            queues |= GraphicsQueueCapabilities.Compute;
         if (supportsPresentation)
             queues |= GraphicsQueueCapabilities.Present;
 
@@ -305,6 +354,8 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
     internal ArbMultiDrawIndirect MultiDrawIndirectApi => _multiDrawIndirectApi;
     internal ArbShaderImageLoadStore ImageLoadStoreApi => _imageLoadStoreApi;
     internal ArbDrawBuffersBlend DrawBuffersBlendApi => _drawBuffersBlendApi;
+    internal ArbComputeShader ComputeShaderApi => _computeShaderApi ??
+        throw new GraphicsFeatureNotSupportedException(GraphicsFeature.ComputeShaders, GraphicsFeature.ComputeShaders);
 
     internal T WithContext<T>(Func<GL, T> action)
     {
@@ -390,6 +441,11 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
 
         lock (_queueGate)
         {
+            if (queueType == GraphicsQueueType.Compute &&
+                !Capabilities.QueueCapabilities.HasFlag(GraphicsQueueCapabilities.Compute))
+                throw new GraphicsFeatureNotSupportedException(
+                    GraphicsFeature.ComputeShaders, GraphicsFeature.ComputeShaders);
+
             return _queues[(int)queueType] ??= new OpenGLGraphicsCommandQueue(this, queueType);
         }
     }
@@ -534,6 +590,8 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
                     foreach (IOpenGLNativeResource resource in _resources)
                         resource.ReleaseNative(_gl);
 
+                    _uniformBufferObjectApi.Dispose();
+                    _computeShaderApi?.Dispose();
                     _drawBuffersBlendApi.Dispose();
                     _imageLoadStoreApi.Dispose();
                     _multiDrawIndirectApi.Dispose();
