@@ -210,6 +210,7 @@ internal sealed class OpenGLBindingSetSnapshot
     internal void Bind(
         GL gl,
         ArbDirectStateAccess dsa,
+        ArbShaderImageLoadStore imageLoadStoreApi,
         OpenGLGraphicsPipelineLayout pipelineLayout,
         uint setIndex)
     {
@@ -252,7 +253,7 @@ internal sealed class OpenGLBindingSetSnapshot
                         break;
 
                     case GraphicsDescriptorType.StorageTexture:
-                        BindStorageTexture(gl, slot, (OpenGLGraphicsTextureView)value.Texture!);
+                        BindStorageTexture(imageLoadStoreApi, slot, (OpenGLGraphicsTextureView)value.Texture!);
                         break;
 
                     case GraphicsDescriptorType.Sampler:
@@ -271,7 +272,7 @@ internal sealed class OpenGLBindingSetSnapshot
         }
     }
 
-    private static void BindStorageTexture(GL gl, uint unit, OpenGLGraphicsTextureView view)
+    private static void BindStorageTexture(ArbShaderImageLoadStore imageLoadStoreApi, uint unit, OpenGLGraphicsTextureView view)
     {
         GraphicsTextureViewDescription description = view.Description;
         GraphicsTextureDescription texture = view.Texture.Description;
@@ -286,14 +287,14 @@ internal sealed class OpenGLBindingSetSnapshot
             GraphicsTextureViewType.Texture2DMultisampleArray or GraphicsTextureViewType.Texture3D or
             GraphicsTextureViewType.Cube or GraphicsTextureViewType.CubeArray;
 
-        gl.BindImageTexture(
+        imageLoadStoreApi.BindImageTexture(
             unit,
             view.Handle,
             0,
             layered,
             0,
-            TextureAccess.ReadWrite,
-            internalFormat);
+            BufferAccessARB.ReadWrite,
+            (InternalFormat)internalFormat);
     }
 }
 
