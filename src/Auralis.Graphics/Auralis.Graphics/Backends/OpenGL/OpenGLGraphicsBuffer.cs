@@ -58,7 +58,7 @@ internal sealed unsafe class OpenGLGraphicsBuffer : GraphicsDeviceObject, IGraph
         if (size == ulong.MaxValue)
             size = Description.SizeInBytes - Math.Min(offset, Description.SizeInBytes);
         if (offset > Description.SizeInBytes || size == 0 || size > Description.SizeInBytes - offset ||
-            size > int.MaxValue || offset > nint.MaxValue)
+            size > int.MaxValue || offset > (ulong)nint.MaxValue)
             throw new ArgumentOutOfRangeException(nameof(size), "The mapped range is empty or outside the buffer.");
 
         byte[] staging = GC.AllocateUninitializedArray<byte>((int)size);
