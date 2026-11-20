@@ -32,6 +32,10 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
     private readonly ArbSync _syncApi;
     private readonly ArbCopyImage _copyImageApi;
     private readonly ArbViewportArray _viewportApi;
+    private readonly ArbBaseInstance _baseInstanceApi;
+    private readonly ArbDrawIndirect _drawIndirectApi;
+    private readonly ArbMultiDrawIndirect _multiDrawIndirectApi;
+    private readonly ArbShaderImageLoadStore _imageLoadStoreApi;
     private readonly string _renderer;
     internal uint MaxUniformBufferBindings { get; }
     internal uint MaxStorageBufferBindings { get; }
@@ -51,6 +55,10 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
         ArbSync syncApi,
         ArbCopyImage copyImageApi,
         ArbViewportArray viewportApi,
+        ArbBaseInstance baseInstanceApi,
+        ArbDrawIndirect drawIndirectApi,
+        ArbMultiDrawIndirect multiDrawIndirectApi,
+        ArbShaderImageLoadStore imageLoadStoreApi,
         uint maxUniformBufferBindings,
         uint maxStorageBufferBindings,
         uint maxTextureUnits,
@@ -73,6 +81,10 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
         _syncApi = syncApi;
         _copyImageApi = copyImageApi;
         _viewportApi = viewportApi;
+        _baseInstanceApi = baseInstanceApi;
+        _drawIndirectApi = drawIndirectApi;
+        _multiDrawIndirectApi = multiDrawIndirectApi;
+        _imageLoadStoreApi = imageLoadStoreApi;
         _renderer = renderer;
         MaxUniformBufferBindings = maxUniformBufferBindings;
         MaxStorageBufferBindings = maxStorageBufferBindings;
@@ -106,6 +118,10 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
         ArbSync? syncApi = null;
         ArbCopyImage? copyImageApi = null;
         ArbViewportArray? viewportApi = null;
+        ArbBaseInstance? baseInstanceApi = null;
+        ArbDrawIndirect? drawIndirectApi = null;
+        ArbMultiDrawIndirect? multiDrawIndirectApi = null;
+        ArbShaderImageLoadStore? imageLoadStoreApi = null;
         if (contextProvider.StateOwnership != OpenGLContextStateOwnership.Exclusive)
             throw new GraphicsBackendUnavailableException(
                 GraphicsBackend.OpenGL,
@@ -137,6 +153,10 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
             syncApi = new ArbSync(gl.Context);
             copyImageApi = new ArbCopyImage(gl.Context);
             viewportApi = new ArbViewportArray(gl.Context);
+            baseInstanceApi = new ArbBaseInstance(gl.Context);
+            drawIndirectApi = new ArbDrawIndirect(gl.Context);
+            multiDrawIndirectApi = new ArbMultiDrawIndirect(gl.Context);
+            imageLoadStoreApi = new ArbShaderImageLoadStore(gl.Context);
 
             string vendor = gl.GetStringS(StringName.Vendor);
             string renderer = gl.GetStringS(StringName.Renderer);
@@ -154,6 +174,7 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
             OpenGLGraphicsDevice device = new(
                 contextProvider, gl, directStateAccess, textureViewApi, samplerObjects,
                 internalFormatQuery, syncApi, copyImageApi, viewportApi,
+                baseInstanceApi, drawIndirectApi, multiDrawIndirectApi, imageLoadStoreApi,
                 maxUniformBufferBindings, maxStorageBufferBindings, maxTextureUnits, maxImageUnits,
                 uniformBufferOffsetAlignment, storageBufferOffsetAlignment,
                 major, minor, vendor, renderer, version, capabilities);
@@ -165,10 +186,18 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
             syncApi = null;
             copyImageApi = null;
             viewportApi = null;
+            baseInstanceApi = null;
+            drawIndirectApi = null;
+            multiDrawIndirectApi = null;
+            imageLoadStoreApi = null;
             return device;
         }
         catch
         {
+            imageLoadStoreApi?.Dispose();
+            multiDrawIndirectApi?.Dispose();
+            drawIndirectApi?.Dispose();
+            baseInstanceApi?.Dispose();
             viewportApi?.Dispose();
             copyImageApi?.Dispose();
             syncApi?.Dispose();
@@ -264,6 +293,10 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
     internal ArbSync SyncApi => _syncApi;
     internal ArbCopyImage CopyImageApi => _copyImageApi;
     internal ArbViewportArray ViewportApi => _viewportApi;
+    internal ArbBaseInstance BaseInstanceApi => _baseInstanceApi;
+    internal ArbDrawIndirect DrawIndirectApi => _drawIndirectApi;
+    internal ArbMultiDrawIndirect MultiDrawIndirectApi => _multiDrawIndirectApi;
+    internal ArbShaderImageLoadStore ImageLoadStoreApi => _imageLoadStoreApi;
 
     internal T WithContext<T>(Func<GL, T> action)
     {
@@ -493,6 +526,10 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
                     foreach (IOpenGLNativeResource resource in _resources)
                         resource.ReleaseNative(_gl);
 
+                    _imageLoadStoreApi.Dispose();
+                    _multiDrawIndirectApi.Dispose();
+                    _drawIndirectApi.Dispose();
+                    _baseInstanceApi.Dispose();
                     _viewportApi.Dispose();
                     _copyImageApi.Dispose();
                     _syncApi.Dispose();
