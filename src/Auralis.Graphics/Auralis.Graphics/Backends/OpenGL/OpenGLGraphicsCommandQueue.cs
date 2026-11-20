@@ -187,6 +187,7 @@ internal sealed class OpenGLGraphicsCommandQueue : IGraphicsCommandQueue
                 for (int j = 0; j < submission.CommandLists.Length; j++)
                     submission.CommandLists[j].Complete();
                 _pending.RemoveAt(i);
+                _device.OnSubmissionCompleted();
             }
         }
     }
