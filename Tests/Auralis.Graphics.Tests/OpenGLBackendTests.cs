@@ -243,20 +243,13 @@ public sealed class OpenGLBackendTests
     }
 
     [Fact]
-    public void OpenGLDeviceOptionsRejectUnverifiableAdapterAndUnsupportedDebugLayers()
+    public void OpenGLDeviceOptionsRejectUnverifiableAdapterAndGpuValidation()
     {
         Assert.Throws<GraphicsBackendUnavailableException>(() =>
             OpenGLDeviceOptionsValidation.Validate(new GraphicsDeviceOptions
             {
                 Backend = GraphicsBackend.OpenGL,
                 Adapter = new GraphicsAdapterId(1, 2)
-            }));
-
-        Assert.Throws<GraphicsBackendUnavailableException>(() =>
-            OpenGLDeviceOptionsValidation.Validate(new GraphicsDeviceOptions
-            {
-                Backend = GraphicsBackend.OpenGL,
-                DebugOptions = GraphicsDebugOptions.EnableDebugLayer
             }));
 
         Assert.Throws<GraphicsBackendUnavailableException>(() =>
