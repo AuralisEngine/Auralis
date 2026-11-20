@@ -161,11 +161,12 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
     public IGraphicsQueue GetPresentationQueue(uint index = 0) =>
         throw new NotSupportedException("Presentation queues are not implemented yet.");
 
-    public IGraphicsBuffer CreateBuffer(in GraphicsBufferDescription description)
+    public unsafe IGraphicsBuffer CreateBuffer(in GraphicsBufferDescription description)
     {
         ObjectDisposedException.ThrowIf(IsDisposed, this);
         Capabilities.ValidateBufferDescription(description);
-        if (description.SizeInBytes > (ulong)nuint.MaxValue)
+        ulong sizeInBytes = description.SizeInBytes;
+        if (sizeInBytes > (ulong)nuint.MaxValue)
             throw new GraphicsValidationException("The requested buffer is larger than the native addressable size.");
         uint handle = WithContext(gl =>
         {
@@ -173,7 +174,7 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
             try
             {
                 gl.BindBuffer(BufferTargetARB.ArrayBuffer, buffer);
-                gl.BufferData(BufferTargetARB.ArrayBuffer, (nuint)description.SizeInBytes, null, BufferUsageARB.DynamicDraw);
+                gl.BufferData(BufferTargetARB.ArrayBuffer, (nuint)sizeInBytes, null, BufferUsageARB.DynamicDraw);
                 gl.BindBuffer(BufferTargetARB.ArrayBuffer, 0);
                 return buffer;
             }
