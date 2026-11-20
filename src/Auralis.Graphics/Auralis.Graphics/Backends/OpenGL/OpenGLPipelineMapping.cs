@@ -85,6 +85,22 @@ internal static class OpenGLPipelineMapping
         _ => throw new ArgumentOutOfRangeException(nameof(operation))
     };
 
+    internal static uint GetVertexFormatByteSize(GraphicsFormat format) => format switch
+    {
+        GraphicsFormat.R8UNorm or GraphicsFormat.R8SNorm or GraphicsFormat.R8UInt or GraphicsFormat.R8SInt => 1,
+        GraphicsFormat.RG8UNorm or GraphicsFormat.RG8SNorm or GraphicsFormat.RG8UInt or GraphicsFormat.RG8SInt => 2,
+        GraphicsFormat.RGBA8UNorm or GraphicsFormat.RGBA8UNormSrgb or GraphicsFormat.RGBA8SNorm or
+            GraphicsFormat.RGBA8UInt or GraphicsFormat.RGBA8SInt => 4,
+        GraphicsFormat.R16Float or GraphicsFormat.R16UInt or GraphicsFormat.R16SInt => 2,
+        GraphicsFormat.RG16Float or GraphicsFormat.RG16UInt or GraphicsFormat.RG16SInt => 4,
+        GraphicsFormat.RGBA16Float or GraphicsFormat.RGBA16UInt or GraphicsFormat.RGBA16SInt => 8,
+        GraphicsFormat.R32Float or GraphicsFormat.R32UInt or GraphicsFormat.R32SInt => 4,
+        GraphicsFormat.RG32Float or GraphicsFormat.RG32UInt or GraphicsFormat.RG32SInt => 8,
+        GraphicsFormat.RGB32Float => 12,
+        GraphicsFormat.RGBA32Float or GraphicsFormat.RGBA32UInt or GraphicsFormat.RGBA32SInt => 16,
+        _ => 0
+    };
+
     internal static bool TryGetVertexFormat(GraphicsFormat format, out OpenGLVertexFormat result)
     {
         result = format switch
