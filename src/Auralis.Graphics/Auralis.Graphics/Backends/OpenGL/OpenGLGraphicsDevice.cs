@@ -550,8 +550,11 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
         return OpenGLGraphicsRenderPipeline.Create(this, description);
     }
 
-    public IGraphicsComputePipeline CreateComputePipeline(GraphicsComputePipelineDescription description) =>
-        throw new NotSupportedException("Compute pipeline creation is not implemented yet.");
+    public IGraphicsComputePipeline CreateComputePipeline(GraphicsComputePipelineDescription description)
+    {
+        ObjectDisposedException.ThrowIf(IsDisposed, this);
+        return OpenGLGraphicsComputePipeline.Create(this, description);
+    }
 
     public IGraphicsFence CreateFence(ulong initialValue = 0)
     {
