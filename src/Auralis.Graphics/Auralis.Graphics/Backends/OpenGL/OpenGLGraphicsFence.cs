@@ -7,15 +7,15 @@ using Silk.NET.OpenGL.Extensions.ARB;
 namespace Auralis.Graphics.Backends.OpenGL;
 
 /// <summary>
-/// Timeline-style fence backed by ordered GLsync objects. GPU signal points are only completed after
-/// the corresponding sync object reports signaled; CPU Signal advances the timeline immediately.
+/// Timeline-style fence backed by ordered GLsync objects. Signal order is monotonic, so a FIFO
+/// queue is sufficient and avoids per-entry tree nodes and temporary cleanup collections.
 /// </summary>
 internal sealed class OpenGLGraphicsFence : GraphicsDeviceObject, IGraphicsFence, IOpenGLNativeResource
 {
     private readonly OpenGLGraphicsDevice _device;
     private readonly ArbSync _syncApi;
     private readonly object _gate = new();
-    private readonly SortedDictionary<ulong, nint> _syncs = [];
+    private readonly Queue<SyncPoint> _syncs = new(16);
     private ulong _completedValue;
     private ulong _lastSignaledValue;
 
@@ -75,7 +75,7 @@ internal sealed class OpenGLGraphicsFence : GraphicsDeviceObject, IGraphicsFence
             if (sync == 0)
                 throw new GraphicsException("OpenGL failed to create a GPU fence sync object.");
 
-            _syncs.Add(value, sync);
+            _syncs.Enqueue(new SyncPoint(value, sync));
             _lastSignaledValue = value;
             Monitor.PulseAll(_gate);
         }
@@ -90,11 +90,11 @@ internal sealed class OpenGLGraphicsFence : GraphicsDeviceObject, IGraphicsFence
             if (value <= _completedValue)
                 return;
 
-            foreach (KeyValuePair<ulong, nint> pair in _syncs)
+            foreach (SyncPoint point in _syncs)
             {
-                if (pair.Key >= value)
+                if (point.Value >= value)
                 {
-                    _syncApi.WaitSync(pair.Value, SyncBehaviorFlags.None, ulong.MaxValue);
+                    _syncApi.WaitSync(point.Handle, SyncBehaviorFlags.None, ulong.MaxValue);
                     return;
                 }
             }
@@ -145,16 +145,16 @@ internal sealed class OpenGLGraphicsFence : GraphicsDeviceObject, IGraphicsFence
             return _completedValue;
 
         ulong completed = _completedValue;
-        foreach (KeyValuePair<ulong, nint> pair in _syncs)
+        foreach (SyncPoint point in _syncs)
         {
             ARB status = _syncApi.ClientWaitSync(
-                pair.Value,
+                point.Handle,
                 SyncObjectMask.Bit,
                 waitNanoseconds);
 
             if (status == ARB.AlreadySignaled || status == ARB.ConditionSatisfied)
             {
-                completed = Math.Max(completed, pair.Key);
+                completed = point.Value;
                 continue;
             }
 
@@ -177,20 +177,10 @@ internal sealed class OpenGLGraphicsFence : GraphicsDeviceObject, IGraphicsFence
 
     private void DeleteCompletedSyncs(GL gl, ulong value)
     {
-        List<ulong>? completedKeys = null;
-        foreach (KeyValuePair<ulong, nint> pair in _syncs)
+        while (_syncs.TryPeek(out SyncPoint point) && point.Value <= value)
         {
-            if (pair.Key > value)
-                break;
-
-            _syncApi.DeleteSync(pair.Value);
-            (completedKeys ??= []).Add(pair.Key);
-        }
-
-        if (completedKeys is not null)
-        {
-            for (int i = 0; i < completedKeys.Count; i++)
-                _syncs.Remove(completedKeys[i]);
+            _syncApi.DeleteSync(point.Handle);
+            _syncs.Dequeue();
         }
     }
 
@@ -207,10 +197,11 @@ internal sealed class OpenGLGraphicsFence : GraphicsDeviceObject, IGraphicsFence
     {
         lock (_gate)
         {
-            foreach (nint sync in _syncs.Values)
-                _syncApi.DeleteSync(sync);
-            _syncs.Clear();
+            while (_syncs.TryDequeue(out SyncPoint point))
+                _syncApi.DeleteSync(point.Handle);
             Monitor.PulseAll(_gate);
         }
     }
+
+    private readonly record struct SyncPoint(ulong Value, nint Handle);
 }

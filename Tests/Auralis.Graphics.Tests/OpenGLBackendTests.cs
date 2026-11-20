@@ -10,7 +10,7 @@ using Xunit;
 
 namespace Auralis.Graphics.Tests;
 
-public sealed class OpenGLBackendTests
+public sealed unsafe class OpenGLBackendTests
 {
     [Fact]
     public void OpenGLBackendIsAppendedWithoutChangingExistingBackendValues()
@@ -319,9 +319,11 @@ public sealed class OpenGLBackendTests
         };
 
         Assert.Equal((BufferStorageMask)0, OpenGLBufferStorageMapping.GetStorageFlags(gpuOnly));
-        Assert.Equal(BufferStorageMask.DynamicStorageBit, OpenGLBufferStorageMapping.GetStorageFlags(cpuToGpu));
-        Assert.Equal((BufferStorageMask)0, OpenGLBufferStorageMapping.GetStorageFlags(gpuToCpu));
-        Assert.Equal(BufferStorageMask.DynamicStorageBit, OpenGLBufferStorageMapping.GetStorageFlags(cpuReadWrite));
+        Assert.Equal(BufferStorageMask.MapWriteBit, OpenGLBufferStorageMapping.GetStorageFlags(cpuToGpu));
+        Assert.Equal(BufferStorageMask.MapReadBit, OpenGLBufferStorageMapping.GetStorageFlags(gpuToCpu));
+        Assert.Equal(
+            BufferStorageMask.MapReadBit | BufferStorageMask.MapWriteBit,
+            OpenGLBufferStorageMapping.GetStorageFlags(cpuReadWrite));
     }
 
 
@@ -466,7 +468,8 @@ public sealed class OpenGLBackendTests
     [Fact]
     public void MappedMemoryBecomesInaccessibleAfterInvalidation()
     {
-        var manager = new OpenGLMappedMemoryManager([1, 2, 3, 4]);
+        byte* memoryPointer = stackalloc byte[] { 1, 2, 3, 4 };
+        var manager = new OpenGLMappedMemoryManager(memoryPointer, 4);
         Memory<byte> memory = manager.Memory;
 
         Assert.Equal(new byte[] { 1, 2, 3, 4 }, memory.ToArray());
@@ -474,7 +477,6 @@ public sealed class OpenGLBackendTests
         manager.Invalidate();
 
         Assert.Throws<ObjectDisposedException>(() => _ = memory.Span[0]);
-        Assert.Throws<ObjectDisposedException>(() => manager.GetBuffer());
     }
 
     private sealed class TestContextProvider(

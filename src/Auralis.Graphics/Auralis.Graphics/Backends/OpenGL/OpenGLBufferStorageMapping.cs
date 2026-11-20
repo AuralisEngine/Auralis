@@ -4,18 +4,18 @@ using Silk.NET.OpenGL;
 namespace Auralis.Graphics.Backends.OpenGL;
 
 /// <summary>
-/// Maps backend-neutral CPU access intent to immutable GL buffer-storage flags. MemoryPreference
-/// remains a hint because OpenGL does not expose Vulkan/D3D12-style physical heap selection.
+/// Maps backend-neutral CPU access intent to immutable buffer-storage map permissions.
+/// MemoryPreference remains a placement hint because OpenGL does not expose D3D12/Vulkan heaps.
 /// </summary>
 internal static class OpenGLBufferStorageMapping
 {
     internal static BufferStorageMask GetStorageFlags(GraphicsBufferDescription description)
     {
-        // CPU writes use glNamedBufferSubData from the staging-backed Unmap path and therefore
-        // require DYNAMIC_STORAGE_BIT. Readback uses GetNamedBufferSubData and needs no map flag.
-        return description.MemoryAccess is GraphicsMemoryAccess.CpuToGpu or GraphicsMemoryAccess.CpuReadWrite
-            ? BufferStorageMask.DynamicStorageBit
-            : (BufferStorageMask)0;
+        BufferStorageMask flags = 0;
+        if (description.MemoryAccess is GraphicsMemoryAccess.GpuToCpu or GraphicsMemoryAccess.CpuReadWrite)
+            flags |= BufferStorageMask.MapReadBit;
+        if (description.MemoryAccess is GraphicsMemoryAccess.CpuToGpu or GraphicsMemoryAccess.CpuReadWrite)
+            flags |= BufferStorageMask.MapWriteBit;
+        return flags;
     }
-
 }

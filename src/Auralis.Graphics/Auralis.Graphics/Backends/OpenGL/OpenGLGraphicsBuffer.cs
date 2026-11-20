@@ -5,19 +5,14 @@ using Silk.NET.OpenGL;
 
 namespace Auralis.Graphics.Backends.OpenGL;
 
-internal interface IOpenGLNativeResource
-{
-    void ReleaseNative(GL gl);
-}
-
-/// <summary>OpenGL buffer backed by driver storage and invalidatable managed staging memory for Map/Unmap.</summary>
+/// <summary>Native OpenGL buffer with directly mapped driver memory.</summary>
 internal sealed unsafe class OpenGLGraphicsBuffer : GraphicsDeviceObject, IGraphicsBuffer, IOpenGLNativeResource
 {
     private readonly OpenGLGraphicsDevice _device;
+    private readonly object _mappingGate = new();
     private uint _handle;
     private OpenGLMappedMemoryManager? _mapped;
-    private ulong _mappedOffset;
-    private GraphicsMapMode _mappedMode;
+    private bool _isMapped;
 
     internal OpenGLGraphicsBuffer(OpenGLGraphicsDevice device, in GraphicsBufferDescription description, uint handle)
         : base(device)
@@ -45,8 +40,6 @@ internal sealed unsafe class OpenGLGraphicsBuffer : GraphicsDeviceObject, IGraph
         ThrowIfDisposed();
         if (!Enum.IsDefined(mode))
             throw new ArgumentOutOfRangeException(nameof(mode));
-        if (Volatile.Read(ref _mapped) is not null)
-            throw new InvalidOperationException("The buffer is already mapped.");
 
         bool canRead = Description.MemoryAccess is GraphicsMemoryAccess.GpuToCpu or GraphicsMemoryAccess.CpuReadWrite;
         bool canWrite = Description.MemoryAccess is GraphicsMemoryAccess.CpuToGpu or GraphicsMemoryAccess.CpuReadWrite;
@@ -61,86 +54,100 @@ internal sealed unsafe class OpenGLGraphicsBuffer : GraphicsDeviceObject, IGraph
             size > int.MaxValue || offset > (ulong)nint.MaxValue)
             throw new ArgumentOutOfRangeException(nameof(size), "The mapped range is empty or outside the buffer.");
 
-        byte[] staging = GC.AllocateUninitializedArray<byte>((int)size);
-        OpenGLMappedMemoryManager manager = new(staging);
-        if (Interlocked.CompareExchange(ref _mapped, manager, null) is not null)
+        // Context serialization is acquired before the per-buffer mapping lock. Resource release
+        // follows the same lock order, preventing Map/Dispose lock inversion.
+        return _device.WithContext(gl =>
         {
-            manager.Invalidate();
-            throw new InvalidOperationException("The buffer is already mapped.");
-        }
-
-        _mappedOffset = offset;
-        _mappedMode = mode;
-        try
-        {
-            if (mode is GraphicsMapMode.Read or GraphicsMapMode.ReadWrite)
+            lock (_mappingGate)
             {
-                _device.WithContext(gl =>
-                {
-                    fixed (byte* data = staging)
-                        _device.DirectStateAccess.GetNamedBufferSubData(
-                            _handle, (nint)offset, (nuint)size, data);
-                });
-            }
+                ThrowIfDisposed();
+                if (_isMapped)
+                    throw new InvalidOperationException("The buffer is already mapped.");
 
-            ThrowIfDisposed();
-            return manager.Memory;
-        }
-        catch
-        {
-            Interlocked.CompareExchange(ref _mapped, null, manager);
-            manager.Invalidate();
-            _mappedOffset = 0;
-            throw;
-        }
+                MapBufferAccessMask access = mode switch
+                {
+                    GraphicsMapMode.Read => MapBufferAccessMask.MapReadBit,
+                    GraphicsMapMode.Write =>
+                        MapBufferAccessMask.MapWriteBit | MapBufferAccessMask.MapInvalidateRangeBit,
+                    GraphicsMapMode.ReadWrite =>
+                        MapBufferAccessMask.MapReadBit | MapBufferAccessMask.MapWriteBit,
+                    _ => throw new ArgumentOutOfRangeException(nameof(mode))
+                };
+
+                void* pointer = _device.DirectStateAccess.MapNamedBufferRange(
+                    _handle, (nint)offset, (nuint)size, access);
+                if (pointer == null)
+                    throw new GraphicsException("OpenGL failed to map the requested buffer range.");
+
+                OpenGLMappedMemoryManager manager = new(pointer, (int)size);
+                _mapped = manager;
+                _isMapped = true;
+                return manager.Memory;
+            }
+        });
     }
 
     public void Unmap()
     {
         ThrowIfDisposed();
-        OpenGLMappedMemoryManager? manager = Volatile.Read(ref _mapped);
-        if (manager is null)
-            throw new InvalidOperationException("The buffer is not mapped.");
-
-        if (_mappedMode is GraphicsMapMode.Write or GraphicsMapMode.ReadWrite)
+        bool contentsValid = _device.WithContext(gl =>
         {
-            byte[] staging = manager.GetBuffer();
-            ulong offset = _mappedOffset;
-            _device.WithContext(gl =>
+            lock (_mappingGate)
             {
-                fixed (byte* data = staging)
-                    _device.DirectStateAccess.NamedBufferSubData(
-                        _handle, (nint)offset, (nuint)staging.Length, data);
-            });
-        }
+                ThrowIfDisposed();
+                OpenGLMappedMemoryManager manager = _mapped ??
+                    throw new InvalidOperationException("The buffer is not mapped.");
 
-        if (ReferenceEquals(Interlocked.CompareExchange(ref _mapped, null, manager), manager))
-            manager.Invalidate();
-        _mappedOffset = 0;
+                bool valid = _device.DirectStateAccess.UnmapNamedBuffer(_handle);
+                _isMapped = false;
+                _mapped = null;
+                manager.Invalidate();
+                return valid;
+            }
+        });
+
+        if (!contentsValid)
+            throw new GraphicsException("OpenGL reported that the mapped buffer contents became corrupted during Unmap.");
     }
 
     protected override void DisposeCore()
     {
-        OpenGLMappedMemoryManager? mapped = Interlocked.Exchange(ref _mapped, null);
-        mapped?.Invalidate();
-        _mappedOffset = 0;
-
-        // Device disposal already drained the registered native resource set. Late resource
-        // disposal must remain harmless and must not attempt to reactivate a dead context.
-        if (_device.IsDisposed)
-            return;
-
-        _device.ReleaseResource(this);
+        try
+        {
+            // Device disposal already drains the registered native resource set. A late resource
+            // disposal must not reactivate an already disposed context.
+            if (!_device.IsDisposed)
+                _device.ReleaseResource(this);
+        }
+        finally
+        {
+            lock (_mappingGate)
+            {
+                _mapped?.Invalidate();
+                _mapped = null;
+                // If destruction was deferred by an in-flight submission, ReleaseNative will
+                // unmap the driver pointer after that submission completes.
+            }
+        }
     }
 
     public void ReleaseNative(GL gl)
     {
-        OpenGLMappedMemoryManager? mapped = Interlocked.Exchange(ref _mapped, null);
-        mapped?.Invalidate();
-        _mappedOffset = 0;
+        lock (_mappingGate)
+        {
+            uint handle = Interlocked.Exchange(ref _handle, 0);
+            if (handle == 0)
+                return;
 
-        uint handle = Interlocked.Exchange(ref _handle, 0);
-        if (handle != 0)
+            if (_isMapped)
+            {
+                _device.DirectStateAccess.UnmapNamedBuffer(handle);
+                _isMapped = false;
+            }
+
+            _mapped?.Invalidate();
+            _mapped = null;
             gl.DeleteBuffer(handle);
+        }
     }
 }

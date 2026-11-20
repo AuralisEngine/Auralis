@@ -367,16 +367,37 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
         lock (_contextGate)
         {
             ObjectDisposedException.ThrowIf(IsDisposed, this);
-            using OpenGLContextLease contextLease = OpenGLContextLease.Acquire(_contextProvider);
-            return action(_gl);
+            _contextProvider.MakeCurrent();
+            try
+            {
+                return action(_gl);
+            }
+            finally
+            {
+                // Inline scope: activation succeeded before the try, so release runs exactly once
+                // without allocating a per-operation OpenGLContextLease object.
+                _contextProvider.ReleaseCurrent();
+            }
         }
     }
 
-    internal void WithContext(Action<GL> action) => WithContext(gl =>
+    internal void WithContext(Action<GL> action)
     {
-        action(gl);
-        return true;
-    });
+        ArgumentNullException.ThrowIfNull(action);
+        lock (_contextGate)
+        {
+            ObjectDisposedException.ThrowIf(IsDisposed, this);
+            _contextProvider.MakeCurrent();
+            try
+            {
+                action(_gl);
+            }
+            finally
+            {
+                _contextProvider.ReleaseCurrent();
+            }
+        }
+    }
 
     /// <summary>Registers a resource from inside a WithContext callback, while the context gate is held.</summary>
     internal void RegisterUnderContext(IOpenGLNativeResource resource) => _resources.Add(resource);
@@ -398,8 +419,15 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
                 return;
             }
 
-            using OpenGLContextLease contextLease = OpenGLContextLease.Acquire(_contextProvider);
-            resource.ReleaseNative(_gl);
+            _contextProvider.MakeCurrent();
+            try
+            {
+                resource.ReleaseNative(_gl);
+            }
+            finally
+            {
+                _contextProvider.ReleaseCurrent();
+            }
         }
     }
 

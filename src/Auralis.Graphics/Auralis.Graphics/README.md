@@ -161,7 +161,7 @@ IGraphicsCommandQueue copyQueue = device.GetQueue(GraphicsQueueType.Copy);
 
 The context provider supplies a stable context identity, function-pointer resolver, `MakeCurrent`/`ReleaseCurrent`, ownership policy, and optional buffer swapping. It may wrap a host-created WGL, GLX, EGL, or native Apple desktop OpenGL context. Those native APIs and context creation remain the host/platform integration's responsibility. A headless/offscreen context is valid; no drawable is required for device creation or offscreen resource/command work.
 
-The device makes the supplied context current before loading Silk.NET's `GL` dispatch. It checks the actual version and Core Profile before constructing the Silk.NET extension wrappers. A context lease calls `ReleaseCurrent` only after `MakeCurrent` returns successfully, and releases the context even when the guarded GL operation throws. The same provider is used to reactivate the context for each native operation and submission; context access is serialized by the device. A dispatch object is never shared with an unrelated context.
+The hot `WithContext` paths use inline `MakeCurrent`/`ReleaseCurrent` try/finally scopes, avoiding per-operation context-lease allocations; the `Action<GL>` overload no longer creates an intermediate `Func` wrapper. The device makes the supplied context current before loading Silk.NET's `GL` dispatch. It checks the actual version and Core Profile before constructing the Silk.NET extension wrappers. A context lease calls `ReleaseCurrent` only after `MakeCurrent` returns successfully, and releases the context even when the guarded GL operation throws. The same provider is used to reactivate the context for each native operation and submission; context access is serialized by the device. A dispatch object is never shared with an unrelated context.
 
 Context-object ownership and GL-state ownership are separate:
 - `OpenGLContextOwnership.Borrowed`: Auralis never disposes the host context. The provider is not disposed by the device.
@@ -176,7 +176,7 @@ The context provider owns the meaning of its context identity and must guarantee
 | --- | --- |
 | Device/provider | Explicit registration, 4.5 Core validation, vendor/renderer/version/driver strings, queried limits and capabilities |
 | Formats | Silk.NET internal-format queries and per-format operation/sample-count capability snapshots; unsupported formats remain unsupported |
-| Buffers | Buffer allocation, usage validation, copy, staging-backed Map/Unmap, invalidation of mapped memory after Unmap |
+| Buffers | Immutable DSA storage, direct `MapNamedBufferRange`/`UnmapNamedBuffer` views over driver memory, explicit per-access storage permissions, invalidated views after unmap/disposal, and buffer copy |
 | Textures | Immutable 1D/2D/3D/cube storage, arrays and multisample 2D storage; texture views via `ARB_texture_view` |
 | Samplers | Sampler objects with filtering, addressing, compare, LOD, border color, and extension-gated anisotropy |
 | Shaders | GLSL source compile through Silk.NET; compile log surfaced; `main` entry point |
@@ -184,7 +184,7 @@ The context provider owns the meaning of its context identity and must guarantee
 | Graphics/compute pipelines | Linked monolithic graphics or compute program; DSA vertex-array object for conventional graphics pipelines; supported geometry/tessellation stages; fixed raster/depth/stencil/blend state |
 | Rendering/compute commands | Deferred render-target binding, viewport/scissor, typed clears, vertex/index binding, direct/indexed/indirect draws, direct/indirect compute dispatch |
 | Copy/barriers | Deferred buffer and whole-texture copies plus destination-access-based OpenGL memory barriers |
-| Synchronization | GL sync objects, CPU wait/polling, and GPU-side wait for an already-created fence value |
+| Synchronization | GL sync objects, allocation-efficient FIFO fence tracking, CPU wait/polling, and non-blocking GPU-side waits for already-created fence values |
 | Presentation | Acquired images are offscreen color textures; present blits to the provider-verified default drawable and swaps buffers |
 | Queues | Logical graphics/compute/copy queues sharing one serialized context command stream; no physical parallel queues are claimed |
 
@@ -202,11 +202,11 @@ GLSL must use the resulting numeric binding in its `layout(binding = N)` declara
 
 ### Command execution and queue model
 
-OpenGL does not expose native command buffers. Auralis uses CPU-side typed deferred command records: recording methods validate and retain arguments without invoking GL; submission activates the provider's context and executes commands in order. Queue submission associates a GL sync object with the submitted lists. A list becomes reusable only after the submission is observed complete. Referenced native resources are not physically deleted while submissions are pending.
+OpenGL does not expose native command buffers. Auralis uses CPU-side typed deferred command records: recording methods validate and retain arguments without invoking GL; submission activates the provider's context and executes commands in order. Submission command-list reference arrays are rented and returned only after the associated GL completion sync has signaled. Queue submission associates a GL sync object with the submitted lists. A list becomes reusable only after the submission is observed complete. Referenced native resources are not physically deleted while submissions are pending.
 
 The graphics, compute, and copy queue objects are logical roles over one context's ordered command stream. They are serialized and do not promise independent graphics, compute, or transfer hardware queues. Compute pipeline creation, direct dispatch, and indirect dispatch are implemented when the required OpenGL 4.3+ compute functionality is present. The backend advertises a logical compute queue in that case, but does not advertise separate compute/transfer queue features.
 
-The fence abstraction is implemented with ordered GL sync objects. CPU waits use client waits; queue waits enqueue a GL server-side wait and do not block the CPU. A queue wait requires the requested fence value to have already been signaled/submitted, because OpenGL cannot enqueue a wait on a future sync object that does not yet exist. The implementation provides monotonic timeline-style values on top of individual GL sync objects; it does not claim the native Vulkan timeline-semaphore feature.
+The fence abstraction is implemented with ordered GL sync objects stored in a reusable FIFO queue; monotonic values make a tree structure unnecessary. CPU waits use client waits; queue waits enqueue a GL server-side wait and do not block the CPU. A queue wait requires the requested fence value to have already been signaled/submitted, because OpenGL cannot enqueue a wait on a future sync object that does not yet exist. The implementation provides monotonic timeline-style values on top of individual GL sync objects; it does not claim the native Vulkan timeline-semaphore feature.
 
 Resource barriers are translated into GL memory-barrier bits based on destination access. Texture layouts in the common barrier description remain semantic hints, not native OpenGL image layouts. The backend uses broad `AllBarrierBits` only for generic memory read/write intents where a narrower consumer cannot be identified.
 

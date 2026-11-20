@@ -1,3 +1,4 @@
+using System.Buffers;
 using Auralis.Graphics.Abstractions;
 using Auralis.Graphics.Commands;
 using Auralis.Graphics.Devices;
@@ -8,14 +9,14 @@ using Silk.NET.OpenGL.Extensions.ARB;
 namespace Auralis.Graphics.Backends.OpenGL;
 
 /// <summary>
-/// Logical queue over one ordered OpenGL context command stream. Graphics, compute and copy queues
-/// share execution serialization; they do not represent independent hardware queues.
+/// Logical queue over one ordered OpenGL context command stream. Graphics, compute and copy roles
+/// share execution serialization; submitted command-list references are pooled until GPU completion.
 /// </summary>
 internal sealed class OpenGLGraphicsCommandQueue : IGraphicsCommandQueue
 {
     private readonly OpenGLGraphicsDevice _device;
     private readonly object _gate = new();
-    private readonly List<PendingSubmission> _pending = new();
+    private readonly List<PendingSubmission> _pending = new(8);
 
     internal OpenGLGraphicsCommandQueue(OpenGLGraphicsDevice device, GraphicsQueueType queueType)
     {
@@ -45,7 +46,7 @@ internal sealed class OpenGLGraphicsCommandQueue : IGraphicsCommandQueue
         if (commandLists.IsEmpty)
             throw new ArgumentException("At least one command list is required.", nameof(commandLists));
 
-        OpenGLGraphicsCommandList[] lists = new OpenGLGraphicsCommandList[commandLists.Length];
+        // Validate without allocating. This duplicate scan is bounded by the submission size.
         for (int i = 0; i < commandLists.Length; i++)
         {
             if (commandLists[i] is not OpenGLGraphicsCommandList list ||
@@ -59,11 +60,9 @@ internal sealed class OpenGLGraphicsCommandQueue : IGraphicsCommandQueue
 
             for (int previous = 0; previous < i; previous++)
             {
-                if (ReferenceEquals(lists[previous], list))
+                if (ReferenceEquals(commandLists[previous], list))
                     throw new GraphicsValidationException("A command list cannot appear more than once in one submission.");
             }
-
-            lists[i] = list;
         }
 
         OpenGLGraphicsFence? fence = null;
@@ -78,13 +77,17 @@ internal sealed class OpenGLGraphicsCommandQueue : IGraphicsCommandQueue
             throw new ArgumentException("A non-zero signal value requires a signal fence.", nameof(signalValue));
         }
 
+        OpenGLGraphicsCommandList[] lists = ArrayPool<OpenGLGraphicsCommandList>.Shared.Rent(commandLists.Length);
+        for (int i = 0; i < commandLists.Length; i++)
+            lists[i] = (OpenGLGraphicsCommandList)commandLists[i];
+
         nint completionSync = 0;
         int submittedCount = 0;
         bool commandsIssued = false;
         bool submissionQueued = false;
         try
         {
-            for (int i = 0; i < lists.Length; i++)
+            for (int i = 0; i < commandLists.Length; i++)
             {
                 lists[i].MarkSubmitted();
                 submittedCount++;
@@ -93,7 +96,7 @@ internal sealed class OpenGLGraphicsCommandQueue : IGraphicsCommandQueue
             _device.WithContext(gl =>
             {
                 commandsIssued = true;
-                for (int i = 0; i < lists.Length; i++)
+                for (int i = 0; i < commandLists.Length; i++)
                     lists[i].Execute(
                         gl,
                         _device.DirectStateAccess,
@@ -119,8 +122,10 @@ internal sealed class OpenGLGraphicsCommandQueue : IGraphicsCommandQueue
                 try
                 {
                     lock (_gate)
-                        _pending.Add(new PendingSubmission(lists, completionSync));
-                    submissionQueued = true;
+                    {
+                        _pending.Add(new PendingSubmission(lists, commandLists.Length, completionSync));
+                        submissionQueued = true;
+                    }
                 }
                 catch
                 {
@@ -152,6 +157,11 @@ internal sealed class OpenGLGraphicsCommandQueue : IGraphicsCommandQueue
             }
 
             throw;
+        }
+        finally
+        {
+            if (!submissionQueued)
+                ArrayPool<OpenGLGraphicsCommandList>.Shared.Return(lists, clearArray: true);
         }
     }
 
@@ -188,10 +198,8 @@ internal sealed class OpenGLGraphicsCommandQueue : IGraphicsCommandQueue
                         throw new GraphicsException("OpenGL failed to poll a command submission sync.");
 
                     _device.SyncApi.DeleteSync(submission.Sync);
-                    for (int j = 0; j < submission.CommandLists.Length; j++)
-                        submission.CommandLists[j].Complete();
+                    CompleteSubmission(submission);
                     _pending.RemoveAt(i);
-                    _device.OnSubmissionCompleted();
                 }
             }
         });
@@ -211,10 +219,8 @@ internal sealed class OpenGLGraphicsCommandQueue : IGraphicsCommandQueue
                 {
                     PendingSubmission submission = _pending[i];
                     _device.SyncApi.DeleteSync(submission.Sync);
-                    for (int j = 0; j < submission.CommandLists.Length; j++)
-                        submission.CommandLists[j].Complete();
+                    CompleteSubmission(submission);
                     _pending.RemoveAt(i);
-                    _device.OnSubmissionCompleted();
                 }
             }
         });
@@ -228,13 +234,25 @@ internal sealed class OpenGLGraphicsCommandQueue : IGraphicsCommandQueue
             {
                 PendingSubmission submission = _pending[i];
                 _device.SyncApi.DeleteSync(submission.Sync);
-                for (int j = 0; j < submission.CommandLists.Length; j++)
-                    submission.CommandLists[j].Complete();
+                CompleteSubmission(submission);
                 _pending.RemoveAt(i);
-                _device.OnSubmissionCompleted();
             }
         }
     }
 
-    private sealed record PendingSubmission(OpenGLGraphicsCommandList[] CommandLists, nint Sync);
+    private void CompleteSubmission(PendingSubmission submission)
+    {
+        for (int i = 0; i < submission.Count; i++)
+            submission.CommandLists[i].Complete();
+
+        ArrayPool<OpenGLGraphicsCommandList>.Shared.Return(
+            submission.CommandLists,
+            clearArray: true);
+        _device.OnSubmissionCompleted();
+    }
+
+    private readonly record struct PendingSubmission(
+        OpenGLGraphicsCommandList[] CommandLists,
+        int Count,
+        nint Sync);
 }
