@@ -5,6 +5,11 @@ using Silk.NET.OpenGL;
 
 namespace Auralis.Graphics.Backends.OpenGL;
 
+internal interface IOpenGLNativeResource
+{
+    void ReleaseNative(GL gl);
+}
+
 /// <summary>Native OpenGL buffer with directly mapped driver memory.</summary>
 internal sealed unsafe class OpenGLGraphicsBuffer : GraphicsDeviceObject, IGraphicsBuffer, IOpenGLNativeResource
 {
