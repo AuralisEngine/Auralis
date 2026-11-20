@@ -359,7 +359,7 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
                         break;
                     case OpenGLCommandKind.SetViewport:
                         GraphicsViewport viewport = command.Viewport;
-                        viewportApi.ViewportIndexedf(0, viewport.X, viewport.Y, viewport.Width, viewport.Height);
+                        viewportApi.ViewportIndexed(0, viewport.X, viewport.Y, viewport.Width, viewport.Height);
                         viewportApi.DepthRangeIndexed(0, viewport.MinDepth, viewport.MaxDepth);
                         break;
                     case OpenGLCommandKind.SetScissor:
