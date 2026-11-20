@@ -80,10 +80,28 @@ internal sealed class OpenGLGraphicsRenderPipeline : GraphicsDeviceObject, IGrap
             throw new GraphicsValidationException(
                 "Depth-bias clamping requires GL_ARB_polygon_offset_clamp, which is not enabled by this backend.");
 
-        device.Capabilities.ValidateVertexInputLayout(
-            description.VertexInput ?? new GraphicsVertexInputLayout(
-                ReadOnlySpan<GraphicsVertexBufferLayout>.Empty,
-                ReadOnlySpan<GraphicsVertexAttribute>.Empty));
+        if (description.VertexInput is { } vertexInput)
+        {
+            device.Capabilities.ValidateVertexInputLayout(vertexInput);
+
+            uint maxBindings = device.Capabilities.Limits.MaxVertexInputBindings;
+            ReadOnlySpan<GraphicsVertexBufferLayout> buffers = vertexInput.Buffers;
+            for (int i = 0; i < buffers.Length; i++)
+            {
+                if (maxBindings != 0 && buffers[i].Binding >= maxBindings)
+                    throw new GraphicsValidationException(
+                        $"Vertex binding index {buffers[i].Binding} exceeds the OpenGL limit {maxBindings}.");
+            }
+
+            uint maxAttributes = device.Capabilities.Limits.MaxVertexInputAttributes;
+            ReadOnlySpan<GraphicsVertexAttribute> attributes = vertexInput.Attributes;
+            for (int i = 0; i < attributes.Length; i++)
+            {
+                if (maxAttributes != 0 && attributes[i].Location >= maxAttributes)
+                    throw new GraphicsValidationException(
+                        $"Vertex attribute location {attributes[i].Location} exceeds the OpenGL limit {maxAttributes}.");
+            }
+        }
 
         return device.WithContext(gl =>
         {
