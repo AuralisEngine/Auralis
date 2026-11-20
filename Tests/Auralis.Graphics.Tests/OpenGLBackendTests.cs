@@ -75,6 +75,44 @@ public sealed class OpenGLBackendTests
 
 
     [Fact]
+    public void OpenGLPresentationRequiresExactDrawableCompatibilityAndSupportedPresentMode()
+    {
+        GraphicsNativeHandleKind windowKind = GraphicsNativeHandleKind.CreateCustom(0x8000);
+        GraphicsNativeSurfaceDescription native = new(
+            GraphicsNativePlatform.Custom,
+            [new GraphicsNativeHandle(windowKind, (nint)123, GraphicsNativeHandleOwnership.Borrowed)]);
+        var snapshot = new GraphicsPresentationTargetSnapshot(
+            native, new GraphicsExtent2D(1280, 720), Revision: 1, IsSuspended: false);
+        var compatibleProvider = new TestContextProvider(
+            true,
+            supportsPresentation: true,
+            targetCompatible: true,
+            supportedPresentMode: GraphicsPresentMode.Fifo);
+
+        OpenGLPresentationTargetValidation.ValidateTarget(compatibleProvider, snapshot);
+        OpenGLPresentationTargetValidation.ValidatePresentMode(compatibleProvider, GraphicsPresentMode.Fifo);
+
+        var incompatibleProvider = new TestContextProvider(
+            true,
+            supportsPresentation: true,
+            targetCompatible: false);
+        Assert.Throws<GraphicsBackendUnavailableException>(() =>
+            OpenGLPresentationTargetValidation.ValidateTarget(incompatibleProvider, snapshot));
+
+        Assert.Throws<GraphicsValidationException>(() =>
+            OpenGLPresentationTargetValidation.ValidatePresentMode(
+                compatibleProvider, GraphicsPresentMode.Immediate));
+
+        var suspended = snapshot with
+        {
+            Extent = new GraphicsExtent2D(0, 0),
+            Revision = 2,
+            IsSuspended = true
+        };
+        OpenGLPresentationTargetValidation.ValidateTarget(compatibleProvider, suspended);
+    }
+
+    [Fact]
     public void DescriptorBindingSlotsAreStableAcrossSetsAndInputOrder()
     {
         var firstSet = new GraphicsBindingLayoutDescription(
@@ -331,22 +369,35 @@ public sealed class OpenGLBackendTests
 
     private sealed class TestContextProvider(
         bool isAvailable,
-        OpenGLContextOwnership ownership = OpenGLContextOwnership.Borrowed) : IOpenGLContextProvider
+        OpenGLContextOwnership ownership = OpenGLContextOwnership.Borrowed,
+        bool supportsPresentation = false,
+        bool targetCompatible = false,
+        GraphicsPresentMode supportedPresentMode = GraphicsPresentMode.Fifo) : IOpenGLContextProvider
     {
         public object ContextIdentity { get; } = new object();
         public OpenGLContextOwnership Ownership { get; } = ownership;
         public OpenGLContextStateOwnership StateOwnership { get; } = OpenGLContextStateOwnership.Exclusive;
         public bool IsAvailable { get; } = isAvailable;
         public string? UnavailableReason => IsAvailable ? null : "No current desktop GL context.";
-        public bool SupportsPresentation => false;
-        public bool IsPresentationTargetCompatible(in GraphicsPresentationTargetSnapshot target) => false;
-        public bool SupportsPresentMode(GraphicsPresentMode presentMode) => false;
-        public void SetPresentMode(GraphicsPresentMode presentMode) => throw new NotSupportedException();
+        public bool SupportsPresentation { get; } = supportsPresentation;
+        public bool IsPresentationTargetCompatible(in GraphicsPresentationTargetSnapshot target) =>
+            SupportsPresentation && targetCompatible;
+        public bool SupportsPresentMode(GraphicsPresentMode presentMode) =>
+            SupportsPresentation && presentMode == supportedPresentMode;
+        public void SetPresentMode(GraphicsPresentMode presentMode)
+        {
+            if (!SupportsPresentMode(presentMode))
+                throw new NotSupportedException();
+        }
 
         public void MakeCurrent() => throw new NotSupportedException();
         public void ReleaseCurrent() => throw new NotSupportedException();
         public nint GetProcAddress(string name) => 0;
-        public void SwapBuffers() => throw new NotSupportedException();
+        public void SwapBuffers()
+        {
+            if (!SupportsPresentation)
+                throw new NotSupportedException();
+        }
         public void Dispose() { }
     }
 }
