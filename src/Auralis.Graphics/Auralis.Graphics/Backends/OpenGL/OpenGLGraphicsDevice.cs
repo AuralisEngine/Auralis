@@ -343,6 +343,7 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
 
     private static uint ToUInt(int value) => value > 0 ? (uint)value : 0;
 
+    internal IOpenGLContextProvider ContextProvider => _contextProvider;
     internal ArbDirectStateAccess DirectStateAccess => _directStateAccess;
     internal ArbTextureView TextureViewApi => _textureViewApi;
     internal ArbSamplerObjects SamplerObjects => _samplerObjects;
@@ -565,8 +566,24 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
         });
     }
 
-    public IGraphicsPresentationSurface CreatePresentationSurface(IGraphicsPresentationTarget target) =>
-        throw new NotSupportedException("Presentation surfaces and swapchains are not implemented yet.");
+    public IGraphicsPresentationSurface CreatePresentationSurface(IGraphicsPresentationTarget target)
+    {
+        ObjectDisposedException.ThrowIf(IsDisposed, this);
+        ArgumentNullException.ThrowIfNull(target);
+
+        if (!_contextProvider.SupportsPresentation)
+            throw new GraphicsBackendUnavailableException(
+                GraphicsBackend.OpenGL,
+                "The injected OpenGL context provider has no presentation drawable.");
+
+        GraphicsPresentationTargetSnapshot snapshot = target.GetSnapshot();
+        snapshot.Validate();
+        if (!_contextProvider.IsPresentationTargetCompatible(snapshot))
+            throw new GraphicsValidationException(
+                "The presentation target does not identify the drawable associated with the injected OpenGL context.");
+
+        return new OpenGLGraphicsPresentationSurface(this, target, snapshot);
+    }
 
     public void Dispose()
     {
