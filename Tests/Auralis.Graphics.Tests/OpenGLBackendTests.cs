@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using Auralis.Graphics.Abstractions;
 using Auralis.Graphics.Backends.OpenGL;
 using Auralis.Graphics.Devices;
@@ -10,7 +11,7 @@ using Xunit;
 
 namespace Auralis.Graphics.Tests;
 
-public sealed unsafe class OpenGLBackendTests
+public sealed class OpenGLBackendTests
 {
     [Fact]
     public void OpenGLBackendIsAppendedWithoutChangingExistingBackendValues()
@@ -468,15 +469,23 @@ public sealed unsafe class OpenGLBackendTests
     [Fact]
     public void MappedMemoryBecomesInaccessibleAfterInvalidation()
     {
-        byte* memoryPointer = stackalloc byte[] { 1, 2, 3, 4 };
-        var manager = new OpenGLMappedMemoryManager(memoryPointer, 4);
-        Memory<byte> memory = manager.Memory;
+        nint memoryPointer = Marshal.AllocHGlobal(4);
+        try
+        {
+            Marshal.Copy(new byte[] { 1, 2, 3, 4 }, 0, memoryPointer, 4);
+            var manager = new OpenGLMappedMemoryManager(memoryPointer, 4);
+            Memory<byte> memory = manager.Memory;
 
-        Assert.Equal(new byte[] { 1, 2, 3, 4 }, memory.ToArray());
+            Assert.Equal(new byte[] { 1, 2, 3, 4 }, memory.ToArray());
 
-        manager.Invalidate();
+            manager.Invalidate();
 
-        Assert.Throws<ObjectDisposedException>(() => _ = memory.Span[0]);
+            Assert.Throws<ObjectDisposedException>(() => _ = memory.Span[0]);
+        }
+        finally
+        {
+            Marshal.FreeHGlobal(memoryPointer);
+        }
     }
 
     private sealed class TestContextProvider(

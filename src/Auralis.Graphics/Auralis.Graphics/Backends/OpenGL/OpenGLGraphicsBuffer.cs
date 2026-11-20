@@ -103,6 +103,7 @@ internal sealed unsafe class OpenGLGraphicsBuffer : GraphicsDeviceObject, IGraph
                 OpenGLMappedMemoryManager manager = _mapped ??
                     throw new InvalidOperationException("The buffer is not mapped.");
 
+                manager.ValidateCanUnmap();
                 bool valid = _device.DirectStateAccess.UnmapNamedBuffer(_handle);
                 _isMapped = false;
                 _mapped = null;
@@ -146,6 +147,7 @@ internal sealed unsafe class OpenGLGraphicsBuffer : GraphicsDeviceObject, IGraph
 
             if (_isMapped)
             {
+                _mapped?.WaitForPins();
                 _device.DirectStateAccess.UnmapNamedBuffer(handle);
                 _isMapped = false;
             }
