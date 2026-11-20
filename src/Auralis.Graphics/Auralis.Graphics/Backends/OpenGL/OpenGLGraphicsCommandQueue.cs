@@ -51,7 +51,7 @@ internal sealed class OpenGLGraphicsCommandQueue : IGraphicsCommandQueue
             if (commandLists[i] is not OpenGLGraphicsCommandList list ||
                 !ReferenceEquals(list.Device, _device) ||
                 list.QueueType != QueueType ||
-                list.State != GraphicsCommandListState.Executable)
+                list.Lifecycle.State != GraphicsCommandListState.Executable)
             {
                 throw new GraphicsValidationException(
                     "Submitted command lists must be executable lists created by this device and queue.");
