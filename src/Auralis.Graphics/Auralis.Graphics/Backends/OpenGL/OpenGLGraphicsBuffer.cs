@@ -124,6 +124,12 @@ internal sealed unsafe class OpenGLGraphicsBuffer : GraphicsDeviceObject, IGraph
         OpenGLMappedMemoryManager? mapped = Interlocked.Exchange(ref _mapped, null);
         mapped?.Invalidate();
         _mappedOffset = 0;
+
+        // Device disposal already drained the registered native resource set. Late resource
+        // disposal must remain harmless and must not attempt to reactivate a dead context.
+        if (_device.IsDisposed)
+            return;
+
         _device.ReleaseResource(this);
     }
 
