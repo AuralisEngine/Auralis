@@ -48,7 +48,6 @@ public sealed class OpenGLIntegrationFixture : IAsyncLifetime
             {
                 Backend = GraphicsBackend.OpenGL,
                 RequiredQueues = GraphicsQueueCapabilities.Graphics |
-                                 GraphicsQueueCapabilities.Compute |
                                  GraphicsQueueCapabilities.Copy,
                 ApplicationName = "Auralis OpenGL Integration Tests"
             }).AsTask().GetAwaiter().GetResult();
