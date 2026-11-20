@@ -577,11 +577,7 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
                 "The injected OpenGL context provider has no presentation drawable.");
 
         GraphicsPresentationTargetSnapshot snapshot = target.GetSnapshot();
-        snapshot.Validate();
-        if (!_contextProvider.IsPresentationTargetCompatible(snapshot))
-            throw new GraphicsValidationException(
-                "The presentation target does not identify the drawable associated with the injected OpenGL context.");
-
+        OpenGLPresentationTargetValidation.ValidateTarget(_contextProvider, snapshot);
         return new OpenGLGraphicsPresentationSurface(this, target, snapshot);
     }
 
