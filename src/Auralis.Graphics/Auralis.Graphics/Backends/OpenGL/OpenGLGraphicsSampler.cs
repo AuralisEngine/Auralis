@@ -53,7 +53,7 @@ internal sealed class OpenGLGraphicsSampler : GraphicsDeviceObject, IGraphicsSam
         }
         catch
         {
-            dsa.DeleteSamplers(1, ref handle);
+            samplerObjects.DeleteSamplers(1, ref handle);
             throw;
         }
     }
