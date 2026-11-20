@@ -94,61 +94,16 @@ internal sealed class OpenGLGraphicsPipelineLayout : GraphicsDeviceObject, IGrap
                 throw new GraphicsValidationException("Every pipeline binding layout must belong to this OpenGL device.");
         }
 
-        uint uniformSlot = 0;
-        uint storageSlot = 0;
-        uint textureUnit = 0;
-        uint imageUnit = 0;
-        List<OpenGLDescriptorMapping> mappings = new();
+        GraphicsBindingLayoutDescription[] descriptions = new GraphicsBindingLayoutDescription[_bindingLayouts.Length];
+        for (int i = 0; i < _bindingLayouts.Length; i++)
+            descriptions[i] = ((OpenGLGraphicsBindingLayout)_bindingLayouts[i]).Description;
 
-        for (uint setIndex = 0; setIndex < _bindingLayouts.Length; setIndex++)
-        {
-            OpenGLGraphicsBindingLayout layout = (OpenGLGraphicsBindingLayout)_bindingLayouts[setIndex];
-            ReadOnlySpan<OpenGLDescriptorEntry> entries = layout.Entries;
-
-            // Descriptor input order has no semantic meaning. Sorting makes generated GLSL
-            // binding points stable for a given set/layout contract.
-            GraphicsBindingLayoutEntry[] ordered = new GraphicsBindingLayoutEntry[entries.Length];
-            for (int i = 0; i < entries.Length; i++)
-                ordered[i] = entries[i].Description;
-            Array.Sort(ordered, static (left, right) => left.Binding.CompareTo(right.Binding));
-
-            for (int i = 0; i < ordered.Length; i++)
-            {
-                GraphicsBindingLayoutEntry entry = ordered[i];
-                OpenGLDescriptorNamespace descriptorNamespace = GetNamespace(entry.Type);
-                uint nextSlot = descriptorNamespace switch
-                {
-                    OpenGLDescriptorNamespace.UniformBuffer => uniformSlot,
-                    OpenGLDescriptorNamespace.StorageBuffer => storageSlot,
-                    OpenGLDescriptorNamespace.TextureUnit => textureUnit,
-                    _ => imageUnit
-                };
-
-                uint maximum = descriptorNamespace switch
-                {
-                    OpenGLDescriptorNamespace.UniformBuffer => device.MaxUniformBufferBindings,
-                    OpenGLDescriptorNamespace.StorageBuffer => device.MaxStorageBufferBindings,
-                    OpenGLDescriptorNamespace.TextureUnit => device.MaxTextureUnits,
-                    _ => device.MaxImageUnits
-                };
-
-                if (entry.Count > maximum - Math.Min(maximum, nextSlot))
-                    throw new GraphicsValidationException(
-                        $"Descriptor set {setIndex}, binding {entry.Binding} exceeds the OpenGL {descriptorNamespace} binding-point limit ({maximum}).");
-
-                mappings.Add(new OpenGLDescriptorMapping(setIndex, entry, nextSlot));
-                uint nextValue = checked(nextSlot + entry.Count);
-                switch (descriptorNamespace)
-                {
-                    case OpenGLDescriptorNamespace.UniformBuffer: uniformSlot = nextValue; break;
-                    case OpenGLDescriptorNamespace.StorageBuffer: storageSlot = nextValue; break;
-                    case OpenGLDescriptorNamespace.TextureUnit: textureUnit = nextValue; break;
-                    case OpenGLDescriptorNamespace.ImageUnit: imageUnit = nextValue; break;
-                }
-            }
-        }
-
-        _mappings = mappings.ToArray();
+        _mappings = OpenGLDescriptorBindingAllocator.Allocate(
+            descriptions,
+            device.MaxUniformBufferBindings,
+            device.MaxStorageBufferBindings,
+            device.MaxTextureUnits,
+            device.MaxImageUnits);
         BindingLayouts = _bindingLayouts;
     }
 
