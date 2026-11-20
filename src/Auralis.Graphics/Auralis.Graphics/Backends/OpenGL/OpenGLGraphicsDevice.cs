@@ -41,6 +41,8 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
     private readonly ExtDrawBuffers2? _indexedDrawBuffersApi;
     private readonly ExtDepthBoundsTest? _depthBoundsApi;
     private readonly ArbPolygonOffsetClamp? _polygonOffsetClampApi;
+    private readonly ArbES2Compatibility _shaderBinaryApi;
+    private readonly ArbGlSpirv? _spirvApi;
     private readonly ArbComputeShader _computeShaderApi;
     private readonly ArbUniformBufferObject _uniformBufferObjectApi;
     private readonly string _renderer;
@@ -57,6 +59,8 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
     internal ExtDrawBuffers2? IndexedDrawBuffersApi => _indexedDrawBuffersApi;
     internal ExtDepthBoundsTest? DepthBoundsApi => _depthBoundsApi;
     internal ArbPolygonOffsetClamp? PolygonOffsetClampApi => _polygonOffsetClampApi;
+    internal ArbES2Compatibility ShaderBinaryApi => _shaderBinaryApi;
+    internal ArbGlSpirv? SpirVApi => _spirvApi;
     private int _disposeState;
 
     private OpenGLGraphicsDevice(
@@ -77,6 +81,8 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
         ExtDrawBuffers2? indexedDrawBuffersApi,
         ExtDepthBoundsTest? depthBoundsApi,
         ArbPolygonOffsetClamp? polygonOffsetClampApi,
+        ArbES2Compatibility shaderBinaryApi,
+        ArbGlSpirv? spirvApi,
         OpenGLLineWidthRange supportedLineWidths,
         ArbComputeShader computeShaderApi,
         ArbUniformBufferObject uniformBufferObjectApi,
@@ -113,6 +119,8 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
         _indexedDrawBuffersApi = indexedDrawBuffersApi;
         _depthBoundsApi = depthBoundsApi;
         _polygonOffsetClampApi = polygonOffsetClampApi;
+        _shaderBinaryApi = shaderBinaryApi;
+        _spirvApi = spirvApi;
         SupportedLineWidths = supportedLineWidths;
         _computeShaderApi = computeShaderApi;
         _uniformBufferObjectApi = uniformBufferObjectApi;
@@ -161,6 +169,8 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
         ExtDrawBuffers2? indexedDrawBuffersApi = null;
         ExtDepthBoundsTest? depthBoundsApi = null;
         ArbPolygonOffsetClamp? polygonOffsetClampApi = null;
+        ArbES2Compatibility? shaderBinaryApi = null;
+        ArbGlSpirv? spirvApi = null;
         ArbComputeShader? computeShaderApi = null;
         ArbUniformBufferObject? uniformBufferObjectApi = null;
         if (contextProvider.StateOwnership != OpenGLContextStateOwnership.Exclusive)
@@ -211,6 +221,9 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
                 depthBoundsApi = new ExtDepthBoundsTest(gl.Context);
             if (gl.IsExtensionPresent(ArbPolygonOffsetClamp.ExtensionName))
                 polygonOffsetClampApi = new ArbPolygonOffsetClamp(gl.Context);
+            shaderBinaryApi = new ArbES2Compatibility(gl.Context);
+            if (gl.IsExtensionPresent(ArbGlSpirv.ExtensionName))
+                spirvApi = new ArbGlSpirv(gl.Context);
             if (major > 4 || (major == 4 && minor >= 3))
                 computeShaderApi = new ArbComputeShader(gl.Context);
             uniformBufferObjectApi = new ArbUniformBufferObject(gl.Context);
@@ -227,6 +240,7 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
                 indexedDrawBuffersApi is not null,
                 depthBoundsApi is not null,
                 polygonOffsetClampApi is not null,
+                spirvApi is not null,
                 supportedLineWidths);
             uint maxUniformBufferBindings = ToUInt(gl.GetInteger(GLEnum.MaxUniformBufferBindings));
             uint maxStorageBufferBindings = ToUInt(gl.GetInteger(GLEnum.MaxShaderStorageBufferBindings));
@@ -254,7 +268,7 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
                 internalFormatQuery, syncApi, copyImageApi, viewportApi,
                 baseInstanceApi, drawIndirectApi, multiDrawIndirectApi, imageLoadStoreApi,
                 drawBuffersBlendApi, indexedDrawBuffersApi, depthBoundsApi, polygonOffsetClampApi,
-                supportedLineWidths, computeShaderApi!, uniformBufferObjectApi!,
+                shaderBinaryApi!, spirvApi, supportedLineWidths, computeShaderApi!, uniformBufferObjectApi!,
                 maxComputeWorkGroupCountX, maxComputeWorkGroupCountY, maxComputeWorkGroupCountZ,
                 maxUniformBufferBindings, maxStorageBufferBindings, maxTextureUnits, maxImageUnits,
                 uniformBufferOffsetAlignment, storageBufferOffsetAlignment,
@@ -275,6 +289,8 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
             indexedDrawBuffersApi = null;
             depthBoundsApi = null;
             polygonOffsetClampApi = null;
+            shaderBinaryApi = null;
+            spirvApi = null;
             computeShaderApi = null;
             uniformBufferObjectApi = null;
             return device;
@@ -283,6 +299,8 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
         {
             uniformBufferObjectApi?.Dispose();
             computeShaderApi?.Dispose();
+            spirvApi?.Dispose();
+            shaderBinaryApi?.Dispose();
             polygonOffsetClampApi?.Dispose();
             depthBoundsApi?.Dispose();
             indexedDrawBuffersApi?.Dispose();
@@ -313,6 +331,7 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
         bool supportsIndependentBlend,
         bool supportsDepthBounds,
         bool supportsDepthBiasClamp,
+        bool supportsSpirV,
         OpenGLLineWidthRange supportedLineWidths)
     {
         static bool AtLeast(int major, int minor, int requiredMajor, int requiredMinor) =>
@@ -333,6 +352,7 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
         if (supportsIndependentBlend) features |= GraphicsFeature.IndependentBlend;
         if (supportsDepthBounds) features |= GraphicsFeature.DepthBoundsTest;
         if (supportsDepthBiasClamp) features |= GraphicsFeature.DepthBiasClamp;
+        if (supportsSpirV) features |= GraphicsFeature.SpirVShaders;
         if (supportedLineWidths.SupportsWideLines) features |= GraphicsFeature.WideLines;
         // Timestamp queries, sparse resources, mesh/task shaders, and multi-viewport are
         // intentionally not advertised until the corresponding execution paths are implemented.
@@ -666,6 +686,8 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
 
                 _uniformBufferObjectApi.Dispose();
                 _computeShaderApi?.Dispose();
+                _spirvApi?.Dispose();
+                _shaderBinaryApi.Dispose();
                 _polygonOffsetClampApi?.Dispose();
                 _depthBoundsApi?.Dispose();
                 _indexedDrawBuffersApi?.Dispose();

@@ -73,7 +73,8 @@ public enum GraphicsFeature : ulong
     FillModeNonSolid = 1UL << 21,
     TaskShaders = 1UL << 22,
     IndependentBlend = 1UL << 23,
-    DepthBiasClamp = 1UL << 24
+    DepthBiasClamp = 1UL << 24,
+    SpirVShaders = 1UL << 25
 }
 
 /// <summary>A strongly typed set of optional graphics features reported by a device.</summary>

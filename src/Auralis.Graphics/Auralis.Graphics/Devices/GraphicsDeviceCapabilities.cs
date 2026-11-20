@@ -81,7 +81,8 @@ public sealed class GraphicsDeviceCapabilities
             GraphicsFeature.MultiViewport | GraphicsFeature.DepthBoundsTest |
             GraphicsFeature.LogicOperations | GraphicsFeature.WideLines |
             GraphicsFeature.DepthClamp | GraphicsFeature.FillModeNonSolid |
-            GraphicsFeature.IndependentBlend | GraphicsFeature.DepthBiasClamp;
+            GraphicsFeature.IndependentBlend | GraphicsFeature.DepthBiasClamp |
+            GraphicsFeature.SpirVShaders;
         const GraphicsQueueCapabilities allQueues =
             GraphicsQueueCapabilities.Graphics | GraphicsQueueCapabilities.Compute |
             GraphicsQueueCapabilities.Copy | GraphicsQueueCapabilities.Present;

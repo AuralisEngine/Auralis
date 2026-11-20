@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Buffers;
 using System.Runtime.InteropServices;
 using Auralis.Graphics.Abstractions;
@@ -14,6 +15,59 @@ namespace Auralis.Graphics.Tests;
 
 public sealed class OpenGLBackendTests
 {
+    [Fact]
+    public void SpirVValidationChecksExtensionHeaderAndAlignment()
+    {
+        byte[] valid = new byte[20];
+        BinaryPrimitives.WriteUInt32LittleEndian(valid.AsSpan(0, 4), OpenGLSpirVValidation.MagicNumber);
+        BinaryPrimitives.WriteUInt32LittleEndian(valid.AsSpan(4, 4), 0x0001_0000);
+        BinaryPrimitives.WriteUInt32LittleEndian(valid.AsSpan(12, 4), 1);
+
+        GraphicsShaderDescription description = new()
+        {
+            Stage = GraphicsShaderStage.Vertex,
+            Format = GraphicsShaderFormat.SpirV,
+            Code = valid,
+            EntryPoint = "main"
+        };
+
+        OpenGLSpirVValidation.Validate(description, supported: true);
+        Assert.Throws<GraphicsFeatureNotSupportedException>(() =>
+            OpenGLSpirVValidation.Validate(description, supported: false));
+        Assert.Throws<GraphicsValidationException>(() =>
+            OpenGLSpirVValidation.Validate(description with { Code = new byte[19] }, supported: true));
+        Assert.Throws<GraphicsValidationException>(() =>
+            OpenGLSpirVValidation.Validate(
+                description with { Code = new byte[20] },
+                supported: true));
+    }
+
+    [Fact]
+    public void ShaderDescriptionRejectsDuplicateOrNonSpirVSpecializationConstants()
+    {
+        GraphicsShaderDescription duplicateIds = new()
+        {
+            Stage = GraphicsShaderStage.Vertex,
+            Format = GraphicsShaderFormat.SpirV,
+            Code = new byte[] { 1 },
+            SpecializationConstants = new[]
+            {
+                new GraphicsShaderSpecializationConstant(7, 1),
+                new GraphicsShaderSpecializationConstant(7, 2)
+            }
+        };
+        Assert.Throws<ArgumentException>(duplicateIds.Validate);
+
+        GraphicsShaderDescription glslWithSpecialization = new()
+        {
+            Stage = GraphicsShaderStage.Vertex,
+            Format = GraphicsShaderFormat.GlslSource,
+            Code = new byte[] { 0x76 },
+            SpecializationConstants = new[] { new GraphicsShaderSpecializationConstant(1, 2) }
+        };
+        Assert.Throws<ArgumentException>(glslWithSpecialization.Validate);
+    }
+
     [Fact]
     public void DepthBiasClampRequiresAndUsesAdvertisedPipelineFeature()
     {
