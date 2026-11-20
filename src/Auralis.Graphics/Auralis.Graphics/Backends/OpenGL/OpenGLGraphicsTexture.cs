@@ -181,7 +181,9 @@ internal sealed class OpenGLGraphicsTextureView : GraphicsDeviceObject, IGraphic
             throw new GraphicsValidationException($"OpenGL has no internal-format mapping for texture-view format {format}.");
 
         TextureTarget target = OpenGLTextureTargetMapping.ForView(copy.ViewType);
-        dsa.CreateTextures(target, 1, out uint handle);
+        // glTextureView requires a generated name that has not yet been initialized/bound to a target.
+        // glCreateTextures would fix the target too early and make the view call invalid.
+        uint handle = gl.GenTexture();
         if (handle == 0)
             throw new GraphicsException("OpenGL failed to allocate a texture-view name.");
 
