@@ -213,7 +213,7 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
                 contextProvider, gl, directStateAccess, textureViewApi, samplerObjects,
                 internalFormatQuery, syncApi, copyImageApi, viewportApi,
                 baseInstanceApi, drawIndirectApi, multiDrawIndirectApi, imageLoadStoreApi,
-                drawBuffersBlendApi, computeShaderApi, uniformBufferObjectApi,
+                drawBuffersBlendApi, computeShaderApi!, uniformBufferObjectApi!,
                 maxComputeWorkGroupCountX, maxComputeWorkGroupCountY, maxComputeWorkGroupCountZ,
                 maxUniformBufferBindings, maxStorageBufferBindings, maxTextureUnits, maxImageUnits,
                 uniformBufferOffsetAlignment, storageBufferOffsetAlignment,
@@ -329,8 +329,6 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
 
         GraphicsQueueCapabilities queues = GraphicsQueueCapabilities.Graphics |
                                             GraphicsQueueCapabilities.Copy;
-        if (hasCompute)
-            queues |= GraphicsQueueCapabilities.Compute;
         if (hasCompute)
             queues |= GraphicsQueueCapabilities.Compute;
         if (supportsPresentation)
