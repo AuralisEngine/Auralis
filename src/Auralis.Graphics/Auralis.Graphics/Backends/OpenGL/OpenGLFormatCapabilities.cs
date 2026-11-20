@@ -112,6 +112,7 @@ internal static class OpenGLFormatCapabilities
                 internalFormatQuery.GetInternalformat(
                     TextureTarget.Texture2DMultisample,
                     queryFormat,
+                    InternalFormatPName.Samples,
                     queriedCounts);
                 for (int i = 0; i < queriedCounts.Length; i++)
                 {
