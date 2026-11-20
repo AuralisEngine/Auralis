@@ -2,6 +2,7 @@ using Auralis.Graphics.Abstractions;
 using Auralis.Graphics.Backends.OpenGL;
 using Auralis.Graphics.Devices;
 using Auralis.Graphics.Resources;
+using Auralis.Graphics.Synchronization;
 using Silk.NET.OpenGL;
 using Xunit;
 
@@ -130,6 +131,68 @@ public sealed class OpenGLBackendTests
             OpenGLSamplerMapping.ToCompareFunction(GraphicsCompareOperation.LessEqual));
         Assert.Throws<ArgumentOutOfRangeException>(() =>
             OpenGLSamplerMapping.ToAddressMode((GraphicsAddressMode)int.MaxValue));
+    }
+
+
+    [Fact]
+    public void MemoryBarrierTranslationUsesTheDestinationConsumerAndResourceType()
+    {
+        var device = new GraphicsDeviceFactoryTests.TestDevice(
+            GraphicsBackend.OpenGL, GraphicsFeature.None, GraphicsQueueCapabilities.Graphics);
+        var buffer = new TranslationTestBuffer(device, new GraphicsBufferDescription(
+            256,
+            GraphicsBufferUsage.Storage | GraphicsBufferUsage.Vertex |
+            GraphicsBufferUsage.IndirectArguments | GraphicsBufferUsage.CopyDestination));
+
+        var vertexConsumer = new GraphicsResourceBarrier(
+            buffer,
+            GraphicsPipelineStage.ComputeShader,
+            GraphicsPipelineStage.VertexInput,
+            GraphicsResourceAccess.ShaderWrite,
+            GraphicsResourceAccess.VertexRead);
+        var indirectConsumer = new GraphicsResourceBarrier(
+            buffer,
+            GraphicsPipelineStage.Transfer,
+            GraphicsPipelineStage.DrawIndirect,
+            GraphicsResourceAccess.TransferWrite,
+            GraphicsResourceAccess.IndirectRead);
+        var storageConsumer = new GraphicsResourceBarrier(
+            buffer,
+            GraphicsPipelineStage.ComputeShader,
+            GraphicsPipelineStage.ComputeShader,
+            GraphicsResourceAccess.ShaderWrite,
+            GraphicsResourceAccess.ShaderRead);
+
+        Assert.Equal(
+            MemoryBarrierMask.VertexAttribArrayBarrierBit,
+            OpenGLMemoryBarrierTranslator.ToMask(vertexConsumer));
+        Assert.Equal(
+            MemoryBarrierMask.CommandBarrierBit,
+            OpenGLMemoryBarrierTranslator.ToMask(indirectConsumer));
+        Assert.Equal(
+            MemoryBarrierMask.ShaderStorageBarrierBit,
+            OpenGLMemoryBarrierTranslator.ToMask(storageConsumer));
+        Assert.Equal(
+            MemoryBarrierMask.AllBarrierBits,
+            OpenGLMemoryBarrierTranslator.ToMask(vertexConsumer with
+            {
+                DestinationAccess = GraphicsResourceAccess.MemoryRead
+            }));
+
+        buffer.Dispose();
+        device.Dispose();
+    }
+
+    private sealed class TranslationTestBuffer(
+        IGraphicsDevice device,
+        GraphicsBufferDescription description) : GraphicsDeviceObject(device), IGraphicsBuffer
+    {
+        public string? DebugName => null;
+        public GraphicsBufferDescription Description { get; } = description;
+        public Memory<byte> Map(GraphicsMapMode mode, ulong offset = 0, ulong size = ulong.MaxValue) =>
+            throw new NotSupportedException();
+        public void Unmap() => throw new NotSupportedException();
+        protected override void DisposeCore() { }
     }
 
     [Fact]
