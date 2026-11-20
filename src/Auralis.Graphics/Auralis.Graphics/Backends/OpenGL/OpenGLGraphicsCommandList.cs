@@ -21,7 +21,15 @@ internal enum OpenGLCommandKind : byte
     ClearColor,
     ClearColorUInt,
     ClearColorSInt,
-    ClearDepthStencil
+    ClearDepthStencil,
+    SetRenderPipeline,
+    SetBindingSet,
+    SetVertexBuffer,
+    SetIndexBuffer,
+    Draw,
+    DrawIndexed,
+    DrawIndirect,
+    DrawIndexedIndirect
 }
 
 internal struct OpenGLRecordedCommand
@@ -46,6 +54,23 @@ internal struct OpenGLRecordedCommand
     internal uint ClearStencil;
     internal bool ClearDepthEnabled;
     internal bool ClearStencilEnabled;
+    internal OpenGLGraphicsRenderPipeline? RenderPipeline;
+    internal OpenGLBindingSetSnapshot? BindingSet;
+    internal uint SetIndex;
+    internal uint VertexBinding;
+    internal IGraphicsBuffer? VertexBuffer;
+    internal IGraphicsBuffer? IndexBuffer;
+    internal ulong BufferOffset;
+    internal GraphicsIndexFormat IndexFormat;
+    internal uint VertexCount;
+    internal uint InstanceCount;
+    internal uint FirstVertex;
+    internal uint FirstInstance;
+    internal uint IndexCount;
+    internal uint FirstIndex;
+    internal int BaseVertex;
+    internal uint DrawCount;
+    internal uint Stride;
 }
 
 internal sealed record OpenGLRenderTargetSet(
@@ -65,6 +90,12 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
     private uint _recordedColorTargetCount;
     private bool _recordedHasDepthStencil;
     private GraphicsFormat _renderTargetsDepthFormat;
+    private OpenGLGraphicsRenderPipeline? _recordedPipeline;
+    private OpenGLRenderTargetSet? _recordedTargets;
+    private readonly Dictionary<uint, IGraphicsBuffer> _recordedVertexBuffers = new();
+    private IGraphicsBuffer? _recordedIndexBuffer;
+    private GraphicsIndexFormat _recordedIndexFormat;
+    private ulong _recordedIndexOffset;
 
     internal OpenGLGraphicsCommandList(
         OpenGLGraphicsCommandQueue queue,
@@ -109,6 +140,11 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
         _recordedColorTargetCount = 0;
         _recordedHasDepthStencil = false;
         _renderTargetsDepthFormat = GraphicsFormat.Unknown;
+        _recordedPipeline = null;
+        _recordedTargets = null;
+        _recordedVertexBuffers.Clear();
+        _recordedIndexBuffer = null;
+        _recordedIndexOffset = 0;
     }
 
     public void MemoryBarrier(ReadOnlySpan<GraphicsResourceBarrier> barriers)
@@ -311,15 +347,275 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
             ClearStencilEnabled = clearStencil
         });
     }
-    public void SetRenderPipeline(IGraphicsRenderPipeline pipeline) => throw Unsupported("Render pipelines");
-    public void SetComputePipeline(IGraphicsComputePipeline pipeline) => throw Unsupported("Compute pipelines");
-    public void SetBindingSet(uint setIndex, IGraphicsBindingSet bindingSet) => throw Unsupported("Descriptor binding sets");
-    public void SetVertexBuffer(uint binding, IGraphicsBuffer buffer, ulong offset = 0) => throw Unsupported("Vertex buffers");
-    public void SetIndexBuffer(IGraphicsBuffer buffer, GraphicsIndexFormat format, ulong offset = 0) => throw Unsupported("Index buffers");
-    public void Draw(uint vertexCount, uint instanceCount = 1, uint firstVertex = 0, uint firstInstance = 0) => throw Unsupported("Draw");
-    public void DrawIndexed(uint indexCount, uint instanceCount = 1, uint firstIndex = 0, int baseVertex = 0, uint firstInstance = 0) => throw Unsupported("Indexed draw");
-    public void DrawIndirect(IGraphicsBuffer arguments, ulong offset, uint drawCount = 1, uint stride = 0) => throw Unsupported("Indirect draw");
-    public void DrawIndexedIndirect(IGraphicsBuffer arguments, ulong offset, uint drawCount = 1, uint stride = 0) => throw Unsupported("Indexed indirect draw");
+    public void SetRenderPipeline(IGraphicsRenderPipeline pipeline)
+    {
+        EnsureRecording();
+        EnsureGraphicsQueue();
+        ArgumentNullException.ThrowIfNull(pipeline);
+        EnsureOwned(pipeline);
+        if (pipeline is not OpenGLGraphicsRenderPipeline openGlPipeline)
+            throw new GraphicsValidationException("The render pipeline belongs to an incompatible backend.");
+
+        _recordedPipeline = openGlPipeline;
+        _commands.Add(new OpenGLRecordedCommand
+        {
+            Kind = OpenGLCommandKind.SetRenderPipeline,
+            RenderPipeline = openGlPipeline
+        });
+    }
+
+    public void SetComputePipeline(IGraphicsComputePipeline pipeline) =>
+        throw Unsupported("Compute pipelines and dispatch");
+
+    public void SetBindingSet(uint setIndex, IGraphicsBindingSet bindingSet)
+    {
+        EnsureRecording();
+        EnsureGraphicsQueue();
+        ArgumentNullException.ThrowIfNull(bindingSet);
+        EnsureOwned(bindingSet);
+        if (_recordedPipeline is null)
+            throw new GraphicsValidationException("Set a render pipeline before binding descriptor sets.");
+        if (bindingSet is not OpenGLGraphicsBindingSet openGlSet ||
+            _recordedPipeline.Layout is not OpenGLGraphicsPipelineLayout layout)
+            throw new GraphicsValidationException("The binding set or pipeline layout belongs to an incompatible backend.");
+
+        ReadOnlyMemory<IGraphicsBindingLayout> layouts = layout.BindingLayouts;
+        if (setIndex >= (uint)layouts.Length ||
+            !ReferenceEquals(layouts.Span[(int)setIndex], openGlSet.Layout))
+            throw new GraphicsValidationException($"Binding set {setIndex} does not match the active pipeline layout.");
+
+        _commands.Add(new OpenGLRecordedCommand
+        {
+            Kind = OpenGLCommandKind.SetBindingSet,
+            SetIndex = setIndex,
+            BindingSet = openGlSet.Snapshot()
+        });
+    }
+
+    public void SetVertexBuffer(uint binding, IGraphicsBuffer buffer, ulong offset = 0)
+    {
+        EnsureRecording();
+        EnsureGraphicsQueue();
+        ArgumentNullException.ThrowIfNull(buffer);
+        EnsureOwned(buffer);
+
+        if (_recordedPipeline?.Description.VertexInput is not { } input)
+            throw new GraphicsValidationException("The active pipeline has no vertex-input layout.");
+        if ((buffer.Description.Usage & GraphicsBufferUsage.Vertex) == 0)
+            throw new GraphicsValidationException("The buffer was not created with vertex usage.");
+        if (offset > buffer.Description.SizeInBytes || offset > (ulong)nint.MaxValue)
+            throw new ArgumentOutOfRangeException(nameof(offset));
+
+        bool found = false;
+        ReadOnlySpan<GraphicsVertexBufferLayout> layouts = input.Buffers;
+        uint stride = 0;
+        for (int i = 0; i < layouts.Length; i++)
+        {
+            if (layouts[i].Binding != binding)
+                continue;
+            found = true;
+            stride = layouts[i].Stride;
+            break;
+        }
+
+        if (!found)
+            throw new GraphicsValidationException($"Vertex binding {binding} is not declared by the active pipeline.");
+
+        _recordedVertexBuffers[binding] = buffer;
+        _commands.Add(new OpenGLRecordedCommand
+        {
+            Kind = OpenGLCommandKind.SetVertexBuffer,
+            VertexBinding = binding,
+            VertexBuffer = buffer,
+            BufferOffset = offset,
+            Stride = stride
+        });
+    }
+
+    public void SetIndexBuffer(IGraphicsBuffer buffer, GraphicsIndexFormat format, ulong offset = 0)
+    {
+        EnsureRecording();
+        EnsureGraphicsQueue();
+        ArgumentNullException.ThrowIfNull(buffer);
+        EnsureOwned(buffer);
+        if (!Enum.IsDefined(format))
+            throw new ArgumentOutOfRangeException(nameof(format));
+        if ((buffer.Description.Usage & GraphicsBufferUsage.Index) == 0)
+            throw new GraphicsValidationException("The buffer was not created with index usage.");
+
+        uint elementSize = format == GraphicsIndexFormat.UInt16 ? 2u : 4u;
+        if (offset > buffer.Description.SizeInBytes || offset % elementSize != 0 ||
+            offset > (ulong)nint.MaxValue)
+            throw new ArgumentOutOfRangeException(nameof(offset));
+
+        _recordedIndexBuffer = buffer;
+        _recordedIndexFormat = format;
+        _recordedIndexOffset = offset;
+        _commands.Add(new OpenGLRecordedCommand
+        {
+            Kind = OpenGLCommandKind.SetIndexBuffer,
+            IndexBuffer = buffer,
+            IndexFormat = format,
+            BufferOffset = offset
+        });
+    }
+
+    public void Draw(uint vertexCount, uint instanceCount = 1, uint firstVertex = 0, uint firstInstance = 0)
+    {
+        EnsureRecording();
+        EnsureDrawReady();
+        ValidateVertexBindings();
+
+        _commands.Add(new OpenGLRecordedCommand
+        {
+            Kind = OpenGLCommandKind.Draw,
+            VertexCount = vertexCount,
+            InstanceCount = instanceCount,
+            FirstVertex = firstVertex,
+            FirstInstance = firstInstance
+        });
+    }
+
+    public void DrawIndexed(
+        uint indexCount,
+        uint instanceCount = 1,
+        uint firstIndex = 0,
+        int baseVertex = 0,
+        uint firstInstance = 0)
+    {
+        EnsureRecording();
+        EnsureDrawReady();
+        ValidateVertexBindings();
+        if (_recordedIndexBuffer is null)
+            throw new GraphicsValidationException("An index buffer must be set before an indexed draw.");
+
+        uint elementSize = _recordedIndexFormat == GraphicsIndexFormat.UInt16 ? 2u : 4u;
+        ulong byteOffset = checked(_recordedIndexOffset + (ulong)firstIndex * elementSize);
+        ulong byteCount = checked((ulong)indexCount * elementSize);
+        if (byteOffset > _recordedIndexBuffer.Description.SizeInBytes ||
+            byteCount > _recordedIndexBuffer.Description.SizeInBytes - byteOffset)
+            throw new GraphicsValidationException("The indexed draw reads outside the bound index buffer.");
+
+        _commands.Add(new OpenGLRecordedCommand
+        {
+            Kind = OpenGLCommandKind.DrawIndexed,
+            IndexBuffer = _recordedIndexBuffer,
+            IndexFormat = _recordedIndexFormat,
+            BufferOffset = byteOffset,
+            IndexCount = indexCount,
+            InstanceCount = instanceCount,
+            BaseVertex = baseVertex,
+            FirstInstance = firstInstance
+        });
+    }
+
+    public void DrawIndirect(IGraphicsBuffer arguments, ulong offset, uint drawCount = 1, uint stride = 0)
+    {
+        EnsureRecording();
+        EnsureDrawReady();
+        ValidateVertexBindings();
+        ValidateIndirectBuffer(arguments, offset, drawCount, ref stride, 16);
+        if (drawCount > 1 && !Device.Capabilities.Features.Supports(GraphicsFeature.MultiDrawIndirect))
+            throw new GraphicsFeatureNotSupportedException(GraphicsFeature.MultiDrawIndirect, GraphicsFeature.MultiDrawIndirect);
+
+        _commands.Add(new OpenGLRecordedCommand
+        {
+            Kind = OpenGLCommandKind.DrawIndirect,
+            SourceBuffer = arguments,
+            BufferOffset = offset,
+            DrawCount = drawCount,
+            Stride = stride
+        });
+    }
+
+    public void DrawIndexedIndirect(IGraphicsBuffer arguments, ulong offset, uint drawCount = 1, uint stride = 0)
+    {
+        EnsureRecording();
+        EnsureDrawReady();
+        ValidateVertexBindings();
+        if (_recordedIndexBuffer is null)
+            throw new GraphicsValidationException("An index buffer must be set before an indexed indirect draw.");
+        ValidateIndirectBuffer(arguments, offset, drawCount, ref stride, 20);
+        if (drawCount > 1 && !Device.Capabilities.Features.Supports(GraphicsFeature.MultiDrawIndirect))
+            throw new GraphicsFeatureNotSupportedException(GraphicsFeature.MultiDrawIndirect, GraphicsFeature.MultiDrawIndirect);
+
+        _commands.Add(new OpenGLRecordedCommand
+        {
+            Kind = OpenGLCommandKind.DrawIndexedIndirect,
+            SourceBuffer = arguments,
+            BufferOffset = offset,
+            DrawCount = drawCount,
+            Stride = stride,
+            IndexBuffer = _recordedIndexBuffer,
+            IndexFormat = _recordedIndexFormat
+        });
+    }
+
+    private void ValidateIndirectBuffer(
+        IGraphicsBuffer arguments,
+        ulong offset,
+        uint drawCount,
+        ref uint stride,
+        uint commandSize)
+    {
+        ArgumentNullException.ThrowIfNull(arguments);
+        EnsureOwned(arguments);
+        if ((arguments.Description.Usage & GraphicsBufferUsage.IndirectArguments) == 0)
+            throw new GraphicsValidationException("Indirect argument buffers require IndirectArguments usage.");
+        if (offset % 4 != 0 || offset > (ulong)nint.MaxValue)
+            throw new GraphicsValidationException("Indirect argument offset must be four-byte aligned and natively addressable.");
+        if (stride == 0)
+            stride = commandSize;
+        if (stride < commandSize || stride % 4 != 0)
+            throw new GraphicsValidationException("Indirect command stride must be at least the command size and four-byte aligned.");
+        ulong byteCount = drawCount == 0 ? 0 : checked((ulong)(drawCount - 1) * stride + commandSize);
+        if (offset > arguments.Description.SizeInBytes ||
+            byteCount > arguments.Description.SizeInBytes - offset)
+            throw new GraphicsValidationException("Indirect arguments exceed the buffer range.");
+    }
+
+    private void EnsureDrawReady()
+    {
+        if (_recordedPipeline is null)
+            throw new GraphicsValidationException("A render pipeline must be set before a draw.");
+        if (_recordedTargets is null)
+            throw new GraphicsValidationException("Offscreen rendering requires an explicit render-target set.");
+        GraphicsRenderPipelineDescription pipeline = _recordedPipeline.Description;
+        if (pipeline.SampleCount != _recordedTargets.Extent.SampleCount)
+            throw new GraphicsValidationException("The bound render targets do not match the pipeline sample count.");
+        if (pipeline.ColorFormats.Length != _recordedTargets.ColorTargets.Length)
+            throw new GraphicsValidationException("The bound render-target color attachment count does not match the pipeline.");
+        for (int i = 0; i < pipeline.ColorFormats.Length; i++)
+        {
+            IGraphicsTextureView view = _recordedTargets.ColorTargets[i];
+            GraphicsFormat format = view.Description.Format == GraphicsFormat.Unknown
+                ? view.Texture.Description.Format
+                : view.Description.Format;
+            if (pipeline.ColorFormats[i] != format)
+                throw new GraphicsValidationException($"Color attachment {i} format {format} does not match pipeline format {pipeline.ColorFormats[i]}.");
+        }
+
+        GraphicsFormat depthFormat = _recordedTargets.DepthStencilTarget is null
+            ? GraphicsFormat.Unknown
+            : _recordedTargets.DepthStencilTarget.Description.Format == GraphicsFormat.Unknown
+                ? _recordedTargets.DepthStencilTarget.Texture.Description.Format
+                : _recordedTargets.DepthStencilTarget.Description.Format;
+        if (pipeline.DepthStencilFormat != depthFormat)
+            throw new GraphicsValidationException("The bound depth/stencil format does not match the render pipeline.");
+    }
+
+    private void ValidateVertexBindings()
+    {
+        if (_recordedPipeline?.Description.VertexInput is not { } input)
+            return;
+
+        ReadOnlySpan<GraphicsVertexBufferLayout> layouts = input.Buffers;
+        for (int i = 0; i < layouts.Length; i++)
+        {
+            if (!_recordedVertexBuffers.ContainsKey(layouts[i].Binding))
+                throw new GraphicsValidationException($"Vertex buffer binding {layouts[i].Binding} has not been set.");
+        }
+    }
     public void Dispatch(uint groupCountX, uint groupCountY = 1, uint groupCountZ = 1) => throw Unsupported("Compute dispatch");
     public void DispatchIndirect(IGraphicsBuffer arguments, ulong offset) => throw Unsupported("Indirect compute dispatch");
 
