@@ -38,7 +38,7 @@ internal enum OpenGLCommandKind : byte
 internal struct OpenGLRecordedCommand
 {
     internal OpenGLCommandKind Kind;
-    internal GraphicsResourceBarrier[]? Barriers;
+    internal MemoryBarrierMask BarrierMask;
     internal IGraphicsBuffer? SourceBuffer;
     internal IGraphicsBuffer? DestinationBuffer;
     internal IGraphicsTexture? SourceTexture;
@@ -46,7 +46,9 @@ internal struct OpenGLRecordedCommand
     internal ulong SourceOffset;
     internal ulong DestinationOffset;
     internal ulong SizeInBytes;
-    internal OpenGLRenderTargetSet? RenderTargets;
+    internal int RenderTargetViewOffset;
+    internal int RenderTargetColorCount;
+    internal IGraphicsTextureView? RenderTargetDepthStencil;
     internal GraphicsViewport Viewport;
     internal GraphicsScissorRect Scissor;
     internal uint AttachmentIndex;
@@ -59,7 +61,9 @@ internal struct OpenGLRecordedCommand
     internal bool ClearStencilEnabled;
     internal OpenGLGraphicsRenderPipeline? RenderPipeline;
     internal OpenGLGraphicsComputePipeline? ComputePipeline;
-    internal OpenGLBindingSetSnapshot? BindingSet;
+    internal OpenGLGraphicsBindingLayout? BindingLayout;
+    internal int BindingValueOffset;
+    internal int BindingValueCount;
     internal uint SetIndex;
     internal uint VertexBinding;
     internal IGraphicsBuffer? VertexBuffer;
@@ -80,11 +84,6 @@ internal struct OpenGLRecordedCommand
     internal uint GroupCountZ;
 }
 
-internal sealed record OpenGLRenderTargetSet(
-    IGraphicsTextureView[] ColorTargets,
-    IGraphicsTextureView? DepthStencilTarget,
-    GraphicsRenderTargetExtent Extent);
-
 internal readonly record struct OpenGLVertexBufferBinding(
     IGraphicsBuffer Buffer,
     ulong Offset,
@@ -100,13 +99,15 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
     private readonly OpenGLGraphicsCommandQueue _queue;
     private readonly GraphicsCommandListLifecycle _lifecycle;
     private readonly List<OpenGLRecordedCommand> _commands = new(64);
+    private readonly List<IGraphicsDeviceObject> _barrierResourceReferences = new(16);
+    private readonly List<IGraphicsTextureView> _renderTargetViews = new(8);
+    private readonly List<OpenGLBindingValue> _bindingSnapshotValues = new(32);
     private uint _recordedColorTargetCount;
     private bool _recordedHasDepthStencil;
     private GraphicsFormat _renderTargetsDepthFormat;
     private OpenGLGraphicsRenderPipeline? _recordedPipeline;
     private OpenGLGraphicsComputePipeline? _recordedComputePipeline;
     private OpenGLGraphicsPipelineLayout? _recordedPipelineLayout;
-    private OpenGLRenderTargetSet? _recordedTargets;
     private readonly Dictionary<uint, OpenGLVertexBufferBinding> _recordedVertexBuffers = new();
     private readonly HashSet<uint> _recordedBoundSets = [];
     private bool _hasRecordedViewport;
@@ -154,13 +155,15 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
         ThrowIfDisposed();
         _lifecycle.Reset();
         _commands.Clear();
+        _barrierResourceReferences.Clear();
+        _renderTargetViews.Clear();
+        _bindingSnapshotValues.Clear();
         _recordedColorTargetCount = 0;
         _recordedHasDepthStencil = false;
         _renderTargetsDepthFormat = GraphicsFormat.Unknown;
         _recordedPipeline = null;
         _recordedComputePipeline = null;
         _recordedPipelineLayout = null;
-        _recordedTargets = null;
         _recordedVertexBuffers.Clear();
         _recordedBoundSets.Clear();
         _hasRecordedViewport = false;
@@ -174,18 +177,24 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
         if (barriers.IsEmpty)
             return;
 
-        GraphicsResourceBarrier[] copy = barriers.ToArray();
-        for (int i = 0; i < copy.Length; i++)
+        MemoryBarrierMask mask = 0;
+        for (int i = 0; i < barriers.Length; i++)
         {
-            copy[i].Validate();
-            EnsureOwned(copy[i].Resource);
+            GraphicsResourceBarrier barrier = barriers[i];
+            barrier.Validate();
+            EnsureOwned(barrier.Resource);
+            mask |= OpenGLMemoryBarrierTranslator.ToMask(barrier);
+            _barrierResourceReferences.Add(barrier.Resource);
         }
 
-        _commands.Add(new OpenGLRecordedCommand
+        if (mask != 0)
         {
-            Kind = OpenGLCommandKind.MemoryBarrier,
-            Barriers = copy
-        });
+            _commands.Add(new OpenGLRecordedCommand
+            {
+                Kind = OpenGLCommandKind.MemoryBarrier,
+                BarrierMask = mask
+            });
+        }
     }
 
     public void CopyBuffer(
@@ -263,14 +272,24 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
         EnsureGraphicsQueue();
         GraphicsRenderTargetExtent extent = GraphicsRenderTargetValidation.Validate(
             Device, colorTargets, depthStencilTarget);
-        IGraphicsTextureView[] colors = colorTargets.ToArray();
+        int viewOffset = _renderTargetViews.Count;
+        for (int i = 0; i < colorTargets.Length; i++)
+        {
+            EnsureOwned(colorTargets[i]);
+            _renderTargetViews.Add(colorTargets[i]);
+        }
+
+        if (depthStencilTarget is not null)
+            EnsureOwned(depthStencilTarget);
+
         _commands.Add(new OpenGLRecordedCommand
         {
             Kind = OpenGLCommandKind.SetRenderTargets,
-            RenderTargets = new OpenGLRenderTargetSet(colors, depthStencilTarget, extent)
+            RenderTargetViewOffset = viewOffset,
+            RenderTargetColorCount = colorTargets.Length,
+            RenderTargetDepthStencil = depthStencilTarget
         });
-        _recordedTargets = _commands[^1].RenderTargets;
-        _recordedColorTargetCount = (uint)colors.Length;
+        _recordedColorTargetCount = (uint)colorTargets.Length;
         _recordedHasDepthStencil = depthStencilTarget is not null;
         _renderTargetsDepthFormat = depthStencilTarget is null
             ? GraphicsFormat.Unknown
@@ -427,11 +446,14 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
             !ReferenceEquals(layouts.Span[(int)setIndex], openGlSet.Layout))
             throw new GraphicsValidationException($"Binding set {setIndex} does not match the active pipeline layout.");
 
+        int snapshotOffset = openGlSet.SnapshotTo(_bindingSnapshotValues);
         _commands.Add(new OpenGLRecordedCommand
         {
             Kind = OpenGLCommandKind.SetBindingSet,
             SetIndex = setIndex,
-            BindingSet = openGlSet.Snapshot()
+            BindingLayout = openGlSet.OpenGLLayout,
+            BindingValueOffset = snapshotOffset,
+            BindingValueCount = openGlSet.ValueCount
         });
         _recordedBoundSets.Add(setIndex);
     }
@@ -811,7 +833,8 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
                 switch (command.Kind)
                 {
                 case OpenGLCommandKind.MemoryBarrier:
-                    ExecuteBarriers(gl, command.Barriers!);
+                    if (command.BarrierMask != 0)
+                        gl.MemoryBarrier(command.BarrierMask);
                     break;
                 case OpenGLCommandKind.CopyBuffer:
                     dsa.CopyNamedBufferSubData(
@@ -827,7 +850,13 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
                     case OpenGLCommandKind.SetRenderTargets:
                         if (framebuffer != 0)
                             gl.DeleteFramebuffer(framebuffer);
-                        framebuffer = CreateFramebuffer(gl, dsa, command.RenderTargets!);
+                        framebuffer = CreateFramebuffer(
+                            gl,
+                            dsa,
+                            CollectionsMarshal.AsSpan(_renderTargetViews).Slice(
+                                command.RenderTargetViewOffset,
+                                command.RenderTargetColorCount),
+                            command.RenderTargetDepthStencil);
                         gl.BindFramebuffer(FramebufferTarget.DrawFramebuffer, framebuffer);
                         break;
                     case OpenGLCommandKind.SetViewport:
@@ -871,7 +900,16 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
                     case OpenGLCommandKind.SetBindingSet:
                         if (activePipelineLayout is null)
                             throw new GraphicsValidationException("A graphics or compute pipeline must be active before descriptor sets are bound.");
-                        command.BindingSet!.Bind(gl, dsa, imageLoadStoreApi, activePipelineLayout, command.SetIndex);
+                        OpenGLBindingSetBinder.Bind(
+                            gl,
+                            dsa,
+                            imageLoadStoreApi,
+                            command.BindingLayout!,
+                            CollectionsMarshal.AsSpan(_bindingSnapshotValues).Slice(
+                                command.BindingValueOffset,
+                                command.BindingValueCount),
+                            activePipelineLayout,
+                            command.SetIndex);
                         break;
                     case OpenGLCommandKind.SetVertexBuffer:
                         if (activePipeline is null)
@@ -1001,7 +1039,8 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
     private static uint CreateFramebuffer(
         GL gl,
         ArbDirectStateAccess dsa,
-        OpenGLRenderTargetSet targets)
+        ReadOnlySpan<IGraphicsTextureView> colorTargets,
+        IGraphicsTextureView? depthStencilTarget)
     {
         dsa.CreateFramebuffers(1, out uint framebuffer);
         if (framebuffer == 0)
@@ -1009,18 +1048,18 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
 
         try
         {
-            for (int i = 0; i < targets.ColorTargets.Length; i++)
+            for (int i = 0; i < colorTargets.Length; i++)
             {
-                OpenGLGraphicsTextureView view = targets.ColorTargets[i] as OpenGLGraphicsTextureView ??
+                OpenGLGraphicsTextureView view = colorTargets[i] as OpenGLGraphicsTextureView ??
                     throw new GraphicsValidationException("Render attachment view belongs to an incompatible backend.");
                 FramebufferAttachment attachment =
                     (FramebufferAttachment)((uint)FramebufferAttachment.ColorAttachment0 + (uint)i);
                 dsa.NamedFramebufferTexture(framebuffer, attachment, view.Handle, 0);
             }
 
-            if (targets.DepthStencilTarget is not null)
+            if (depthStencilTarget is not null)
             {
-                OpenGLGraphicsTextureView view = targets.DepthStencilTarget as OpenGLGraphicsTextureView ??
+                OpenGLGraphicsTextureView view = depthStencilTarget as OpenGLGraphicsTextureView ??
                     throw new GraphicsValidationException("Depth/stencil attachment view belongs to an incompatible backend.");
                 GraphicsFormat format = view.Description.Format == GraphicsFormat.Unknown
                     ? view.Texture.Description.Format
@@ -1031,14 +1070,14 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
                 dsa.NamedFramebufferTexture(framebuffer, attachment, view.Handle, 0);
             }
 
-            if (targets.ColorTargets.Length == 0)
+            if (colorTargets.IsEmpty)
             {
                 dsa.NamedFramebufferDrawBuffer(framebuffer, ColorBuffer.None);
                 dsa.NamedFramebufferReadBuffer(framebuffer, ColorBuffer.None);
             }
             else
             {
-                ColorBuffer[] drawBuffers = new ColorBuffer[targets.ColorTargets.Length];
+                Span<ColorBuffer> drawBuffers = stackalloc ColorBuffer[colorTargets.Length];
                 for (int i = 0; i < drawBuffers.Length; i++)
                     drawBuffers[i] = (ColorBuffer)((uint)ColorBuffer.ColorAttachment0 + (uint)i);
                 dsa.NamedFramebufferDrawBuffers(framebuffer, drawBuffers);
@@ -1106,13 +1145,16 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
         if (attachmentIndex >= _recordedColorTargetCount)
             throw new GraphicsValidationException("The requested color attachment is not bound.");
 
-        // The last SetRenderTargets command retains the views; locate its recorded view set.
+        // The latest set owns a slice of command-list storage, so the snapshot remains immutable
+        // even when the caller subsequently records a different target set.
         for (int i = _commands.Count - 1; i >= 0; i--)
         {
             if (_commands[i].Kind != OpenGLCommandKind.SetRenderTargets)
                 continue;
 
-            IGraphicsTextureView view = _commands[i].RenderTargets!.ColorTargets[checked((int)attachmentIndex)];
+            OpenGLRecordedCommand targets = _commands[i];
+            IGraphicsTextureView view = _renderTargetViews[
+                targets.RenderTargetViewOffset + checked((int)attachmentIndex)];
             return view.Description.Format == GraphicsFormat.Unknown
                 ? view.Texture.Description.Format
                 : view.Description.Format;
@@ -1125,16 +1167,6 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
     {
         if (_queue.QueueType != GraphicsQueueType.Graphics)
             throw new GraphicsValidationException("Render-target, viewport, scissor, and clear commands require the graphics queue.");
-    }
-
-    private static void ExecuteBarriers(GL gl, ReadOnlySpan<GraphicsResourceBarrier> barriers)
-    {
-        MemoryBarrierMask mask = 0;
-        for (int i = 0; i < barriers.Length; i++)
-            mask |= OpenGLMemoryBarrierTranslator.ToMask(barriers[i]);
-
-        if (mask != 0)
-            gl.MemoryBarrier(mask);
     }
 
     private static void ExecuteTextureCopy(
@@ -1200,5 +1232,8 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
         if (_lifecycle.State != GraphicsCommandListState.Disposed)
             _lifecycle.MarkDisposed();
         _commands.Clear();
+        _barrierResourceReferences.Clear();
+        _renderTargetViews.Clear();
+        _bindingSnapshotValues.Clear();
     }
 }

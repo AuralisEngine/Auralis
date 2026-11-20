@@ -149,27 +149,18 @@ internal struct OpenGLBindingValue
     internal IGraphicsSampler? Sampler;
 }
 
-internal sealed class OpenGLBindingSetSnapshot
+internal static class OpenGLBindingSetBinder
 {
-    private readonly OpenGLGraphicsBindingLayout _layout;
-    private readonly OpenGLBindingValue[] _values;
-
-    internal OpenGLBindingSetSnapshot(
-        OpenGLGraphicsBindingLayout layout,
-        OpenGLBindingValue[] values)
-    {
-        _layout = layout;
-        _values = values;
-    }
-
-    internal void Bind(
+    internal static void Bind(
         GL gl,
         ArbDirectStateAccess dsa,
         ArbShaderImageLoadStore imageLoadStoreApi,
+        OpenGLGraphicsBindingLayout layout,
+        ReadOnlySpan<OpenGLBindingValue> values,
         OpenGLGraphicsPipelineLayout pipelineLayout,
         uint setIndex)
     {
-        ReadOnlySpan<OpenGLDescriptorEntry> entries = _layout.Entries;
+        ReadOnlySpan<OpenGLDescriptorEntry> entries = layout.Entries;
         for (int i = 0; i < entries.Length; i++)
         {
             OpenGLDescriptorEntry entry = entries[i];
@@ -179,7 +170,7 @@ internal sealed class OpenGLBindingSetSnapshot
 
             for (uint element = 0; element < entry.Description.Count; element++)
             {
-                OpenGLBindingValue value = _values[entry.ValueOffset + checked((int)element)];
+                OpenGLBindingValue value = values[entry.ValueOffset + checked((int)element)];
                 uint slot = checked(mapping.BaseSlot + element);
 
                 switch (entry.Description.Type)
@@ -368,11 +359,20 @@ internal sealed class OpenGLGraphicsBindingSet : GraphicsDeviceObject, IGraphics
         }
     }
 
-    internal OpenGLBindingSetSnapshot Snapshot()
+    internal OpenGLGraphicsBindingLayout OpenGLLayout => _layout;
+    internal int ValueCount => _values.Length;
+
+    /// <summary>
+    /// Copies a validated immutable snapshot into command-list-owned reusable storage. This avoids
+    /// allocating a snapshot object and cloned array for every descriptor-set recording operation.
+    /// </summary>
+    internal int SnapshotTo(List<OpenGLBindingValue> destination)
     {
         ThrowIfDisposed();
+        ArgumentNullException.ThrowIfNull(destination);
         lock (_gate)
         {
+            ThrowIfDisposed();
             ReadOnlySpan<OpenGLDescriptorEntry> entries = _layout.Entries;
             for (int i = 0; i < entries.Length; i++)
             {
@@ -395,7 +395,9 @@ internal sealed class OpenGLGraphicsBindingSet : GraphicsDeviceObject, IGraphics
                 }
             }
 
-            return new OpenGLBindingSetSnapshot(_layout, (OpenGLBindingValue[])_values.Clone());
+            int offset = destination.Count;
+            destination.AddRange(_values);
+            return offset;
         }
     }
 
