@@ -149,16 +149,10 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
                 GraphicsBackend.OpenGL,
                 "The initial OpenGL backend requires exclusive ownership of context state; shared host-state preservation is not implemented.");
 
-        using OpenGLContextLease contextLease = OpenGLContextLease.Acquire(contextProvider);
+        contextProvider.MakeCurrent();
         try
         {
             gl = GL.GetApi(contextProvider.GetProcAddress);
-            if (gl is null)
-            {
-                throw new GraphicsBackendUnavailableException(
-                    GraphicsBackend.OpenGL,
-                    "Failed to resolve OpenGL entry points from the provided context provider.");
-            }
 
             int major = gl.GetInteger(GLEnum.MajorVersion);
             int minor = gl.GetInteger(GLEnum.MinorVersion);
@@ -260,6 +254,10 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
             directStateAccess?.Dispose();
             gl?.Dispose();
             throw;
+        }
+        finally
+        {
+            contextProvider.ReleaseCurrent();
         }
     }
 
@@ -367,8 +365,15 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
         lock (_contextGate)
         {
             ObjectDisposedException.ThrowIf(IsDisposed, this);
-            using OpenGLContextLease contextLease = OpenGLContextLease.Acquire(_contextProvider);
-            return action(_gl);
+            _contextProvider.MakeCurrent();
+            try
+            {
+                return action(_gl);
+            }
+            finally
+            {
+                _contextProvider.ReleaseCurrent();
+            }
         }
     }
 
@@ -398,8 +403,15 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
                 return;
             }
 
-            using OpenGLContextLease contextLease = OpenGLContextLease.Acquire(_contextProvider);
-            resource.ReleaseNative(_gl);
+            _contextProvider.MakeCurrent();
+            try
+            {
+                resource.ReleaseNative(_gl);
+            }
+            finally
+            {
+                _contextProvider.ReleaseCurrent();
+            }
         }
     }
 
@@ -578,31 +590,38 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
 
             try
             {
-                using OpenGLContextLease contextLease = OpenGLContextLease.Acquire(_contextProvider);
-                _gl.Finish();
-                foreach (OpenGLGraphicsCommandQueue? queue in _queues)
-                    queue?.DrainUnderContext(_gl);
-                while (_deferredResources.TryDequeue(out IOpenGLNativeResource? deferred))
-                    deferred.ReleaseNative(_gl);
+                _contextProvider.MakeCurrent();
+                try
+                {
+                    _gl.Finish();
+                    foreach (OpenGLGraphicsCommandQueue? queue in _queues)
+                        queue?.DrainUnderContext(_gl);
+                    while (_deferredResources.TryDequeue(out IOpenGLNativeResource? deferred))
+                        deferred.ReleaseNative(_gl);
 
-                foreach (IOpenGLNativeResource resource in _resources)
-                    resource.ReleaseNative(_gl);
+                    foreach (IOpenGLNativeResource resource in _resources)
+                        resource.ReleaseNative(_gl);
 
-                _uniformBufferObjectApi.Dispose();
-                _computeShaderApi?.Dispose();
-                _drawBuffersBlendApi.Dispose();
-                _imageLoadStoreApi.Dispose();
-                _multiDrawIndirectApi.Dispose();
-                _drawIndirectApi.Dispose();
-                _baseInstanceApi.Dispose();
-                _viewportApi.Dispose();
-                _copyImageApi.Dispose();
-                _syncApi.Dispose();
-                _internalFormatQuery.Dispose();
-                _samplerObjects.Dispose();
-                _textureViewApi.Dispose();
-                _directStateAccess.Dispose();
-                _gl.Dispose();
+                    _uniformBufferObjectApi.Dispose();
+                    _computeShaderApi?.Dispose();
+                    _drawBuffersBlendApi.Dispose();
+                    _imageLoadStoreApi.Dispose();
+                    _multiDrawIndirectApi.Dispose();
+                    _drawIndirectApi.Dispose();
+                    _baseInstanceApi.Dispose();
+                    _viewportApi.Dispose();
+                    _copyImageApi.Dispose();
+                    _syncApi.Dispose();
+                    _internalFormatQuery.Dispose();
+                    _samplerObjects.Dispose();
+                    _textureViewApi.Dispose();
+                    _directStateAccess.Dispose();
+                    _gl.Dispose();
+                }
+                finally
+                {
+                    _contextProvider.ReleaseCurrent();
+                }
             }
             finally
             {
