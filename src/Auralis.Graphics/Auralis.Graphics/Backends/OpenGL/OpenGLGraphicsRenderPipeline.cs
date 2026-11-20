@@ -247,7 +247,18 @@ internal sealed class OpenGLGraphicsRenderPipeline : GraphicsDeviceObject, IGrap
             : FrontFaceDirection.Ccw);
 
         SetEnabled(gl, EnableCap.DepthClamp, rasterization.DepthClampEnabled);
-        SetEnabled(gl, EnableCap.PolygonOffsetFill, rasterization.DepthBiasEnabled);
+        SetEnabled(
+            gl,
+            EnableCap.PolygonOffsetFill,
+            rasterization.DepthBiasEnabled && rasterization.PolygonMode == GraphicsPolygonMode.Fill);
+        SetEnabled(
+            gl,
+            EnableCap.PolygonOffsetLine,
+            rasterization.DepthBiasEnabled && rasterization.PolygonMode == GraphicsPolygonMode.Line);
+        SetEnabled(
+            gl,
+            EnableCap.PolygonOffsetPoint,
+            rasterization.DepthBiasEnabled && rasterization.PolygonMode == GraphicsPolygonMode.Point);
         if (rasterization.DepthBiasEnabled)
             gl.PolygonOffset(rasterization.DepthBiasSlopeFactor, rasterization.DepthBiasConstantFactor);
         gl.LineWidth(rasterization.LineWidth);
