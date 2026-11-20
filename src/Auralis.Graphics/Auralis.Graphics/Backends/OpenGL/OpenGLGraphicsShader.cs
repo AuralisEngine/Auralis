@@ -34,7 +34,14 @@ internal sealed class OpenGLGraphicsShader : GraphicsDeviceObject, IGraphicsShad
         }
     }
 
-    protected override void DisposeCore() => _device.ReleaseResource(this);
+    protected override void DisposeCore()
+    {
+        // Device disposal already released every registered shader handle.
+        if (_device.IsDisposed)
+            return;
+
+        _device.ReleaseResource(this);
+    }
 
     public void ReleaseNative(GL gl)
     {
