@@ -74,6 +74,7 @@ internal sealed class OpenGLGraphicsCommandQueue : IGraphicsCommandQueue
         for (int i = 0; i < lists.Length; i++)
             lists[i].MarkSubmitted();
 
+        nint completionSync = 0;
         try
         {
             _device.WithContext(gl =>
@@ -81,7 +82,7 @@ internal sealed class OpenGLGraphicsCommandQueue : IGraphicsCommandQueue
                 for (int i = 0; i < lists.Length; i++)
                     lists[i].Execute(gl, _device.DirectStateAccess, _device.CopyImageApi);
 
-                nint completionSync = _device.SyncApi.FenceSync(
+                completionSync = _device.SyncApi.FenceSync(
                     SyncCondition.SyncGpuCommandsComplete,
                     SyncBehaviorFlags.None);
                 if (completionSync == 0)
@@ -92,11 +93,17 @@ internal sealed class OpenGLGraphicsCommandQueue : IGraphicsCommandQueue
 
                 lock (_gate)
                     _pending.Add(new PendingSubmission(lists, completionSync));
+                _device.OnSubmissionQueued();
             });
         }
         catch
         {
-            _device.WithContext(gl => gl.Finish());
+            _device.WithContext(gl =>
+            {
+                gl.Finish();
+                if (completionSync != 0)
+                    _device.SyncApi.DeleteSync(completionSync);
+            });
             for (int i = 0; i < lists.Length; i++)
                 lists[i].Complete();
             throw;
@@ -139,6 +146,7 @@ internal sealed class OpenGLGraphicsCommandQueue : IGraphicsCommandQueue
                     for (int j = 0; j < submission.CommandLists.Length; j++)
                         submission.CommandLists[j].Complete();
                     _pending.RemoveAt(i);
+                    _device.OnSubmissionCompleted();
                 }
             }
         });
@@ -161,6 +169,7 @@ internal sealed class OpenGLGraphicsCommandQueue : IGraphicsCommandQueue
                     for (int j = 0; j < submission.CommandLists.Length; j++)
                         submission.CommandLists[j].Complete();
                     _pending.RemoveAt(i);
+                    _device.OnSubmissionCompleted();
                 }
             }
         });
