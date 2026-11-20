@@ -10,7 +10,8 @@ internal static class OpenGLFormatCapabilities
 {
     internal static GraphicsFormatCapabilities[] Query(
         GL gl,
-        ArbInternalformatQuery? internalFormatQuery)
+        ArbInternalformatQuery? internalFormatQuery,
+        bool hasInternalFormatQuery2)
     {
         if (internalFormatQuery is null)
             return [];
@@ -38,58 +39,62 @@ internal static class OpenGLFormatCapabilities
                                             GraphicsFormatSupport.CopySource |
                                             GraphicsFormatSupport.CopyDestination;
 
-            if (internalFormatQuery.GetInternalformat(
-                    TextureTarget.Texture2D,
-                    queryFormat,
-                    InternalFormatPName.Filter) != 0)
-            {
-                support |= GraphicsFormatSupport.LinearFiltering;
-            }
-
-            bool isDepthStencil = IsDepthStencil(format);
-            if (isDepthStencil)
+            if (hasInternalFormatQuery2)
             {
                 if (internalFormatQuery.GetInternalformat(
                         TextureTarget.Texture2D,
                         queryFormat,
-                        InternalFormatPName.DepthRenderable) != 0 ||
+                        InternalFormatPName.Filter) != 0)
+                {
+                    support |= GraphicsFormatSupport.LinearFiltering;
+                }
+
+                if (IsDepthStencil(format))
+                {
+                    bool depthRenderable = internalFormatQuery.GetInternalformat(
+                        TextureTarget.Texture2D,
+                        queryFormat,
+                        InternalFormatPName.DepthRenderable) != 0;
+                    bool requiresStencil = format is GraphicsFormat.D24UNormS8UInt or GraphicsFormat.D32FloatS8UInt;
+                    bool stencilRenderable = !requiresStencil ||
+                        internalFormatQuery.GetInternalformat(
+                            TextureTarget.Texture2D,
+                            queryFormat,
+                            InternalFormatPName.StencilRenderable) != 0;
+
+                    if (depthRenderable && stencilRenderable)
+                        support |= GraphicsFormatSupport.DepthStencilAttachment;
+                }
+                else
+                {
+                    if (internalFormatQuery.GetInternalformat(
+                            TextureTarget.Texture2D,
+                            queryFormat,
+                            InternalFormatPName.ColorRenderable) != 0)
+                    {
+                        support |= GraphicsFormatSupport.ColorAttachment;
+                    }
+
+                    if (internalFormatQuery.GetInternalformat(
+                            TextureTarget.Texture2D,
+                            queryFormat,
+                            InternalFormatPName.FramebufferBlend) != 0)
+                    {
+                        support |= GraphicsFormatSupport.Blend;
+                    }
+                }
+
+                if (internalFormatQuery.GetInternalformat(
+                        TextureTarget.Texture2D,
+                        queryFormat,
+                        InternalFormatPName.ShaderImageLoad) != 0 &&
                     internalFormatQuery.GetInternalformat(
                         TextureTarget.Texture2D,
                         queryFormat,
-                        InternalFormatPName.StencilRenderable) != 0)
+                        InternalFormatPName.ShaderImageStore) != 0)
                 {
-                    support |= GraphicsFormatSupport.DepthStencilAttachment;
+                    support |= GraphicsFormatSupport.Storage;
                 }
-            }
-            else
-            {
-                if (internalFormatQuery.GetInternalformat(
-                        TextureTarget.Texture2D,
-                        queryFormat,
-                        InternalFormatPName.ColorRenderable) != 0)
-                {
-                    support |= GraphicsFormatSupport.ColorAttachment;
-                }
-
-                if (internalFormatQuery.GetInternalformat(
-                        TextureTarget.Texture2D,
-                        queryFormat,
-                        InternalFormatPName.FramebufferBlend) != 0)
-                {
-                    support |= GraphicsFormatSupport.Blend;
-                }
-            }
-
-            if (internalFormatQuery.GetInternalformat(
-                    TextureTarget.Texture2D,
-                    queryFormat,
-                    InternalFormatPName.ShaderImageLoad) != 0 &&
-                internalFormatQuery.GetInternalformat(
-                    TextureTarget.Texture2D,
-                    queryFormat,
-                    InternalFormatPName.ShaderImageStore) != 0)
-            {
-                support |= GraphicsFormatSupport.Storage;
             }
 
             if (IsVertexFormat(format))
