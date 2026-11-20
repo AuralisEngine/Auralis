@@ -199,6 +199,31 @@ public interface IGraphicsCommandList : IGraphicsDeviceObject
 
     void MemoryBarrier(ReadOnlySpan<GraphicsResourceBarrier> barriers);
 
+    /// <summary>
+    /// Selects the color and optional depth/stencil attachments for subsequent draw and clear commands.
+    /// The backend retains references to these views until the recording is reset or completed.
+    /// An empty color span is valid when a depth/stencil-only target is supplied.
+    /// </summary>
+    void SetRenderTargets(
+        ReadOnlySpan<IGraphicsTextureView> colorTargets,
+        IGraphicsTextureView? depthStencilTarget = null);
+
+    void SetViewport(in GraphicsViewport viewport);
+
+    void SetScissor(in GraphicsScissorRect scissor);
+
+    void ClearColor(uint attachmentIndex, in GraphicsClearColor color);
+
+    void ClearColorUInt(uint attachmentIndex, in GraphicsClearColorUInt color);
+
+    void ClearColorSInt(uint attachmentIndex, in GraphicsClearColorSInt color);
+
+    void ClearDepthStencil(
+        float depth,
+        uint stencil,
+        bool clearDepth = true,
+        bool clearStencil = false);
+
     void SetRenderPipeline(IGraphicsRenderPipeline pipeline);
 
     void SetComputePipeline(IGraphicsComputePipeline pipeline);
