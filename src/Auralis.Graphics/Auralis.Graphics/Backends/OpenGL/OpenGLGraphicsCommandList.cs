@@ -703,14 +703,12 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
 
     private void ValidateComputeGroupCount(uint x, uint y, uint z)
     {
-        if (x == 0 || y == 0 || z == 0)
-            throw new GraphicsValidationException("Compute work-group counts must all be greater than zero.");
-
         OpenGLGraphicsDevice device = (OpenGLGraphicsDevice)Device;
-        if ((device.MaxComputeWorkGroupCountX != 0 && x > device.MaxComputeWorkGroupCountX) ||
-            (device.MaxComputeWorkGroupCountY != 0 && y > device.MaxComputeWorkGroupCountY) ||
-            (device.MaxComputeWorkGroupCountZ != 0 && z > device.MaxComputeWorkGroupCountZ))
-            throw new GraphicsValidationException("Compute dispatch exceeds the OpenGL per-axis work-group count limit.");
+        OpenGLComputeDispatchValidation.Validate(
+            x, y, z,
+            device.MaxComputeWorkGroupCountX,
+            device.MaxComputeWorkGroupCountY,
+            device.MaxComputeWorkGroupCountZ);
     }
 
     private void EnsureComputeReady()
