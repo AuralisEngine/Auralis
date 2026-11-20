@@ -65,6 +65,21 @@ public sealed class OpenGLBackendTests
         Assert.Same(borrowed.ContextIdentity, borrowed.ContextIdentity);
     }
 
+
+    [Fact]
+    public void MappedMemoryBecomesInaccessibleAfterInvalidation()
+    {
+        var manager = new OpenGLMappedMemoryManager([1, 2, 3, 4]);
+        Memory<byte> memory = manager.Memory;
+
+        Assert.Equal(new byte[] { 1, 2, 3, 4 }, memory.ToArray());
+
+        manager.Invalidate();
+
+        Assert.Throws<ObjectDisposedException>(() => _ = memory.Span[0]);
+        Assert.Throws<ObjectDisposedException>(() => manager.GetBuffer());
+    }
+
     private sealed class TestContextProvider(
         bool isAvailable,
         OpenGLContextOwnership ownership = OpenGLContextOwnership.Borrowed) : IOpenGLContextProvider
