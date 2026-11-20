@@ -103,6 +103,9 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
     private readonly List<IGraphicsTextureView> _renderTargetViews = new(8);
     private readonly List<OpenGLBindingValue> _bindingSnapshotValues = new(32);
     private uint _recordedColorTargetCount;
+    private int _recordedTargetViewOffset;
+    private GraphicsRenderTargetExtent _recordedTargetExtent;
+    private bool _hasRecordedTargets;
     private bool _recordedHasDepthStencil;
     private GraphicsFormat _renderTargetsDepthFormat;
     private OpenGLGraphicsRenderPipeline? _recordedPipeline;
@@ -159,6 +162,9 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
         _renderTargetViews.Clear();
         _bindingSnapshotValues.Clear();
         _recordedColorTargetCount = 0;
+        _recordedTargetViewOffset = 0;
+        _recordedTargetExtent = default;
+        _hasRecordedTargets = false;
         _recordedHasDepthStencil = false;
         _renderTargetsDepthFormat = GraphicsFormat.Unknown;
         _recordedPipeline = null;
@@ -183,8 +189,10 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
             GraphicsResourceBarrier barrier = barriers[i];
             barrier.Validate();
             EnsureOwned(barrier.Resource);
-            mask |= OpenGLMemoryBarrierTranslator.ToMask(barrier);
-            _barrierResourceReferences.Add(barrier.Resource);
+            MemoryBarrierMask barrierMask = OpenGLMemoryBarrierTranslator.ToMask(barrier);
+            mask |= barrierMask;
+            if (barrierMask != 0)
+                _barrierResourceReferences.Add(barrier.Resource);
         }
 
         if (mask != 0)
@@ -290,6 +298,9 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
             RenderTargetDepthStencil = depthStencilTarget
         });
         _recordedColorTargetCount = (uint)colorTargets.Length;
+        _recordedTargetViewOffset = viewOffset;
+        _recordedTargetExtent = extent;
+        _hasRecordedTargets = true;
         _recordedHasDepthStencil = depthStencilTarget is not null;
         _renderTargetsDepthFormat = depthStencilTarget is null
             ? GraphicsFormat.Unknown
@@ -647,7 +658,7 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
     {
         if (_recordedPipeline is null)
             throw new GraphicsValidationException("A render pipeline must be set before a draw.");
-        if (_recordedTargets is null)
+        if (!_hasRecordedTargets)
             throw new GraphicsValidationException("Offscreen rendering requires an explicit render-target set.");
         if (!_hasRecordedViewport)
             throw new GraphicsValidationException("Set a viewport before issuing a draw.");
@@ -659,13 +670,13 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
         }
 
         GraphicsRenderPipelineDescription pipeline = _recordedPipeline.Description;
-        if (pipeline.SampleCount != _recordedTargets.Extent.SampleCount)
+        if (pipeline.SampleCount != _recordedTargetExtent.SampleCount)
             throw new GraphicsValidationException("The bound render targets do not match the pipeline sample count.");
-        if (pipeline.ColorFormats.Length != _recordedTargets.ColorTargets.Length)
+        if (pipeline.ColorFormats.Length != _recordedColorTargetCount)
             throw new GraphicsValidationException("The bound render-target color attachment count does not match the pipeline.");
         for (int i = 0; i < pipeline.ColorFormats.Length; i++)
         {
-            IGraphicsTextureView view = _recordedTargets.ColorTargets[i];
+            IGraphicsTextureView view = _renderTargetViews[_recordedTargetViewOffset + i];
             GraphicsFormat format = view.Description.Format == GraphicsFormat.Unknown
                 ? view.Texture.Description.Format
                 : view.Description.Format;
@@ -673,12 +684,7 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
                 throw new GraphicsValidationException($"Color attachment {i} format {format} does not match pipeline format {pipeline.ColorFormats[i]}.");
         }
 
-        GraphicsFormat depthFormat = _recordedTargets.DepthStencilTarget is null
-            ? GraphicsFormat.Unknown
-            : _recordedTargets.DepthStencilTarget.Description.Format == GraphicsFormat.Unknown
-                ? _recordedTargets.DepthStencilTarget.Texture.Description.Format
-                : _recordedTargets.DepthStencilTarget.Description.Format;
-        if (pipeline.DepthStencilFormat != depthFormat)
+        if (pipeline.DepthStencilFormat != _renderTargetsDepthFormat)
             throw new GraphicsValidationException("The bound depth/stencil format does not match the render pipeline.");
     }
 
@@ -1077,7 +1083,9 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
             }
             else
             {
-                Span<ColorBuffer> drawBuffers = stackalloc ColorBuffer[colorTargets.Length];
+                Span<ColorBuffer> drawBuffers = colorTargets.Length <= 16
+                ? stackalloc ColorBuffer[colorTargets.Length]
+                : new ColorBuffer[colorTargets.Length];
                 for (int i = 0; i < drawBuffers.Length; i++)
                     drawBuffers[i] = (ColorBuffer)((uint)ColorBuffer.ColorAttachment0 + (uint)i);
                 dsa.NamedFramebufferDrawBuffers(framebuffer, drawBuffers);
@@ -1145,22 +1153,11 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
         if (attachmentIndex >= _recordedColorTargetCount)
             throw new GraphicsValidationException("The requested color attachment is not bound.");
 
-        // The latest set owns a slice of command-list storage, so the snapshot remains immutable
-        // even when the caller subsequently records a different target set.
-        for (int i = _commands.Count - 1; i >= 0; i--)
-        {
-            if (_commands[i].Kind != OpenGLCommandKind.SetRenderTargets)
-                continue;
-
-            OpenGLRecordedCommand targets = _commands[i];
-            IGraphicsTextureView view = _renderTargetViews[
-                targets.RenderTargetViewOffset + checked((int)attachmentIndex)];
-            return view.Description.Format == GraphicsFormat.Unknown
-                ? view.Texture.Description.Format
-                : view.Description.Format;
-        }
-
-        throw new GraphicsValidationException("No color attachment set is active.");
+        IGraphicsTextureView view = _renderTargetViews[
+            _recordedTargetViewOffset + checked((int)attachmentIndex)];
+        return view.Description.Format == GraphicsFormat.Unknown
+            ? view.Texture.Description.Format
+            : view.Description.Format;
     }
 
     private void EnsureGraphicsQueue()
