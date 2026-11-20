@@ -13,9 +13,10 @@ The implementation uses the directories already declared by `Auralis.Graphics.cs
 - `Synchronization`: timeline-style fences and backend-neutral resource dependencies.
 - `Pipelines`: shader-stage, vertex-input, descriptor-layout, and pipeline descriptions.
 - `Presentation`: native target descriptors, presentation surfaces, image acquisition, and swapchains.
-- `Backends/Direct3D12`, `Backends/Vulkan`, and `Backends/Metal` remain the locations for future implementations. No backend implementation is included here.
+- `Backends/OpenGL` contains the desktop OpenGL implementation and its Silk.NET context-provider integration.
+- `Backends/Direct3D12`, `Backends/Vulkan`, and `Backends/Metal` remain reserved for future implementations.
 
-The existing `Backends/OpenGL` folder is left untouched; OpenGL is not advertised as a supported backend by this common API.
+The OpenGL provider is included in this assembly but is never registered automatically. Applications opt into it by registering an `OpenGLGraphicsBackendProvider` explicitly.
 
 ## Backend registration and device creation
 
@@ -36,7 +37,7 @@ using IGraphicsDevice device = await GraphicsDeviceFactory.CreateAsync(
     });
 ```
 
-The provider types in this example are supplied by future backend assemblies, not by this common library. No reflection, assembly scanning, or native API type discovery is performed. When `Backend` is omitted, available providers are tried in registration order. Enumerate adapter information through `GraphicsDeviceFactory.EnumerateAdaptersAsync`, then use the selected provider's opaque `GraphicsAdapterId` in device options. An adapter ID is backend-specific, so adapter selection requires an explicit backend.
+The Direct3D 12 and Vulkan provider types in this example are supplied by future backend implementations; the OpenGL provider is included in this assembly. No reflection, assembly scanning, or native API type discovery is performed. When `Backend` is omitted, available providers are tried in registration order. Enumerate adapter information through `GraphicsDeviceFactory.EnumerateAdaptersAsync`, then use the selected provider's opaque `GraphicsAdapterId` in device options. An adapter ID is backend-specific, so adapter selection requires an explicit backend.
 
 Device creation is independent of presentation. A device may be created and used for compute, resource uploads, or offscreen work without creating a surface or swapchain.
 
@@ -133,11 +134,13 @@ Provider registration is a startup operation and the registry is not intended fo
 This project currently provides common descriptors, validation, provider/device contracts, command/pipeline/synchronization interfaces, and presentation interop contracts. It does **not** create native devices, allocate GPU memory, record native commands, compile shaders, create native windows/surfaces, or implement a Direct3D 12, Vulkan, or Metal backend. Those responsibilities belong to future backend and platform integration work.
 
 
-## OpenGL backend (initial implementation)
+## OpenGL backend
 
-The OpenGL backend lives in `Backends/OpenGL` and uses the official `Silk.NET.OpenGL` package (2.23.0). It targets desktop OpenGL 4.5 Core Profile only. OpenGL ES is not supported.
+The backend is implemented in `Backends/OpenGL` in the existing `Auralis.Graphics` assembly. It uses the official Silk.NET packages `Silk.NET.OpenGL` and `Silk.NET.OpenGL.Extensions.ARB`, both version **2.23.0**. No OpenTK, alternative GL binding, handwritten P/Invoke entry points, or Silk.NET.Windowing dependency is used. The supported baseline is **desktop OpenGL 4.5 Core Profile**. OpenGL ES contexts are not supported.
 
-Register it explicitly and inject a context provider supplied by the host/platform layer:
+### Registration and context integration
+
+The application creates its own context through its platform integration and supplies it using the backend-specific `IOpenGLContextProvider` contract. The backend does not create windows or contexts and does not interpret `GraphicsNativeSurfaceDescription` as a context descriptor.
 
 ```csharp
 var registry = new GraphicsBackendProviderRegistry();
@@ -148,16 +151,81 @@ using IGraphicsDevice device = await GraphicsDeviceFactory.CreateAsync(
     new GraphicsDeviceOptions
     {
         Backend = GraphicsBackend.OpenGL,
-        RequiredQueues = GraphicsQueueCapabilities.None
+        RequiredQueues = GraphicsQueueCapabilities.Graphics |
+                         GraphicsQueueCapabilities.Copy
     });
+
+IGraphicsCommandQueue graphicsQueue = device.GetQueue(GraphicsQueueType.Graphics);
+IGraphicsCommandQueue copyQueue = device.GetQueue(GraphicsQueueType.Copy);
 ```
 
-`IOpenGLContextProvider` is backend-specific and deliberately separate from `GraphicsNativeSurfaceDescription`. It supplies a context identity, function resolver, current-context activation/release, context ownership, and optional buffer swapping. Silk.NET loads its `GL` dispatch only after the provider has made the context current. Borrowed providers are not disposed by the device; an owned provider is disposed by the device.
+The context provider supplies a stable context identity, function-pointer resolver, `MakeCurrent`/`ReleaseCurrent`, ownership policy, and optional buffer swapping. It may wrap a host-created WGL, GLX, EGL, or native Apple desktop OpenGL context. Those native APIs and context creation remain the host/platform integration's responsibility. A headless/offscreen context is valid; no drawable is required for device creation or offscreen resource/command work.
 
-This first backend increment implements context validation and device/driver discovery, OpenGL capability/limit snapshots, buffer allocation and staging-based CPU mapping, and GLSL shader compilation. It does **not** yet implement command queues/lists, textures/views, samplers, binding layouts/sets, render or compute pipelines, fences, or presentation surfaces/swapchains. Those device methods explicitly reject the operation instead of returning placeholder objects or claiming unsupported functionality. Consequently, the provider currently supports device creation only when callers request no command-queue capabilities; the common factory's default graphics-queue requirement must be overridden as shown above.
+The device makes the supplied context current before loading Silk.NET's `GL` dispatch. It checks the actual version and Core Profile before constructing the Silk.NET extension wrappers. The same provider is used to reactivate the context for each native operation and submission; context access is serialized by the device. A dispatch object is never shared with an unrelated context.
 
-Format capabilities are intentionally empty until OpenGL internal-format querying and complete format/usage translation are implemented. System-wide adapter enumeration is not available through the injected context contract, so `EnumerateAdaptersAsync` returns an empty list rather than fabricating physical adapters. Once a device is created, its `Adapter.Name` and `Info.Name` contain the current context's GL renderer string; adapter type, adapter ID, vendor/device PCI IDs and dedicated memory remain unknown/zero. Separate compute/transfer queues and OpenGL ES are not advertised.
+Context-object ownership and GL-state ownership are separate:
+- `OpenGLContextOwnership.Borrowed`: Auralis never disposes the host context. The provider is not disposed by the device.
+- `OpenGLContextOwnership.Owned`: the provider has transferred its lifetime to the device; device disposal calls the provider's `Dispose`.
+- `OpenGLContextStateOwnership.Exclusive` is required. The initial backend does not save/restore all GL state. The host must not issue unrelated GL commands on the context while it is attached to Auralis. `Shared` state ownership is rejected instead of silently corrupting host state.
 
-All GL calls are serialized through the injected context provider. The provider must make the same context current on the calling thread and resolve entry points for that context. Hosts must not issue unrelated GL commands against the context while Auralis is using it unless they coordinate access with the provider. Device disposal releases Auralis GL resources and the Silk.NET dispatch; it disposes the context provider only when ownership was transferred as `Owned`.
+The context provider owns the meaning of its context identity and must guarantee that its resolver and activation methods refer to that same context. A drawable is optional and `SupportsPresentation` is only a context-provider property; the current backend does not yet implement presentation surfaces or swapchains.
 
-The implementation requires a valid OpenGL 4.5 Core Profile context before device creation. CI exercises the hardware-independent provider/registration contracts; real context and GPU smoke tests remain gated follow-up work.
+### Implemented functionality
+
+| Area | Current implementation |
+| --- | --- |
+| Device/provider | Explicit registration, 4.5 Core validation, vendor/renderer/version/driver strings, queried limits and capabilities |
+| Formats | Silk.NET internal-format queries and per-format operation/sample-count capability snapshots; unsupported formats remain unsupported |
+| Buffers | Buffer allocation, usage validation, copy, staging-backed Map/Unmap, invalidation of mapped memory after Unmap |
+| Textures | Immutable 1D/2D/3D/cube storage, arrays and multisample 2D storage; texture views via `ARB_texture_view` |
+| Samplers | Sampler objects with filtering, addressing, compare, LOD, border color, and extension-gated anisotropy |
+| Shaders | GLSL source compile through Silk.NET; compile log surfaced; `main` entry point |
+| Descriptors | Uniform/storage buffers, sampled/storage textures, samplers, and combined texture/sampler sets; explicit deterministic binding-point mapping |
+| Graphics pipelines | Linked monolithic program, vertex-array object, conventional vertex/fragment plus supported geometry/tessellation stages, fixed raster/depth/stencil/blend state |
+| Rendering commands | Deferred render-target binding, viewport/scissor, typed clears, vertex/index binding, direct/indexed/indirect draws |
+| Copy/barriers | Deferred buffer and whole-texture copies plus destination-access-based OpenGL memory barriers |
+| Synchronization | GL sync objects, CPU wait/polling, and GPU-side wait for an already-created fence value |
+| Queues | Logical graphics/copy queues sharing one serialized context command stream; no physical parallel queues are claimed |
+
+The backend reports OpenGL implementation strings in `GraphicsDeviceInfo`. The injected context is already selected, so system-wide physical adapter enumeration is unavailable: `EnumerateAdaptersAsync` returns an empty list rather than fabricating adapter IDs, PCI identifiers, memory sizes, or adapter types. Unknown limits remain zero. Format support is derived from the active context's internal-format operation queries and advertised extensions; it is not inferred from the enum alone.
+
+### Binding-point mapping
+
+OpenGL has no Vulkan-style descriptor-set object. Auralis maps common sets and bindings to OpenGL binding points deterministically:
+1. Process descriptor sets in ascending set index.
+2. Process bindings within each set in ascending binding number, independent of the order used to construct the common description.
+3. Maintain independent slot sequences for uniform-buffer bindings, storage-buffer bindings, texture units (sampled textures, samplers, and combined texture/sampler entries), and image units (storage textures).
+4. A descriptor array consumes consecutive slots in its namespace.
+
+GLSL must use the resulting numeric binding in its `layout(binding = N)` declaration. This backend does not rewrite GLSL source to translate a `set` qualifier. For example, UBO binding points are assigned independently from texture units; the same integer may therefore occur in two different namespaces. Unsupported descriptor flags (partially bound, update-after-bind, variable count) are rejected. A binding set must be fully populated before it is captured into a command list.
+
+### Command execution and queue model
+
+OpenGL does not expose native command buffers. Auralis uses CPU-side typed deferred command records: recording methods validate and retain arguments without invoking GL; submission activates the provider's context and executes commands in order. Queue submission associates a GL sync object with the submitted lists. A list becomes reusable only after the submission is observed complete. Referenced native resources are not physically deleted while submissions are pending.
+
+The graphics and copy queue objects are logical roles over one context's ordered command stream. They are serialized and do not promise independent graphics, compute, or transfer hardware queues. A compute shader may compile when the context supports it, but compute pipeline creation, dispatch commands, and a compute queue are not implemented yet. Consequently the backend does not advertise a compute queue or separate compute/transfer queue capabilities.
+
+The fence abstraction is implemented with ordered GL sync objects. CPU waits use client waits; queue waits enqueue a GL server-side wait and do not block the CPU. A queue wait requires the requested fence value to have already been signaled/submitted, because OpenGL cannot enqueue a wait on a future sync object that does not yet exist. The implementation provides monotonic timeline-style values on top of individual GL sync objects; it does not claim the native Vulkan timeline-semaphore feature.
+
+Resource barriers are translated into GL memory-barrier bits based on destination access. Texture layouts in the common barrier description remain semantic hints, not native OpenGL image layouts. The backend uses broad `AllBarrierBits` only for generic memory read/write intents where a narrower consumer cannot be identified.
+
+### Explicit limitations
+
+- No OpenGL ES support.
+- No native context/window creation or platform integration is included.
+- No presentation surface, swapchain, default-framebuffer acquired-image abstraction, resize/recreation, or swap-buffer execution is implemented yet. Even when a context provider reports a drawable, callers must not assume a usable Auralis presentation surface exists.
+- No mesh/task shader pipeline support.
+- No compute pipeline, dispatch, or compute queue.
+- No separate native compute/transfer queue.
+- Descriptor indexing and partially-bound/update-after-bind/variable-count descriptors are unsupported.
+- The current blend implementation supports per-color-attachment blend factors/equations, but blend enable and color-write mask must be identical for all color attachments in a pipeline; differing values are rejected.
+- Wide lines, depth bounds, sparse resources, timestamp queries, multi-viewport, and mesh/task features are not advertised until their execution paths are implemented.
+- The GLSL source is compiled directly by the driver; SPIR-V ingestion is not implemented.
+- Shared host GL-state preservation is not implemented; exclusive GL-state ownership is required.
+- Physical adapter IDs, PCI IDs, dedicated memory size, and system-wide adapter enumeration are unknown through the injected-context contract.
+
+### Tests and verification
+
+The ordinary graphics test suite includes hardware-independent tests for provider registration/availability, texture targets, sampler translations, descriptor slot allocation, pipeline enum/vertex-format mappings, resource barriers, render-target validation, and mapped-memory lifetime. CI builds the graphics project and runs this test suite without requiring a GPU or display.
+
+No real-context hardware smoke test has been run in this environment. A host/platform integration should gate such a test on an available desktop OpenGL 4.5 Core context and exercise device creation, shader compilation, resource allocation, an offscreen draw/copy, fence completion, and disposal. The backend currently has no mandatory windowing package; a test host may supply any suitable context provider.
