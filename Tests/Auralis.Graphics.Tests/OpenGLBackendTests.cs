@@ -65,6 +65,7 @@ public sealed class OpenGLBackendTests
 
         Assert.Equal(OpenGLContextOwnership.Borrowed, borrowed.Ownership);
         Assert.Equal(OpenGLContextOwnership.Owned, owned.Ownership);
+        Assert.Equal(OpenGLContextStateOwnership.Exclusive, borrowed.StateOwnership);
         Assert.Same(borrowed.ContextIdentity, borrowed.ContextIdentity);
     }
 
@@ -215,6 +216,7 @@ public sealed class OpenGLBackendTests
     {
         public object ContextIdentity { get; } = new object();
         public OpenGLContextOwnership Ownership { get; } = ownership;
+        public OpenGLContextStateOwnership StateOwnership { get; } = OpenGLContextStateOwnership.Exclusive;
         public bool IsAvailable { get; } = isAvailable;
         public string? UnavailableReason => IsAvailable ? null : "No current desktop GL context.";
         public bool SupportsPresentation => false;
