@@ -215,10 +215,10 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
         GraphicsFormatCapabilities[] formats = OpenGLFormatCapabilities.Query(
             gl, internalFormatQuery, hasInternalFormatQuery2);
 
+        // Compute shaders are available at the API level, but the command-list dispatch path is
+        // not implemented yet; do not advertise a compute-capable queue until it is executable.
         GraphicsQueueCapabilities queues = GraphicsQueueCapabilities.Graphics |
                                             GraphicsQueueCapabilities.Copy;
-        if (hasCompute)
-            queues |= GraphicsQueueCapabilities.Compute;
 
         return new GraphicsDeviceCapabilities(
             new GraphicsFeatureSet(features),
@@ -320,6 +320,10 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
 
         lock (_queueGate)
         {
+            if (queueType == GraphicsQueueType.Compute)
+                throw new GraphicsFeatureNotSupportedException(
+                    GraphicsFeature.ComputeShaders, GraphicsFeature.ComputeShaders);
+
             return _queues[(int)queueType] ??= new OpenGLGraphicsCommandQueue(this, queueType);
         }
     }
@@ -436,10 +440,9 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
                 _contextProvider.MakeCurrent();
                 try
                 {
+                    _gl.Finish();
                     foreach (OpenGLGraphicsCommandQueue? queue in _queues)
                         queue?.DrainUnderContext(_gl);
-
-                    _gl.Finish();
                     while (_deferredResources.TryDequeue(out IOpenGLNativeResource? deferred))
                         deferred.ReleaseNative(_gl);
 
