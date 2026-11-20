@@ -205,6 +205,14 @@ internal sealed class OpenGLGraphicsSwapChain : GraphicsDeviceObject, IGraphicsS
             if (openGlFence is not null)
                 openGlFence.EnqueueGpuWait(gl, waitValue);
 
+            // The default framebuffer's draw-buffer selection belongs to the current
+            // drawable. Do not inherit a stale host setting; select BACK for double-buffered
+            // contexts and FRONT for single-buffered contexts.
+            gl.BindFramebuffer(FramebufferTarget.DrawFramebuffer, 0);
+            gl.DrawBuffer(gl.GetInteger(GLEnum.Doublebuffer) != 0
+                ? DrawBufferMode.Back
+                : DrawBufferMode.Front);
+
             _device.DirectStateAccess.BlitNamedFramebuffer(
                 slot.Framebuffer,
                 0,
