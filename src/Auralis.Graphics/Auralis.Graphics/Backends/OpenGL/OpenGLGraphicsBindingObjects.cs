@@ -116,12 +116,12 @@ internal sealed class OpenGLGraphicsPipelineLayout : GraphicsDeviceObject, IGrap
             {
                 GraphicsBindingLayoutEntry entry = ordered[i];
                 OpenGLDescriptorNamespace descriptorNamespace = GetNamespace(entry.Type);
-                ref uint nextSlot = ref descriptorNamespace switch
+                uint nextSlot = descriptorNamespace switch
                 {
-                    OpenGLDescriptorNamespace.UniformBuffer => ref uniformSlot,
-                    OpenGLDescriptorNamespace.StorageBuffer => ref storageSlot,
-                    OpenGLDescriptorNamespace.TextureUnit => ref textureUnit,
-                    _ => ref imageUnit
+                    OpenGLDescriptorNamespace.UniformBuffer => uniformSlot,
+                    OpenGLDescriptorNamespace.StorageBuffer => storageSlot,
+                    OpenGLDescriptorNamespace.TextureUnit => textureUnit,
+                    _ => imageUnit
                 };
 
                 uint maximum = descriptorNamespace switch
@@ -137,7 +137,14 @@ internal sealed class OpenGLGraphicsPipelineLayout : GraphicsDeviceObject, IGrap
                         $"Descriptor set {setIndex}, binding {entry.Binding} exceeds the OpenGL {descriptorNamespace} binding-point limit ({maximum}).");
 
                 mappings.Add(new OpenGLDescriptorMapping(setIndex, entry, nextSlot));
-                nextSlot = checked(nextSlot + entry.Count);
+                uint nextValue = checked(nextSlot + entry.Count);
+                switch (descriptorNamespace)
+                {
+                    case OpenGLDescriptorNamespace.UniformBuffer: uniformSlot = nextValue; break;
+                    case OpenGLDescriptorNamespace.StorageBuffer: storageSlot = nextValue; break;
+                    case OpenGLDescriptorNamespace.TextureUnit: textureUnit = nextValue; break;
+                    case OpenGLDescriptorNamespace.ImageUnit: imageUnit = nextValue; break;
+                }
             }
         }
 
@@ -267,7 +274,7 @@ internal sealed class OpenGLBindingSetSnapshot
     private static void BindStorageTexture(GL gl, uint unit, OpenGLGraphicsTextureView view)
     {
         GraphicsTextureViewDescription description = view.Description;
-        GraphicsTexture texture = view.Texture.Description;
+        GraphicsTextureDescription texture = view.Texture.Description;
         GraphicsFormat format = description.Format == GraphicsFormat.Unknown
             ? texture.Format
             : description.Format;
