@@ -174,6 +174,21 @@ public sealed class OpenGLBackendTests
         Assert.False(OpenGLPipelineMapping.TryGetVertexFormat(GraphicsFormat.D32Float, out _));
     }
 
+
+    [Fact]
+    public void ComputeDispatchValidationHonorsIndexedGroupCountLimits()
+    {
+        OpenGLComputeDispatchValidation.Validate(8, 4, 2, 65535, 65535, 65535);
+        OpenGLComputeDispatchValidation.Validate(1, 1, 1, 0, 0, 0);
+
+        Assert.Throws<GraphicsValidationException>(() =>
+            OpenGLComputeDispatchValidation.Validate(0, 1, 1, 65535, 65535, 65535));
+        Assert.Throws<GraphicsValidationException>(() =>
+            OpenGLComputeDispatchValidation.Validate(1, 65536, 1, 65535, 65535, 65535));
+        Assert.Throws<GraphicsValidationException>(() =>
+            OpenGLComputeDispatchValidation.Validate(1, 1, 8, 65535, 65535, 7));
+    }
+
     [Fact]
     public void TextureDescriptionsMapToTheExpectedDesktopOpenGLTargets()
     {
