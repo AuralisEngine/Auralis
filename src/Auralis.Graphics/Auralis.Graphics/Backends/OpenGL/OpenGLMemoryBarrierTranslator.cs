@@ -22,9 +22,12 @@ internal static class OpenGLMemoryBarrierTranslator
         MemoryBarrierMask mask = 0;
         IGraphicsResource resource = barrier.Resource;
         bool isBuffer = resource is IGraphicsBuffer;
-        GraphicsTextureUsage textureUsage = resource is IGraphicsTexture texture
-            ? texture.Description.Usage
-            : GraphicsTextureUsage.None;
+        GraphicsTextureUsage textureUsage = resource switch
+        {
+            IGraphicsTexture texture => texture.Description.Usage,
+            IGraphicsTextureView view => view.Texture.Description.Usage,
+            _ => GraphicsTextureUsage.None
+        };
 
         if ((access & GraphicsResourceAccess.IndirectRead) != 0)
             mask |= MemoryBarrierMask.CommandBarrierBit;
