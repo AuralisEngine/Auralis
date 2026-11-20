@@ -175,21 +175,15 @@ internal static class OpenGLFormatCapabilities
             GraphicsFormat.D24UNormS8UInt => SizedInternalFormat.Depth24Stencil8,
             GraphicsFormat.D32Float => SizedInternalFormat.DepthComponent32f,
             GraphicsFormat.D32FloatS8UInt => SizedInternalFormat.Depth32fStencil8,
-            GraphicsFormat.BC1UNorm => Compressed(
-                SizedInternalFormat.CompressedRgbaS3TCDxt1Ext, "GL_EXT_texture_compression_s3tc"),
-            GraphicsFormat.BC1UNormSrgb => Compressed(
-                SizedInternalFormat.CompressedSrgbAlphaS3TCDxt1Ext, "GL_EXT_texture_compression_s3tc"),
-            GraphicsFormat.BC3UNorm => Compressed(
-                SizedInternalFormat.CompressedRgbaS3TCDxt5Ext, "GL_EXT_texture_compression_s3tc"),
-            GraphicsFormat.BC3UNormSrgb => Compressed(
-                SizedInternalFormat.CompressedSrgbAlphaS3TCDxt5Ext, "GL_EXT_texture_compression_s3tc"),
+            GraphicsFormat.BC1UNorm => SizedInternalFormat.CompressedRgbaS3TCDxt1Ext,
+            GraphicsFormat.BC1UNormSrgb => SizedInternalFormat.CompressedSrgbAlphaS3TCDxt1Ext,
+            GraphicsFormat.BC3UNorm => SizedInternalFormat.CompressedRgbaS3TCDxt5Ext,
+            GraphicsFormat.BC3UNormSrgb => SizedInternalFormat.CompressedSrgbAlphaS3TCDxt5Ext,
             GraphicsFormat.BC5UNorm => SizedInternalFormat.CompressedRGRgtc2,
             GraphicsFormat.BC7UNorm => SizedInternalFormat.CompressedRgbaBptcUnorm,
             GraphicsFormat.BC7UNormSrgb => SizedInternalFormat.CompressedSrgbAlphaBptcUnorm,
-            GraphicsFormat.ASTC4x4UNorm => Compressed(
-                SizedInternalFormat.CompressedRgbaAstc4x4, "GL_KHR_texture_compression_astc_ldr"),
-            GraphicsFormat.ASTC4x4UNormSrgb => Compressed(
-                SizedInternalFormat.CompressedSrgb8Alpha8Astc4x4, "GL_KHR_texture_compression_astc_ldr"),
+            GraphicsFormat.ASTC4x4UNorm => SizedInternalFormat.CompressedRgbaAstc4x4,
+            GraphicsFormat.ASTC4x4UNormSrgb => SizedInternalFormat.CompressedSrgb8Alpha8Astc4x4,
             _ => (SizedInternalFormat)0
         };
 
@@ -199,10 +193,6 @@ internal static class OpenGLFormatCapabilities
         if (format is GraphicsFormat.BC1UNorm or GraphicsFormat.BC1UNormSrgb or
             GraphicsFormat.BC3UNorm or GraphicsFormat.BC3UNormSrgb)
             requiredExtension = "GL_EXT_texture_compression_s3tc";
-        else if (format == GraphicsFormat.BC5UNorm)
-            requiredExtension = "GL_ARB_texture_compression_rgtc";
-        else if (format is GraphicsFormat.BC7UNorm or GraphicsFormat.BC7UNormSrgb)
-            requiredExtension = "GL_ARB_texture_compression_bptc";
         else if (format is GraphicsFormat.ASTC4x4UNorm or GraphicsFormat.ASTC4x4UNormSrgb)
             requiredExtension = "GL_KHR_texture_compression_astc_ldr";
 
