@@ -10,12 +10,12 @@ internal interface IOpenGLNativeResource
     void ReleaseNative(GL gl);
 }
 
-/// <summary>OpenGL buffer backed by driver storage and managed staging memory for Map/Unmap.</summary>
+/// <summary>OpenGL buffer backed by driver storage and invalidatable managed staging memory for Map/Unmap.</summary>
 internal sealed unsafe class OpenGLGraphicsBuffer : GraphicsDeviceObject, IGraphicsBuffer, IOpenGLNativeResource
 {
     private readonly OpenGLGraphicsDevice _device;
     private uint _handle;
-    private byte[]? _mapped;
+    private OpenGLMappedMemoryManager? _mapped;
     private ulong _mappedOffset;
     private GraphicsMapMode _mappedMode;
 
@@ -45,7 +45,7 @@ internal sealed unsafe class OpenGLGraphicsBuffer : GraphicsDeviceObject, IGraph
         ThrowIfDisposed();
         if (!Enum.IsDefined(mode))
             throw new ArgumentOutOfRangeException(nameof(mode));
-        if (_mapped is not null)
+        if (Volatile.Read(ref _mapped) is not null)
             throw new InvalidOperationException("The buffer is already mapped.");
 
         bool canRead = Description.MemoryAccess is GraphicsMemoryAccess.GpuToCpu or GraphicsMemoryAccess.CpuReadWrite;
@@ -62,59 +62,93 @@ internal sealed unsafe class OpenGLGraphicsBuffer : GraphicsDeviceObject, IGraph
             throw new ArgumentOutOfRangeException(nameof(size), "The mapped range is empty or outside the buffer.");
 
         byte[] staging = GC.AllocateUninitializedArray<byte>((int)size);
-        if (mode is GraphicsMapMode.Read or GraphicsMapMode.ReadWrite)
+        OpenGLMappedMemoryManager manager = new(staging);
+        if (Interlocked.CompareExchange(ref _mapped, manager, null) is not null)
         {
-            _device.WithContext(gl =>
-            {
-                gl.BindBuffer(BufferTargetARB.ArrayBuffer, _handle);
-                fixed (byte* data = staging)
-                    gl.GetBufferSubData(BufferTargetARB.ArrayBuffer, (nint)offset, (nuint)size, data);
-                gl.BindBuffer(BufferTargetARB.ArrayBuffer, 0);
-            });
+            manager.Dispose();
+            throw new InvalidOperationException("The buffer is already mapped.");
         }
 
-        _mapped = staging;
         _mappedOffset = offset;
         _mappedMode = mode;
-        return staging;
+        try
+        {
+            if (mode is GraphicsMapMode.Read or GraphicsMapMode.ReadWrite)
+            {
+                _device.WithContext(gl =>
+                {
+                    int previousBinding = gl.GetInteger(GLEnum.ArrayBufferBinding);
+                    try
+                    {
+                        gl.BindBuffer(BufferTargetARB.ArrayBuffer, _handle);
+                        fixed (byte* data = staging)
+                            gl.GetBufferSubData(BufferTargetARB.ArrayBuffer, (nint)offset, (nuint)size, data);
+                    }
+                    finally
+                    {
+                        gl.BindBuffer(BufferTargetARB.ArrayBuffer, unchecked((uint)previousBinding));
+                    }
+                });
+            }
+
+            ThrowIfDisposed();
+            return manager.Memory;
+        }
+        catch
+        {
+            Interlocked.CompareExchange(ref _mapped, null, manager);
+            manager.Dispose();
+            _mappedOffset = 0;
+            throw;
+        }
     }
 
     public void Unmap()
     {
         ThrowIfDisposed();
-        byte[]? staging = _mapped;
-        if (staging is null)
+        OpenGLMappedMemoryManager? manager = Volatile.Read(ref _mapped);
+        if (manager is null)
             throw new InvalidOperationException("The buffer is not mapped.");
 
         if (_mappedMode is GraphicsMapMode.Write or GraphicsMapMode.ReadWrite)
         {
+            byte[] staging = manager.GetBuffer();
             ulong offset = _mappedOffset;
             _device.WithContext(gl =>
             {
-                gl.BindBuffer(BufferTargetARB.ArrayBuffer, _handle);
-                fixed (byte* data = staging)
-                    gl.BufferSubData(BufferTargetARB.ArrayBuffer, (nint)offset, (nuint)staging.Length, data);
-                gl.BindBuffer(BufferTargetARB.ArrayBuffer, 0);
+                int previousBinding = gl.GetInteger(GLEnum.ArrayBufferBinding);
+                try
+                {
+                    gl.BindBuffer(BufferTargetARB.ArrayBuffer, _handle);
+                    fixed (byte* data = staging)
+                        gl.BufferSubData(BufferTargetARB.ArrayBuffer, (nint)offset, (nuint)staging.Length, data);
+                }
+                finally
+                {
+                    gl.BindBuffer(BufferTargetARB.ArrayBuffer, unchecked((uint)previousBinding));
+                }
             });
         }
 
-        _mapped = null;
+        if (ReferenceEquals(Interlocked.CompareExchange(ref _mapped, null, manager), manager))
+            manager.Dispose();
         _mappedOffset = 0;
     }
 
     protected override void DisposeCore()
     {
-        if (_mapped is not null)
-        {
-            _mapped = null;
-            _mappedOffset = 0;
-        }
-
-        _device.WithContext(ReleaseNative);
+        OpenGLMappedMemoryManager? mapped = Interlocked.Exchange(ref _mapped, null);
+        mapped?.Dispose();
+        _mappedOffset = 0;
+        _device.ReleaseResource(this);
     }
 
     public void ReleaseNative(GL gl)
     {
+        OpenGLMappedMemoryManager? mapped = Interlocked.Exchange(ref _mapped, null);
+        mapped?.Dispose();
+        _mappedOffset = 0;
+
         uint handle = Interlocked.Exchange(ref _handle, 0);
         if (handle != 0)
             gl.DeleteBuffer(handle);
