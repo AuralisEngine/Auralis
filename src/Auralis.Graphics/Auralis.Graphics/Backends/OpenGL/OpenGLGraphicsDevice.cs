@@ -7,6 +7,7 @@ using Auralis.Graphics.Presentation;
 using Auralis.Graphics.Resources;
 using Auralis.Graphics.Synchronization;
 using Silk.NET.OpenGL;
+using Silk.NET.OpenGL.Extensions.ARB;
 
 namespace Auralis.Graphics.Backends.OpenGL;
 
@@ -98,33 +99,73 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
         static bool AtLeast(int major, int minor, int requiredMajor, int requiredMinor) =>
             major > requiredMajor || (major == requiredMajor && minor >= requiredMinor);
 
+        bool hasCompute = AtLeast(major, minor, 4, 3);
+        bool hasTessellation = AtLeast(major, minor, 4, 0);
+        bool hasGeometry = AtLeast(major, minor, 3, 2);
+        bool hasTimerQuery = AtLeast(major, minor, 3, 3) || gl.IsExtensionPresent("GL_ARB_timer_query");
+        bool hasAnisotropy = gl.IsExtensionPresent("GL_EXT_texture_filter_anisotropic");
+        bool hasSparseTextures = gl.IsExtensionPresent("GL_ARB_sparse_texture");
+        bool hasMultiViewport = AtLeast(major, minor, 4, 1);
+        bool hasDepthBounds = gl.IsExtensionPresent("GL_EXT_depth_bounds_test") ||
+                              gl.IsExtensionPresent("GL_NV_depth_buffer_float");
+        bool hasMeshShaders = gl.IsExtensionPresent("GL_NV_mesh_shader") ||
+                              gl.IsExtensionPresent("GL_EXT_mesh_shader");
+
         GraphicsFeature features = GraphicsFeature.None;
-        if (AtLeast(major, minor, 4, 3)) features |= GraphicsFeature.ComputeShaders;
-        if (AtLeast(major, minor, 4, 0)) features |= GraphicsFeature.IndirectDrawing | GraphicsFeature.TessellationShaders;
+        if (hasCompute) features |= GraphicsFeature.ComputeShaders;
+        if (AtLeast(major, minor, 4, 0)) features |= GraphicsFeature.IndirectDrawing;
         if (AtLeast(major, minor, 4, 3)) features |= GraphicsFeature.MultiDrawIndirect;
-        if (AtLeast(major, minor, 3, 2)) features |= GraphicsFeature.GeometryShaders | GraphicsFeature.DepthClamp;
-        if (AtLeast(major, minor, 1, 0)) features |= GraphicsFeature.LogicOperations | GraphicsFeature.FillModeNonSolid;
+        if (hasTessellation) features |= GraphicsFeature.TessellationShaders;
+        if (hasGeometry) features |= GraphicsFeature.GeometryShaders;
+        if (hasTimerQuery) features |= GraphicsFeature.TimestampQueries;
+        if (hasAnisotropy) features |= GraphicsFeature.SamplerAnisotropy;
+        if (hasSparseTextures) features |= GraphicsFeature.SparseResources;
+        if (hasMultiViewport) features |= GraphicsFeature.MultiViewport;
+        if (hasDepthBounds) features |= GraphicsFeature.DepthBoundsTest;
+        if (hasMeshShaders)
+        {
+            features |= GraphicsFeature.MeshShaders;
+            features |= GraphicsFeature.TaskShaders;
+        }
+
+        features |= GraphicsFeature.LogicOperations | GraphicsFeature.FillModeNonSolid;
+        if (AtLeast(major, minor, 3, 2))
+            features |= GraphicsFeature.DepthClamp;
 
         uint maxTexture = ToUInt(gl.GetInteger(GLEnum.MaxTextureSize));
         uint maxTexture3D = ToUInt(gl.GetInteger(GLEnum.Max3DTextureSize));
         uint maxArrayLayers = ToUInt(gl.GetInteger(GLEnum.MaxArrayTextureLayers));
         uint maxVertexAttributes = ToUInt(gl.GetInteger(GLEnum.MaxVertexAttribs));
+        uint maxVertexBindings = ToUInt(gl.GetInteger(GLEnum.MaxVertexAttribBindings));
         uint maxUniformBindings = ToUInt(gl.GetInteger(GLEnum.MaxUniformBufferBindings));
-        uint maxComputeInvocations = AtLeast(major, minor, 4, 3)
+        uint maxComputeInvocations = hasCompute
             ? ToUInt(gl.GetInteger(GLEnum.MaxComputeWorkGroupInvocations))
             : 0;
+        uint maxComputeX = hasCompute ? ToUInt(gl.GetInteger(GLEnum.MaxComputeWorkGroupSize, 0)) : 0;
+        uint maxComputeY = hasCompute ? ToUInt(gl.GetInteger(GLEnum.MaxComputeWorkGroupSize, 1)) : 0;
+        uint maxComputeZ = hasCompute ? ToUInt(gl.GetInteger(GLEnum.MaxComputeWorkGroupSize, 2)) : 0;
+        uint maxPatchSize = hasTessellation ? ToUInt(gl.GetInteger(GLEnum.MaxPatchVertices)) : 0;
+        float maxAnisotropy = 0;
+        if (hasAnisotropy)
+            gl.GetFloat(GLEnum.MaxTextureMaxAnisotropyExt, out maxAnisotropy);
 
         GraphicsDeviceLimits limits = new(
             0, maxTexture, maxTexture, maxTexture3D, maxArrayLayers,
-            maxVertexAttributes, 0, maxUniformBindings,
-            maxComputeInvocations, 0, 0, 0, 0);
+            maxVertexAttributes, maxVertexBindings, maxUniformBindings,
+            maxComputeInvocations, maxComputeX, maxComputeY, maxComputeZ,
+            maxAnisotropy, maxPatchSize);
 
-        // Format support is deliberately empty until internal-format operations are queried per format.
+        ArbInternalformatQuery? query = null;
+        if (gl.TryGetExtension(out ArbInternalformatQuery extension))
+            query = extension;
+
+        GraphicsFormatCapabilities[] formats = OpenGLFormatCapabilities.Query(gl, query);
+
         return new GraphicsDeviceCapabilities(
             new GraphicsFeatureSet(features),
             GraphicsQueueCapabilities.None,
             limits,
-            ReadOnlySpan<GraphicsFormatCapabilities>.Empty);
+            formats);
     }
 
     private static uint ToUInt(int value) => value > 0 ? (uint)value : 0;
