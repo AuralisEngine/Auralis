@@ -152,6 +152,196 @@ public readonly record struct GraphicsTextureSubresourceRange(
 }
 
 /// <summary>
+/// Compatibility rules between access intents, resource kinds/usages, and pipeline execution stages.
+/// Keeping the rules in one table makes additions auditable and avoids silently accepting unsupported pairs.
+/// </summary>
+internal static class GraphicsBarrierCompatibility
+{
+    private const GraphicsPipelineStage ShaderStages =
+        GraphicsPipelineStage.VertexShader |
+        GraphicsPipelineStage.TessellationControlShader |
+        GraphicsPipelineStage.TessellationEvaluationShader |
+        GraphicsPipelineStage.GeometryShader |
+        GraphicsPipelineStage.TaskShader |
+        GraphicsPipelineStage.MeshShader |
+        GraphicsPipelineStage.FragmentShader |
+        GraphicsPipelineStage.ComputeShader |
+        GraphicsPipelineStage.AllCommands;
+
+    private const GraphicsPipelineStage ExecutionStages =
+        GraphicsPipelineStage.DrawIndirect |
+        GraphicsPipelineStage.VertexInput |
+        GraphicsPipelineStage.VertexShader |
+        GraphicsPipelineStage.TessellationControlShader |
+        GraphicsPipelineStage.TessellationEvaluationShader |
+        GraphicsPipelineStage.GeometryShader |
+        GraphicsPipelineStage.TaskShader |
+        GraphicsPipelineStage.MeshShader |
+        GraphicsPipelineStage.FragmentShader |
+        GraphicsPipelineStage.ComputeShader |
+        GraphicsPipelineStage.ColorAttachmentOutput |
+        GraphicsPipelineStage.DepthStencil |
+        GraphicsPipelineStage.Transfer |
+        GraphicsPipelineStage.Host |
+        GraphicsPipelineStage.AllCommands;
+
+    private readonly record struct AccessRule(
+        GraphicsResourceAccess Access,
+        bool SupportsBuffer,
+        bool SupportsTexture,
+        GraphicsBufferUsage BufferUsage,
+        GraphicsTextureUsage TextureUsage,
+        GraphicsPipelineStage Stages,
+        bool AnyTextureUsage = false);
+
+    private static readonly AccessRule[] s_accessRules =
+    [
+        new(GraphicsResourceAccess.IndirectRead, true, false,
+            GraphicsBufferUsage.IndirectArguments, GraphicsTextureUsage.None,
+            GraphicsPipelineStage.DrawIndirect | GraphicsPipelineStage.AllCommands),
+        new(GraphicsResourceAccess.IndexRead, true, false,
+            GraphicsBufferUsage.Index, GraphicsTextureUsage.None,
+            GraphicsPipelineStage.VertexInput | GraphicsPipelineStage.AllCommands),
+        new(GraphicsResourceAccess.VertexRead, true, false,
+            GraphicsBufferUsage.Vertex, GraphicsTextureUsage.None,
+            GraphicsPipelineStage.VertexInput | GraphicsPipelineStage.AllCommands),
+        new(GraphicsResourceAccess.UniformRead, true, false,
+            GraphicsBufferUsage.Constant, GraphicsTextureUsage.None,
+            ShaderStages),
+        new(GraphicsResourceAccess.ShaderRead, true, true,
+            GraphicsBufferUsage.Storage, GraphicsTextureUsage.Sampled | GraphicsTextureUsage.Storage,
+            ShaderStages, AnyTextureUsage: true),
+        new(GraphicsResourceAccess.ShaderWrite, true, true,
+            GraphicsBufferUsage.Storage, GraphicsTextureUsage.Storage,
+            ShaderStages),
+        new(GraphicsResourceAccess.ColorAttachmentRead, false, true,
+            GraphicsBufferUsage.None, GraphicsTextureUsage.ColorAttachment,
+            GraphicsPipelineStage.ColorAttachmentOutput | GraphicsPipelineStage.AllCommands),
+        new(GraphicsResourceAccess.ColorAttachmentWrite, false, true,
+            GraphicsBufferUsage.None, GraphicsTextureUsage.ColorAttachment,
+            GraphicsPipelineStage.ColorAttachmentOutput | GraphicsPipelineStage.AllCommands),
+        new(GraphicsResourceAccess.DepthStencilRead, false, true,
+            GraphicsBufferUsage.None, GraphicsTextureUsage.DepthStencilAttachment,
+            GraphicsPipelineStage.DepthStencil | GraphicsPipelineStage.AllCommands),
+        new(GraphicsResourceAccess.DepthStencilWrite, false, true,
+            GraphicsBufferUsage.None, GraphicsTextureUsage.DepthStencilAttachment,
+            GraphicsPipelineStage.DepthStencil | GraphicsPipelineStage.AllCommands),
+        new(GraphicsResourceAccess.TransferRead, true, true,
+            GraphicsBufferUsage.CopySource, GraphicsTextureUsage.CopySource,
+            GraphicsPipelineStage.Transfer | GraphicsPipelineStage.AllCommands),
+        new(GraphicsResourceAccess.TransferWrite, true, true,
+            GraphicsBufferUsage.CopyDestination, GraphicsTextureUsage.CopyDestination,
+            GraphicsPipelineStage.Transfer | GraphicsPipelineStage.AllCommands),
+        new(GraphicsResourceAccess.HostRead, true, false,
+            GraphicsBufferUsage.None, GraphicsTextureUsage.None,
+            GraphicsPipelineStage.Host),
+        new(GraphicsResourceAccess.HostWrite, true, false,
+            GraphicsBufferUsage.None, GraphicsTextureUsage.None,
+            GraphicsPipelineStage.Host),
+        new(GraphicsResourceAccess.MemoryRead, true, true,
+            GraphicsBufferUsage.None, GraphicsTextureUsage.None, ExecutionStages),
+        new(GraphicsResourceAccess.MemoryWrite, true, true,
+            GraphicsBufferUsage.None, GraphicsTextureUsage.None, ExecutionStages)
+    ];
+
+    public static void ValidateAccess(
+        IGraphicsResource resource,
+        GraphicsPipelineStage stages,
+        GraphicsResourceAccess access)
+    {
+        if (access == GraphicsResourceAccess.None)
+            return;
+
+        bool isBuffer = resource is IGraphicsBuffer;
+        bool isTexture = resource is IGraphicsTexture;
+        if (!isBuffer && !isTexture)
+            throw new ArgumentException("Barrier access validation supports only buffers and textures.", nameof(resource));
+
+        GraphicsBufferDescription buffer = isBuffer
+            ? ((IGraphicsBuffer)resource).Description
+            : default;
+        GraphicsTextureDescription texture = isTexture
+            ? ((IGraphicsTexture)resource).Description
+            : default;
+
+        for (int i = 0; i < s_accessRules.Length; i++)
+        {
+            AccessRule rule = s_accessRules[i];
+            if ((access & rule.Access) == 0)
+                continue;
+
+            if ((isBuffer && !rule.SupportsBuffer) || (isTexture && !rule.SupportsTexture))
+                throw new ArgumentException(
+                    $"Access {rule.Access} is not valid for resource type {resource.GetType().Name}.",
+                    nameof(access));
+
+            if ((stages & rule.Stages) == 0)
+                throw new ArgumentException(
+                    $"Access {rule.Access} is not compatible with pipeline stages {stages}.",
+                    nameof(stages));
+
+            if (isBuffer && rule.BufferUsage != GraphicsBufferUsage.None &&
+                (buffer.Usage & rule.BufferUsage) != rule.BufferUsage)
+                throw new ArgumentException(
+                    $"Buffer access {rule.Access} requires usage {rule.BufferUsage}.",
+                    nameof(resource));
+
+            if (isTexture && rule.TextureUsage != GraphicsTextureUsage.None)
+            {
+                bool usageSupported = rule.AnyTextureUsage
+                    ? (texture.Usage & rule.TextureUsage) != 0
+                    : (texture.Usage & rule.TextureUsage) == rule.TextureUsage;
+                if (!usageSupported)
+                    throw new ArgumentException(
+                        $"Texture access {rule.Access} requires one of the declared usages {rule.TextureUsage}.",
+                        nameof(resource));
+            }
+
+            if (rule.Access == GraphicsResourceAccess.HostRead &&
+                buffer.MemoryAccess is not (GraphicsMemoryAccess.GpuToCpu or GraphicsMemoryAccess.CpuReadWrite))
+                throw new ArgumentException("HostRead requires a CPU-readable buffer memory access mode.", nameof(resource));
+
+            if (rule.Access == GraphicsResourceAccess.HostWrite &&
+                buffer.MemoryAccess is not (GraphicsMemoryAccess.CpuToGpu or GraphicsMemoryAccess.CpuReadWrite))
+                throw new ArgumentException("HostWrite requires a CPU-writable buffer memory access mode.", nameof(resource));
+        }
+    }
+
+    public static void ValidateTextureLayout(
+        GraphicsTextureLayout layout,
+        GraphicsTextureUsage usage,
+        bool isNewLayout)
+    {
+        if (layout == GraphicsTextureLayout.NotApplicable)
+            throw new ArgumentException("Texture barriers must specify texture layouts.");
+
+        if (layout == GraphicsTextureLayout.Undefined)
+        {
+            if (isNewLayout)
+                throw new ArgumentException("Undefined is valid only as an old texture layout.");
+            return;
+        }
+
+        GraphicsTextureUsage requiredUsage = layout switch
+        {
+            GraphicsTextureLayout.General => GraphicsTextureUsage.None,
+            GraphicsTextureLayout.ShaderReadOnly => GraphicsTextureUsage.Sampled,
+            GraphicsTextureLayout.ColorAttachment => GraphicsTextureUsage.ColorAttachment,
+            GraphicsTextureLayout.DepthStencilAttachment => GraphicsTextureUsage.DepthStencilAttachment,
+            GraphicsTextureLayout.TransferSource => GraphicsTextureUsage.CopySource,
+            GraphicsTextureLayout.TransferDestination => GraphicsTextureUsage.CopyDestination,
+            GraphicsTextureLayout.Present => GraphicsTextureUsage.Present,
+            _ => throw new ArgumentOutOfRangeException(nameof(layout))
+        };
+
+        if (requiredUsage != GraphicsTextureUsage.None && (usage & requiredUsage) != requiredUsage)
+            throw new ArgumentException(
+                $"Texture layout {layout} requires declared texture usage {requiredUsage}.",
+                nameof(layout));
+    }
+}
+
+/// <summary>
 /// One resource dependency to be translated into backend-native synchronization.
 /// Range fields are mutually exclusive. Null ranges select the whole resource.
 /// Barriers target buffers or textures directly; texture views must be resolved to their underlying texture.
@@ -191,7 +381,7 @@ public readonly record struct GraphicsResourceBarrier(
             GraphicsResourceAccess.HostRead | GraphicsResourceAccess.HostWrite |
             GraphicsResourceAccess.MemoryRead | GraphicsResourceAccess.MemoryWrite;
 
-        if (Resource.IsDisposed)
+        if (Resource.IsDisposed || Resource.Device.IsDisposed)
             throw new ObjectDisposedException(nameof(Resource));
         if (SourceStages == GraphicsPipelineStage.None || DestinationStages == GraphicsPipelineStage.None ||
             (SourceStages & ~allStages) != 0 || (DestinationStages & ~allStages) != 0)
@@ -204,23 +394,29 @@ public readonly record struct GraphicsResourceBarrier(
         switch (Resource)
         {
             case IGraphicsBuffer buffer:
-                ValidateDeviceLifetime();
+                buffer.Description.Validate();
+                if (BufferRange is not null)
+                    BufferRange.Value.Validate(buffer.Description);
                 if (TextureRange is not null)
                     throw new ArgumentException("Buffer barriers cannot specify a texture subresource range.", nameof(TextureRange));
                 if (OldLayout != GraphicsTextureLayout.NotApplicable ||
                     NewLayout != GraphicsTextureLayout.NotApplicable)
                     throw new ArgumentException("Buffer barriers must use NotApplicable texture layouts.");
-                BufferRange?.Validate(buffer.Description);
                 break;
 
             case IGraphicsTexture texture:
-                ValidateDeviceLifetime();
+                texture.Description.Validate();
                 if (BufferRange is not null)
                     throw new ArgumentException("Texture barriers cannot specify a buffer byte range.", nameof(BufferRange));
-                if (OldLayout == GraphicsTextureLayout.NotApplicable ||
-                    NewLayout == GraphicsTextureLayout.NotApplicable)
-                    throw new ArgumentException("Texture barriers must specify old and new semantic layouts.");
                 TextureRange?.Validate(texture.Description);
+                if (OldLayout == GraphicsTextureLayout.Undefined && SourceAccess != GraphicsResourceAccess.None)
+                    throw new ArgumentException(
+                        "An Undefined old texture layout discards prior contents and requires no source access.",
+                        nameof(SourceAccess));
+                GraphicsBarrierCompatibility.ValidateTextureLayout(
+                    OldLayout, texture.Description.Usage, isNewLayout: false);
+                GraphicsBarrierCompatibility.ValidateTextureLayout(
+                    NewLayout, texture.Description.Usage, isNewLayout: true);
                 break;
 
             case IGraphicsTextureView:
@@ -233,12 +429,9 @@ public readonly record struct GraphicsResourceBarrier(
                     $"Barriers support buffers and textures, not resources of type {Resource.GetType().Name}.",
                     nameof(Resource));
         }
-    }
 
-    private void ValidateDeviceLifetime()
-    {
-        if (Resource.Device.IsDisposed)
-            throw new ObjectDisposedException(nameof(Resource.Device));
+        GraphicsBarrierCompatibility.ValidateAccess(Resource, SourceStages, SourceAccess);
+        GraphicsBarrierCompatibility.ValidateAccess(Resource, DestinationStages, DestinationAccess);
     }
 }
 

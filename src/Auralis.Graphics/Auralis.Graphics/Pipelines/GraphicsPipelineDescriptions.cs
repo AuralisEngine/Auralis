@@ -65,6 +65,10 @@ public sealed class GraphicsBindingLayoutDescription
             GraphicsBindingFlags.PartiallyBound | GraphicsBindingFlags.UpdateAfterBind |
             GraphicsBindingFlags.VariableCount;
 
+        uint highestBinding = 0;
+        for (int i = 0; i < _entries.Length; i++)
+            highestBinding = Math.Max(highestBinding, _entries[i].Binding);
+
         for (int i = 0; i < _entries.Length; i++)
         {
             GraphicsBindingLayoutEntry entry = _entries[i];
@@ -76,8 +80,10 @@ public sealed class GraphicsBindingLayoutDescription
                 throw new ArgumentOutOfRangeException(nameof(Entries), "Descriptor shader stages are invalid.");
             if ((entry.Flags & ~allFlags) != 0)
                 throw new ArgumentOutOfRangeException(nameof(Entries), "Descriptor binding flags are invalid.");
-            if ((entry.Flags & GraphicsBindingFlags.VariableCount) != 0 && i != _entries.Length - 1)
-                throw new ArgumentException("A variable-count descriptor binding must be the final entry.", nameof(Entries));
+            if ((entry.Flags & GraphicsBindingFlags.VariableCount) != 0 && entry.Binding != highestBinding)
+                throw new ArgumentException(
+                    "A variable-count descriptor binding must have the highest binding number.",
+                    nameof(Entries));
 
             for (int j = 0; j < i; j++)
             {
@@ -352,11 +358,55 @@ public sealed class GraphicsBlendState
     }
 }
 
-/// <summary>Complete fixed-function state for a render pipeline.</summary>
+/// <summary>Patch assembly configuration used with a tessellation control/evaluation shader pair.</summary>
+public readonly record struct GraphicsTessellationState(uint PatchControlPoints)
+{
+    public void Validate()
+    {
+        if (PatchControlPoints == 0)
+            throw new ArgumentOutOfRangeException(nameof(PatchControlPoints),
+                "Patch control-point count must be greater than zero.");
+    }
+}
+
+/// <summary>Complete fixed-function state and shader-stage configuration for a render pipeline.</summary>
 public sealed class GraphicsRenderPipelineDescription
 {
+    private readonly IGraphicsShader[] _shaders;
     private readonly GraphicsFormat[] _colorFormats;
 
+    /// <summary>
+    /// Creates a pipeline from an explicit shader-stage set. Conventional pipelines require a vertex shader;
+    /// mesh pipelines require a mesh shader and must not include vertex, geometry, or tessellation stages.
+    /// </summary>
+    public GraphicsRenderPipelineDescription(
+        IGraphicsPipelineLayout layout,
+        ReadOnlySpan<IGraphicsShader> shaders,
+        GraphicsPrimitiveTopology topology,
+        ReadOnlySpan<GraphicsFormat> colorFormats,
+        GraphicsFormat depthStencilFormat = GraphicsFormat.Unknown,
+        uint sampleCount = 1,
+        GraphicsVertexInputLayout? vertexInput = null,
+        GraphicsRasterizationState? rasterization = null,
+        GraphicsDepthStencilState? depthStencil = null,
+        GraphicsBlendState? blend = null,
+        GraphicsTessellationState? tessellation = null)
+    {
+        Layout = layout ?? throw new ArgumentNullException(nameof(layout));
+        _shaders = shaders.ToArray();
+        Topology = topology;
+        _colorFormats = colorFormats.ToArray();
+        DepthStencilFormat = depthStencilFormat;
+        SampleCount = sampleCount;
+        VertexInput = vertexInput;
+        Rasterization = rasterization ?? new GraphicsRasterizationState();
+        DepthStencil = depthStencil ?? new GraphicsDepthStencilState();
+        Blend = blend ?? new GraphicsBlendState();
+        Tessellation = tessellation;
+        Validate();
+    }
+
+    /// <summary>Compatibility overload for conventional vertex/fragment pipelines.</summary>
     public GraphicsRenderPipelineDescription(
         IGraphicsPipelineLayout layout,
         IGraphicsShader vertexShader,
@@ -368,25 +418,33 @@ public sealed class GraphicsRenderPipelineDescription
         GraphicsVertexInputLayout? vertexInput = null,
         GraphicsRasterizationState? rasterization = null,
         GraphicsDepthStencilState? depthStencil = null,
-        GraphicsBlendState? blend = null)
+        GraphicsBlendState? blend = null,
+        GraphicsTessellationState? tessellation = null)
+        : this(
+            layout,
+            CreateConventionalShaderList(vertexShader, fragmentShader),
+            topology,
+            colorFormats,
+            depthStencilFormat,
+            sampleCount,
+            vertexInput,
+            rasterization,
+            depthStencil,
+            blend,
+            tessellation)
     {
-        Layout = layout ?? throw new ArgumentNullException(nameof(layout));
-        VertexShader = vertexShader ?? throw new ArgumentNullException(nameof(vertexShader));
-        FragmentShader = fragmentShader;
-        Topology = topology;
-        _colorFormats = colorFormats.ToArray();
-        DepthStencilFormat = depthStencilFormat;
-        SampleCount = sampleCount;
-        VertexInput = vertexInput;
-        Rasterization = rasterization ?? new GraphicsRasterizationState();
-        DepthStencil = depthStencil ?? new GraphicsDepthStencilState();
-        Blend = blend ?? new GraphicsBlendState();
-        Validate();
     }
 
     public IGraphicsPipelineLayout Layout { get; }
-    public IGraphicsShader VertexShader { get; }
-    public IGraphicsShader? FragmentShader { get; }
+
+    public ReadOnlySpan<IGraphicsShader> Shaders => _shaders;
+
+    /// <summary>Returns the vertex shader for conventional pipelines, or null for mesh pipelines.</summary>
+    public IGraphicsShader? VertexShader => FindShader(GraphicsShaderStage.Vertex);
+
+    /// <summary>Returns the fragment shader when one is configured.</summary>
+    public IGraphicsShader? FragmentShader => FindShader(GraphicsShaderStage.Fragment);
+
     public GraphicsPrimitiveTopology Topology { get; }
     public ReadOnlySpan<GraphicsFormat> ColorFormats => _colorFormats;
     public GraphicsFormat DepthStencilFormat { get; }
@@ -395,21 +453,105 @@ public sealed class GraphicsRenderPipelineDescription
     public GraphicsRasterizationState Rasterization { get; }
     public GraphicsDepthStencilState DepthStencil { get; }
     public GraphicsBlendState Blend { get; }
+    public GraphicsTessellationState? Tessellation { get; }
 
     public void Validate()
     {
-        if (!ReferenceEquals(Layout.Device, VertexShader.Device) ||
-            (FragmentShader is not null && !ReferenceEquals(Layout.Device, FragmentShader.Device)))
-            throw new ArgumentException("Pipeline layout and shaders must belong to the same graphics device.");
-
-        if (VertexShader.Description.Stage != GraphicsShaderStage.Vertex)
-            throw new ArgumentException("The render pipeline vertex shader must use the Vertex stage.", nameof(VertexShader));
-        if (FragmentShader is not null && FragmentShader.Description.Stage != GraphicsShaderStage.Fragment)
-            throw new ArgumentException("The render pipeline fragment shader must use the Fragment stage.", nameof(FragmentShader));
+        if (Layout.IsDisposed || Layout.Device.IsDisposed)
+            throw new ObjectDisposedException(nameof(Layout));
+        if (_shaders.Length == 0)
+            throw new ArgumentException("A render pipeline must contain at least one graphics shader.", nameof(Shaders));
         if (!Enum.IsDefined(Topology))
             throw new ArgumentOutOfRangeException(nameof(Topology));
         if (SampleCount is 0 or > 64 || (SampleCount & (SampleCount - 1)) != 0)
             throw new ArgumentOutOfRangeException(nameof(SampleCount));
+
+        uint stageMask = 0;
+        for (int i = 0; i < _shaders.Length; i++)
+        {
+            IGraphicsShader shader = _shaders[i] ??
+                throw new ArgumentException("Shader lists cannot contain null entries.", nameof(Shaders));
+            if (shader.IsDisposed || shader.Device.IsDisposed)
+                throw new ObjectDisposedException(nameof(Shaders));
+            if (!ReferenceEquals(Layout.Device, shader.Device))
+                throw new ArgumentException("Pipeline layout and shaders must belong to the same graphics device.");
+
+            shader.Description.Validate();
+            GraphicsShaderStage stage = shader.Description.Stage;
+            if (stage == GraphicsShaderStage.Compute)
+                throw new ArgumentException("Compute shaders cannot be included in a render pipeline.", nameof(Shaders));
+
+            uint stageBit = 1u << (int)stage;
+            if ((stageMask & stageBit) != 0)
+                throw new ArgumentException($"The {stage} shader stage is declared more than once.", nameof(Shaders));
+            stageMask |= stageBit;
+        }
+
+        bool hasVertex = HasStage(stageMask, GraphicsShaderStage.Vertex);
+        bool hasGeometry = HasStage(stageMask, GraphicsShaderStage.Geometry);
+        bool hasTessellationControl = HasStage(stageMask, GraphicsShaderStage.TessellationControl);
+        bool hasTessellationEvaluation = HasStage(stageMask, GraphicsShaderStage.TessellationEvaluation);
+        bool hasTask = HasStage(stageMask, GraphicsShaderStage.Task);
+        bool hasMesh = HasStage(stageMask, GraphicsShaderStage.Mesh);
+        bool hasTessellation = hasTessellationControl || hasTessellationEvaluation;
+
+        if (hasTask && !hasMesh)
+            throw new ArgumentException("A task shader requires a mesh shader.", nameof(Shaders));
+
+        if (hasMesh)
+        {
+            if (hasVertex || hasGeometry || hasTessellation)
+                throw new ArgumentException(
+                    "Mesh pipelines cannot combine mesh shading with vertex, geometry, or tessellation stages.",
+                    nameof(Shaders));
+            if (Topology == GraphicsPrimitiveTopology.PatchList ||
+                Topology is GraphicsPrimitiveTopology.LineListAdjacency or
+                    GraphicsPrimitiveTopology.LineStripAdjacency or
+                    GraphicsPrimitiveTopology.TriangleListAdjacency or
+                    GraphicsPrimitiveTopology.TriangleStripAdjacency)
+                throw new ArgumentException("Mesh pipelines cannot use patch or adjacency input-assembly topologies.", nameof(Topology));
+            if (VertexInput is not null)
+                throw new ArgumentException("Mesh pipelines cannot declare a vertex input layout.", nameof(VertexInput));
+        }
+        else
+        {
+            if (!hasVertex)
+                throw new ArgumentException("A conventional render pipeline requires a vertex shader.", nameof(Shaders));
+            if (hasTessellationControl != hasTessellationEvaluation)
+                throw new ArgumentException(
+                    "Tessellation control and evaluation shaders must be supplied together.",
+                    nameof(Shaders));
+
+            bool patchTopology = Topology == GraphicsPrimitiveTopology.PatchList;
+            if (patchTopology != hasTessellation)
+                throw new ArgumentException(
+                    "PatchList topology requires both tessellation stages, and tessellation stages require PatchList topology.",
+                    nameof(Topology));
+
+            if (patchTopology)
+            {
+                if (Tessellation is not { } tessellation)
+                    throw new ArgumentException("PatchList topology requires tessellation state.", nameof(Tessellation));
+                tessellation.Validate();
+                uint patchLimit = Layout.Device.Capabilities.Limits.MaxTessellationPatchSize;
+                if (patchLimit != 0 && tessellation.PatchControlPoints > patchLimit)
+                    throw new GraphicsException(
+                        $"Patch control-point count {tessellation.PatchControlPoints} exceeds the device limit {patchLimit}.");
+            }
+            else if (Tessellation is not null)
+            {
+                throw new ArgumentException("Tessellation state is valid only with PatchList topology.", nameof(Tessellation));
+            }
+        }
+
+        bool adjacencyTopology = Topology is
+            GraphicsPrimitiveTopology.LineListAdjacency or
+            GraphicsPrimitiveTopology.LineStripAdjacency or
+            GraphicsPrimitiveTopology.TriangleListAdjacency or
+            GraphicsPrimitiveTopology.TriangleStripAdjacency;
+        if (adjacencyTopology && !hasGeometry)
+            throw new ArgumentException("Adjacency topologies require a geometry shader stage.", nameof(Topology));
+
         if (_colorFormats.Length == 0 && DepthStencilFormat == GraphicsFormat.Unknown)
             throw new ArgumentException("A render pipeline must declare at least one color or depth/stencil format.");
         for (int i = 0; i < _colorFormats.Length; i++)
@@ -419,15 +561,18 @@ public sealed class GraphicsRenderPipelineDescription
                 throw new ArgumentOutOfRangeException(nameof(ColorFormats));
             if (!Layout.Device.Capabilities.SupportsFormat(format, GraphicsFormatSupport.ColorAttachment) ||
                 !Layout.Device.Capabilities.SupportsSampleCount(format, SampleCount))
-                throw new GraphicsException($"The device does not support {format} as a {SampleCount}-sample color attachment.");
+                throw new GraphicsException(
+                    $"The device does not support {format} as a {SampleCount}-sample color attachment.");
         }
         if (DepthStencilFormat != GraphicsFormat.Unknown)
         {
             if (!Enum.IsDefined(DepthStencilFormat))
                 throw new ArgumentOutOfRangeException(nameof(DepthStencilFormat));
-            if (!Layout.Device.Capabilities.SupportsFormat(DepthStencilFormat, GraphicsFormatSupport.DepthStencilAttachment) ||
+            if (!Layout.Device.Capabilities.SupportsFormat(
+                    DepthStencilFormat, GraphicsFormatSupport.DepthStencilAttachment) ||
                 !Layout.Device.Capabilities.SupportsSampleCount(DepthStencilFormat, SampleCount))
-                throw new GraphicsException($"The device does not support {DepthStencilFormat} as a {SampleCount}-sample depth/stencil attachment.");
+                throw new GraphicsException(
+                    $"The device does not support {DepthStencilFormat} as a {SampleCount}-sample depth/stencil attachment.");
         }
         if (DepthStencil.DepthTestEnabled && DepthStencilFormat == GraphicsFormat.Unknown)
             throw new ArgumentException("Depth testing requires a depth/stencil attachment format.", nameof(DepthStencil));
@@ -439,16 +584,53 @@ public sealed class GraphicsRenderPipelineDescription
         Rasterization.Validate();
         DepthStencil.Validate();
         Blend.Validate();
-        VertexInput?.Validate();
+
+        if (VertexInput is not null)
+            Layout.Device.Capabilities.ValidateVertexInputLayout(VertexInput);
+
+        ReadOnlySpan<GraphicsBlendAttachmentState> blendAttachments = Blend.Attachments;
+        for (int i = 0; i < blendAttachments.Length; i++)
+        {
+            if (blendAttachments[i].BlendEnabled &&
+                !Layout.Device.Capabilities.SupportsFormat(_colorFormats[i], GraphicsFormatSupport.Blend))
+                throw new GraphicsException(
+                    $"The device does not support blending with color format {_colorFormats[i]}.");
+        }
 
         GraphicsFeature required = GraphicsFeature.None;
+        if (hasGeometry) required |= GraphicsFeature.GeometryShaders;
+        if (hasTessellation) required |= GraphicsFeature.TessellationShaders;
+        if (hasMesh) required |= GraphicsFeature.MeshShaders;
         if (Rasterization.DepthClampEnabled) required |= GraphicsFeature.DepthClamp;
         if (Rasterization.PolygonMode != GraphicsPolygonMode.Fill) required |= GraphicsFeature.FillModeNonSolid;
         if (Rasterization.LineWidth != 1) required |= GraphicsFeature.WideLines;
         if (DepthStencil.DepthBoundsTestEnabled) required |= GraphicsFeature.DepthBoundsTest;
+
         GraphicsFeature missing = Layout.Device.Capabilities.Features.MissingFrom(required);
         if (missing != GraphicsFeature.None)
             throw new GraphicsFeatureNotSupportedException(required, missing);
+    }
+
+    private IGraphicsShader? FindShader(GraphicsShaderStage stage)
+    {
+        for (int i = 0; i < _shaders.Length; i++)
+        {
+            if (_shaders[i].Description.Stage == stage)
+                return _shaders[i];
+        }
+
+        return null;
+    }
+
+    private static bool HasStage(uint stageMask, GraphicsShaderStage stage) =>
+        (stageMask & (1u << (int)stage)) != 0;
+
+    private static IGraphicsShader[] CreateConventionalShaderList(
+        IGraphicsShader vertexShader,
+        IGraphicsShader? fragmentShader)
+    {
+        ArgumentNullException.ThrowIfNull(vertexShader);
+        return fragmentShader is null ? [vertexShader] : [vertexShader, fragmentShader];
     }
 }
 
@@ -469,7 +651,14 @@ public sealed class GraphicsComputePipelineDescription
     {
         if (!ReferenceEquals(Layout.Device, ComputeShader.Device))
             throw new ArgumentException("Pipeline layout and compute shader must belong to the same graphics device.");
+        if (ComputeShader.IsDisposed || Layout.IsDisposed || Layout.Device.IsDisposed)
+            throw new ObjectDisposedException(nameof(ComputeShader));
+        ComputeShader.Description.Validate();
         if (ComputeShader.Description.Stage != GraphicsShaderStage.Compute)
             throw new ArgumentException("A compute pipeline requires a Compute-stage shader.", nameof(ComputeShader));
+        if (!Layout.Device.Capabilities.Features.Supports(GraphicsFeature.ComputeShaders))
+            throw new GraphicsFeatureNotSupportedException(
+                GraphicsFeature.ComputeShaders,
+                GraphicsFeature.ComputeShaders);
     }
 }

@@ -18,9 +18,11 @@ public readonly record struct GraphicsTextureDescription(
         const GraphicsTextureUsage allUsage =
             GraphicsTextureUsage.Sampled | GraphicsTextureUsage.Storage |
             GraphicsTextureUsage.ColorAttachment | GraphicsTextureUsage.DepthStencilAttachment |
-            GraphicsTextureUsage.CopySource | GraphicsTextureUsage.CopyDestination;
+            GraphicsTextureUsage.CopySource | GraphicsTextureUsage.CopyDestination |
+            GraphicsTextureUsage.Present;
         const GraphicsResourceCreationOptions allOptions =
-            GraphicsResourceCreationOptions.DedicatedAllocation | GraphicsResourceCreationOptions.AllowAliasing;
+            GraphicsResourceCreationOptions.DedicatedAllocation | GraphicsResourceCreationOptions.AllowAliasing |
+            GraphicsResourceCreationOptions.MutableFormat;
 
         if (!Enum.IsDefined(Dimension))
             throw new ArgumentOutOfRangeException(nameof(Dimension));
@@ -34,8 +36,10 @@ public readonly record struct GraphicsTextureDescription(
             throw new ArgumentOutOfRangeException(nameof(ArrayLayers));
         if (Usage == GraphicsTextureUsage.None || (Usage & ~allUsage) != 0)
             throw new ArgumentOutOfRangeException(nameof(Usage));
+        const GraphicsResourceCreationOptions conflictingOptions =
+            GraphicsResourceCreationOptions.DedicatedAllocation | GraphicsResourceCreationOptions.AllowAliasing;
         if ((CreationOptions & ~allOptions) != 0 ||
-            CreationOptions == (GraphicsResourceCreationOptions.DedicatedAllocation | GraphicsResourceCreationOptions.AllowAliasing))
+            (CreationOptions & conflictingOptions) == conflictingOptions)
             throw new ArgumentOutOfRangeException(nameof(CreationOptions));
 
         switch (Dimension)
@@ -90,7 +94,10 @@ public enum GraphicsTextureViewType
     CubeArray
 }
 
-/// <summary>Subresource and format selection for a texture view. Unknown format inherits the texture format.</summary>
+/// <summary>
+/// Subresource and format selection for a texture view. Unknown format inherits the texture format.
+/// Reinterpretation is limited to the explicitly documented compatibility pairs and requires MutableFormat.
+/// </summary>
 public readonly record struct GraphicsTextureViewDescription(
     GraphicsFormat Format,
     GraphicsTextureViewType ViewType,
@@ -101,6 +108,8 @@ public readonly record struct GraphicsTextureViewDescription(
 {
     public void Validate(in GraphicsTextureDescription texture)
     {
+        texture.Validate();
+
         if (!Enum.IsDefined(ViewType))
             throw new ArgumentOutOfRangeException(nameof(ViewType));
         if (Format != GraphicsFormat.Unknown && !Enum.IsDefined(Format))
@@ -112,17 +121,42 @@ public readonly record struct GraphicsTextureViewDescription(
             ArrayLayerCount > texture.ArrayLayers - BaseArrayLayer)
             throw new ArgumentOutOfRangeException(nameof(ArrayLayerCount));
 
+        GraphicsFormat viewFormat = Format == GraphicsFormat.Unknown ? texture.Format : Format;
+        if (viewFormat != texture.Format)
+        {
+            if ((texture.CreationOptions & GraphicsResourceCreationOptions.MutableFormat) == 0)
+                throw new ArgumentException(
+                    "A texture must be created with MutableFormat before a view can reinterpret its format.",
+                    nameof(Format));
+            if (!AreViewFormatsCompatible(texture.Format, viewFormat))
+                throw new ArgumentException(
+                    $"Texture format {viewFormat} is not in the view compatibility class of {texture.Format}.",
+                    nameof(Format));
+        }
+
         bool compatible = ViewType switch
         {
-            GraphicsTextureViewType.Texture1D => texture.Dimension == GraphicsTextureDimension.Texture1D && texture.ArrayLayers == 1,
-            GraphicsTextureViewType.Texture1DArray => texture.Dimension == GraphicsTextureDimension.Texture1D,
-            GraphicsTextureViewType.Texture2D => texture.Dimension == GraphicsTextureDimension.Texture2D && texture.ArrayLayers == 1 && texture.SampleCount == 1,
-            GraphicsTextureViewType.Texture2DArray => texture.Dimension == GraphicsTextureDimension.Texture2D && texture.SampleCount == 1,
-            GraphicsTextureViewType.Texture2DMultisample => texture.Dimension == GraphicsTextureDimension.Texture2D && texture.ArrayLayers == 1 && texture.SampleCount > 1,
-            GraphicsTextureViewType.Texture2DMultisampleArray => texture.Dimension == GraphicsTextureDimension.Texture2D && texture.SampleCount > 1,
-            GraphicsTextureViewType.Texture3D => texture.Dimension == GraphicsTextureDimension.Texture3D,
-            GraphicsTextureViewType.Cube => texture.Dimension == GraphicsTextureDimension.Cube && ArrayLayerCount == 6,
-            GraphicsTextureViewType.CubeArray => texture.Dimension == GraphicsTextureDimension.Cube,
+            GraphicsTextureViewType.Texture1D =>
+                texture.Dimension == GraphicsTextureDimension.Texture1D && ArrayLayerCount == 1,
+            GraphicsTextureViewType.Texture1DArray =>
+                texture.Dimension == GraphicsTextureDimension.Texture1D,
+            GraphicsTextureViewType.Texture2D =>
+                (texture.Dimension is GraphicsTextureDimension.Texture2D or GraphicsTextureDimension.Cube) &&
+                texture.SampleCount == 1 && ArrayLayerCount == 1,
+            GraphicsTextureViewType.Texture2DArray =>
+                (texture.Dimension is GraphicsTextureDimension.Texture2D or GraphicsTextureDimension.Cube) &&
+                texture.SampleCount == 1,
+            GraphicsTextureViewType.Texture2DMultisample =>
+                texture.Dimension == GraphicsTextureDimension.Texture2D &&
+                texture.SampleCount > 1 && ArrayLayerCount == 1,
+            GraphicsTextureViewType.Texture2DMultisampleArray =>
+                texture.Dimension == GraphicsTextureDimension.Texture2D && texture.SampleCount > 1,
+            GraphicsTextureViewType.Texture3D =>
+                texture.Dimension == GraphicsTextureDimension.Texture3D,
+            GraphicsTextureViewType.Cube =>
+                texture.Dimension == GraphicsTextureDimension.Cube && ArrayLayerCount == 6,
+            GraphicsTextureViewType.CubeArray =>
+                texture.Dimension == GraphicsTextureDimension.Cube && ArrayLayerCount >= 6,
             _ => false
         };
 
@@ -133,4 +167,22 @@ public readonly record struct GraphicsTextureViewDescription(
             (BaseArrayLayer % 6 != 0 || ArrayLayerCount % 6 != 0))
             throw new ArgumentException("Cube texture view layers must be aligned to six faces.");
     }
+
+    private static bool AreViewFormatsCompatible(GraphicsFormat source, GraphicsFormat view) =>
+        (source, view) switch
+        {
+            (GraphicsFormat.RGBA8UNorm, GraphicsFormat.RGBA8UNormSrgb) or
+            (GraphicsFormat.RGBA8UNormSrgb, GraphicsFormat.RGBA8UNorm) or
+            (GraphicsFormat.BGRA8UNorm, GraphicsFormat.BGRA8UNormSrgb) or
+            (GraphicsFormat.BGRA8UNormSrgb, GraphicsFormat.BGRA8UNorm) or
+            (GraphicsFormat.BC1UNorm, GraphicsFormat.BC1UNormSrgb) or
+            (GraphicsFormat.BC1UNormSrgb, GraphicsFormat.BC1UNorm) or
+            (GraphicsFormat.BC3UNorm, GraphicsFormat.BC3UNormSrgb) or
+            (GraphicsFormat.BC3UNormSrgb, GraphicsFormat.BC3UNorm) or
+            (GraphicsFormat.BC7UNorm, GraphicsFormat.BC7UNormSrgb) or
+            (GraphicsFormat.BC7UNormSrgb, GraphicsFormat.BC7UNorm) or
+            (GraphicsFormat.ASTC4x4UNorm, GraphicsFormat.ASTC4x4UNormSrgb) or
+            (GraphicsFormat.ASTC4x4UNormSrgb, GraphicsFormat.ASTC4x4UNorm) => true,
+            _ => false
+        };
 }

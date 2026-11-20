@@ -133,7 +133,7 @@ public sealed class GraphicsBarrierValidationTests
             GraphicsTextureDimension.Texture2D,
             GraphicsFormat.RGBA8UNorm,
             256, 256, 1, 9, 4, 1,
-            GraphicsTextureUsage.Sampled));
+            GraphicsTextureUsage.Sampled | GraphicsTextureUsage.CopyDestination));
 
         var barrier = new GraphicsResourceBarrier(
             texture,

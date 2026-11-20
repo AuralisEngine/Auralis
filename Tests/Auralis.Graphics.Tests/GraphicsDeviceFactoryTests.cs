@@ -130,14 +130,15 @@ public sealed class GraphicsDeviceFactoryTests
     internal sealed class TestDevice(
         GraphicsBackend backend,
         GraphicsFeature features,
-        GraphicsQueueCapabilities queues) : IGraphicsDevice
+        GraphicsQueueCapabilities queues,
+        GraphicsDeviceCapabilities? capabilities = null) : IGraphicsDevice
     {
         public GraphicsBackend Backend { get; } = backend;
         public GraphicsAdapterInfo Adapter { get; } = new(
             new GraphicsAdapterId(1, 2), "Test adapter", GraphicsAdapterType.Discrete, 1, 2, 1024);
         public GraphicsDeviceInfo Info { get; } = new(
             "Test device", "Test driver", "1.0", "1.0", 1, 2, false);
-        public GraphicsDeviceCapabilities Capabilities { get; } = new(
+        public GraphicsDeviceCapabilities Capabilities { get; } = capabilities ?? new GraphicsDeviceCapabilities(
             new GraphicsFeatureSet(features), queues, default, ReadOnlySpan<GraphicsFormatCapabilities>.Empty);
         public bool IsDisposed { get; private set; }
 

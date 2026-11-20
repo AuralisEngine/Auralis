@@ -1,4 +1,5 @@
 using Auralis.Graphics.Abstractions;
+using Auralis.Graphics.Commands;
 using Auralis.Graphics.Devices;
 using Auralis.Graphics.Resources;
 using Auralis.Graphics.Synchronization;
@@ -209,13 +210,26 @@ public interface IGraphicsPresentationSurface : IGraphicsDeviceObject
 
     GraphicsPresentationTargetSnapshot Snapshot { get; }
 
-    IGraphicsSwapChain CreateSwapChain(in GraphicsSwapChainDescription description);
+    /// <summary>
+    /// Returns whether this exact queue can present to this surface. Queue capability is surface-specific;
+    /// a device-wide Present flag or a graphics queue role is not sufficient evidence. Returns false for queues
+    /// owned by another device.
+    /// </summary>
+    bool SupportsPresentation(IGraphicsCommandQueue queue);
+
+    /// <summary>Creates a swapchain using an explicitly selected, surface-compatible presentation queue.</summary>
+    IGraphicsSwapChain CreateSwapChain(
+        IGraphicsCommandQueue presentationQueue,
+        in GraphicsSwapChainDescription description);
 }
 
 /// <summary>Presentation queue for images acquired from a surface.</summary>
 public interface IGraphicsSwapChain : IGraphicsDeviceObject
 {
     GraphicsSwapChainDescription Description { get; }
+
+    /// <summary>The exact queue selected for presentation to the owning surface.</summary>
+    IGraphicsCommandQueue PresentationQueue { get; }
 
     ulong Generation { get; }
 

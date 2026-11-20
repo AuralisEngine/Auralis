@@ -91,7 +91,11 @@ public enum GraphicsQueueType
     Copy
 }
 
-/// <summary>Queue capabilities exposed by a graphics device.</summary>
+/// <summary>
+ /// Coarse device-level queue capabilities. Present indicates that the device may expose presentation
+ /// queues, but it never proves compatibility with a particular native surface. Use
+ /// IGraphicsPresentationSurface.SupportsPresentation for the exact queue/surface pair.
+ /// </summary>
 [Flags]
 public enum GraphicsQueueCapabilities
 {
@@ -99,5 +103,6 @@ public enum GraphicsQueueCapabilities
     Graphics = 1 << 0,
     Compute = 1 << 1,
     Copy = 1 << 2,
+    /// <summary>At least one queue may support presentation; surface compatibility must be queried separately.</summary>
     Present = 1 << 3
 }

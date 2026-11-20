@@ -89,7 +89,9 @@ public enum GraphicsResourceCreationOptions
 {
     None = 0,
     DedicatedAllocation = 1 << 0,
-    AllowAliasing = 1 << 1
+    AllowAliasing = 1 << 1,
+    /// <summary>Allows views to reinterpret the texture using an explicitly compatible format.</summary>
+    MutableFormat = 1 << 2
 }
 
 /// <summary>Texture resource dimensionality.</summary>
@@ -111,7 +113,9 @@ public enum GraphicsTextureUsage
     ColorAttachment = 1 << 2,
     DepthStencilAttachment = 1 << 3,
     CopySource = 1 << 4,
-    CopyDestination = 1 << 5
+    CopyDestination = 1 << 5,
+    /// <summary>Intended for presentation through a compatible presentation surface.</summary>
+    Present = 1 << 6
 }
 
 /// <summary>How a buffer is intended to be accessed by the CPU and GPU.</summary>
