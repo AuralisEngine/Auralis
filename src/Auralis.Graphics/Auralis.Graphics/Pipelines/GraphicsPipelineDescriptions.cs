@@ -500,6 +500,8 @@ public sealed class GraphicsRenderPipelineDescription
 
         if (hasMesh)
         {
+            if (Tessellation is not null)
+                throw new ArgumentException("Mesh pipelines cannot declare tessellation state.", nameof(Tessellation));
             if (hasVertex || hasGeometry || hasTessellation)
                 throw new ArgumentException(
                     "Mesh pipelines cannot combine mesh shading with vertex, geometry, or tessellation stages.",

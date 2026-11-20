@@ -320,7 +320,7 @@ public sealed class GraphicsReviewRegressionTests
         var tessellationDevice = CreateDevice(
             GraphicsFeature.TessellationShaders,
             [renderFormats],
-            limits: default with { MaxTessellationPatchSize = 8 });
+            limits: default(GraphicsDeviceLimits) with { MaxTessellationPatchSize = 8 });
         var tessellationPipeline = new GraphicsRenderPipelineDescription(
             new TestPipelineLayout(tessellationDevice),
             [new TestShader(tessellationDevice, GraphicsShaderStage.Vertex),
