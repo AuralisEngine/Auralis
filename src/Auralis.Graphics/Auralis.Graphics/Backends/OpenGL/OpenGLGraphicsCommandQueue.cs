@@ -1,5 +1,6 @@
 using Auralis.Graphics.Abstractions;
 using Auralis.Graphics.Commands;
+using Auralis.Graphics.Devices;
 using Auralis.Graphics.Synchronization;
 using Silk.NET.OpenGL;
 using Silk.NET.OpenGL.Extensions.ARB;
