@@ -131,3 +131,33 @@ Provider registration is a startup operation and the registry is not intended fo
 ## Implementation status
 
 This project currently provides common descriptors, validation, provider/device contracts, command/pipeline/synchronization interfaces, and presentation interop contracts. It does **not** create native devices, allocate GPU memory, record native commands, compile shaders, create native windows/surfaces, or implement a Direct3D 12, Vulkan, or Metal backend. Those responsibilities belong to future backend and platform integration work.
+
+
+## OpenGL backend (initial implementation)
+
+The OpenGL backend lives in `Backends/OpenGL` and uses the official `Silk.NET.OpenGL` package (2.23.0). It targets desktop OpenGL 4.5 Core Profile only. OpenGL ES is not supported.
+
+Register it explicitly and inject a context provider supplied by the host/platform layer:
+
+```csharp
+var registry = new GraphicsBackendProviderRegistry();
+registry.Register(new OpenGLGraphicsBackendProvider(contextProvider));
+
+using IGraphicsDevice device = await GraphicsDeviceFactory.CreateAsync(
+    registry,
+    new GraphicsDeviceOptions
+    {
+        Backend = GraphicsBackend.OpenGL,
+        RequiredQueues = GraphicsQueueCapabilities.None
+    });
+```
+
+`IOpenGLContextProvider` is backend-specific and deliberately separate from `GraphicsNativeSurfaceDescription`. It supplies a context identity, function resolver, current-context activation/release, context ownership, and optional buffer swapping. Silk.NET loads its `GL` dispatch only after the provider has made the context current. Borrowed providers are not disposed by the device; an owned provider is disposed by the device.
+
+This first backend increment implements context validation and device/driver discovery, OpenGL capability/limit snapshots, buffer allocation and staging-based CPU mapping, and GLSL shader compilation. It does **not** yet implement command queues/lists, textures/views, samplers, binding layouts/sets, render or compute pipelines, fences, or presentation surfaces/swapchains. Those device methods explicitly reject the operation instead of returning placeholder objects or claiming unsupported functionality. Consequently, the provider currently supports device creation only when callers request no command-queue capabilities; the common factory's default graphics-queue requirement must be overridden as shown above.
+
+Format capabilities are intentionally empty until OpenGL internal-format querying and complete format/usage translation are implemented. Adapter identifiers and vendor/device PCI identifiers are not fabricated: the provider reports the current context's renderer as an unknown-type adapter, with zero identifiers and unknown dedicated memory. Separate compute/transfer queues and OpenGL ES are not advertised.
+
+All GL calls are serialized through the injected context provider. The provider must make the same context current on the calling thread and resolve entry points for that context. Hosts must not issue unrelated GL commands against the context while Auralis is using it unless they coordinate access with the provider. Device disposal releases Auralis GL resources and the Silk.NET dispatch; it disposes the context provider only when ownership was transferred as `Owned`.
+
+The implementation requires a valid OpenGL 4.5 Core Profile context before device creation. CI exercises the hardware-independent provider/registration contracts; real context and GPU smoke tests remain gated follow-up work.

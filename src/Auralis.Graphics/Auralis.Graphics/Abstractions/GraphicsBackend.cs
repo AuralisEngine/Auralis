@@ -5,7 +5,8 @@ public enum GraphicsBackend
 {
     Direct3D12,
     Vulkan,
-    Metal
+    Metal,
+    OpenGL
 }
 
 /// <summary>Broad hardware class reported by a graphics adapter.</summary>

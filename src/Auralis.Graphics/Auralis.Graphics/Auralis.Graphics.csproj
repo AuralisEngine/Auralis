@@ -20,4 +20,8 @@
     <Folder Include="Resources\" />
   </ItemGroup>
 
+  <ItemGroup>
+    <PackageReference Include="Silk.NET.OpenGL" Version="2.23.0" />
+  </ItemGroup>
+
 </Project>
