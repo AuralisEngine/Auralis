@@ -71,7 +71,8 @@ public enum GraphicsFeature : ulong
     WideLines = 1UL << 19,
     DepthClamp = 1UL << 20,
     FillModeNonSolid = 1UL << 21,
-    TaskShaders = 1UL << 22
+    TaskShaders = 1UL << 22,
+    IndependentBlend = 1UL << 23
 }
 
 /// <summary>A strongly typed set of optional graphics features reported by a device.</summary>

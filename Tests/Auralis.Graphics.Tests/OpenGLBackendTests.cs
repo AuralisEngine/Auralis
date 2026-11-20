@@ -14,6 +14,46 @@ namespace Auralis.Graphics.Tests;
 public sealed class OpenGLBackendTests
 {
     [Fact]
+    public void DriverLineWidthRangeControlsWideLineCapabilityAndRequestedWidths()
+    {
+        OpenGLLineWidthRange unitOnly = OpenGLLineWidthRange.FromNative(1f, 1f);
+        Assert.False(unitOnly.SupportsWideLines);
+        Assert.True(unitOnly.Contains(1f));
+        Assert.False(unitOnly.Contains(2f));
+
+        OpenGLLineWidthRange wide = OpenGLLineWidthRange.FromNative(1f, 8f);
+        Assert.True(wide.SupportsWideLines);
+        Assert.True(wide.Contains(4f));
+        Assert.False(wide.Contains(8.5f));
+        Assert.False(wide.Contains(float.NaN));
+
+        Assert.Throws<GraphicsException>(() => OpenGLLineWidthRange.FromNative(0f, 1f));
+        Assert.Throws<GraphicsException>(() => OpenGLLineWidthRange.FromNative(2f, 1f));
+    }
+
+    [Fact]
+    public void IndependentBlendValidationAllowsPerAttachmentEnableAndWriteMaskOnlyWhenAvailable()
+    {
+        GraphicsBlendAttachmentState[] common = [
+            new(false, GraphicsBlendFactor.One, GraphicsBlendFactor.Zero,
+                GraphicsBlendOperation.Add, GraphicsBlendFactor.One, GraphicsBlendFactor.Zero,
+                GraphicsBlendOperation.Add, GraphicsColorWriteMask.All),
+            new(false, GraphicsBlendFactor.One, GraphicsBlendFactor.Zero,
+                GraphicsBlendOperation.Add, GraphicsBlendFactor.One, GraphicsBlendFactor.Zero,
+                GraphicsBlendOperation.Add, GraphicsColorWriteMask.All)
+        ];
+        OpenGLBlendStateValidation.Validate(common, 2, supportsIndependentBlend: false);
+
+        GraphicsBlendAttachmentState[] different = [
+            common[0],
+            common[1] with { BlendEnabled = true, WriteMask = GraphicsColorWriteMask.Red }
+        ];
+        Assert.Throws<GraphicsFeatureNotSupportedException>(() =>
+            OpenGLBlendStateValidation.Validate(different, 2, supportsIndependentBlend: false));
+        OpenGLBlendStateValidation.Validate(different, 2, supportsIndependentBlend: true);
+    }
+
+    [Fact]
     public void OpenGLBackendIsAppendedWithoutChangingExistingBackendValues()
     {
         Assert.Equal(0, (int)GraphicsBackend.Direct3D12);

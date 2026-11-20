@@ -3,6 +3,7 @@ using Auralis.Graphics.Pipelines;
 using Auralis.Graphics.Resources;
 using Silk.NET.OpenGL;
 using Silk.NET.OpenGL.Extensions.ARB;
+using Silk.NET.OpenGL.Legacy.Extensions.EXT;
 
 namespace Auralis.Graphics.Backends.OpenGL;
 
@@ -79,9 +80,14 @@ internal sealed class OpenGLGraphicsRenderPipeline : GraphicsDeviceObject, IGrap
         if (description.Rasterization.DepthBiasClamp != 0)
             throw new GraphicsValidationException(
                 "Depth-bias clamping requires GL_ARB_polygon_offset_clamp, which is not enabled by this backend.");
-        if (description.Rasterization.LineWidth != 1)
+        if (!device.SupportedLineWidths.Contains(description.Rasterization.LineWidth))
             throw new GraphicsValidationException(
-                "Non-unit line widths are not advertised or implemented by this OpenGL backend.");
+                $"Requested line width {description.Rasterization.LineWidth} is outside the driver-reported range " +
+                $"[{device.SupportedLineWidths.Minimum}, {device.SupportedLineWidths.Maximum}].");
+        OpenGLBlendStateValidation.Validate(
+            description.Blend.Attachments,
+            description.ColorFormats.Length,
+            device.IndexedDrawBuffersApi is not null);
         if (description.DepthStencil.DepthBoundsTestEnabled)
             throw new GraphicsFeatureNotSupportedException(
                 GraphicsFeature.DepthBoundsTest, GraphicsFeature.DepthBoundsTest);
@@ -264,7 +270,9 @@ internal sealed class OpenGLGraphicsRenderPipeline : GraphicsDeviceObject, IGrap
         gl.LineWidth(rasterization.LineWidth);
 
         ApplyDepthStencil(gl, Description.DepthStencil);
-        ApplyBlend(gl, drawBuffersBlend, Description.Blend, Description.ColorFormats.Length);
+        ApplyBlend(
+            gl, drawBuffersBlend, _device.IndexedDrawBuffersApi,
+            Description.Blend, Description.ColorFormats.Length);
 
         if (Description.Tessellation is { } tessellation)
             gl.PatchParameter(PatchParameterName.Vertices, checked((int)tessellation.PatchControlPoints));
@@ -302,6 +310,7 @@ internal sealed class OpenGLGraphicsRenderPipeline : GraphicsDeviceObject, IGrap
     private static void ApplyBlend(
         GL gl,
         ArbDrawBuffersBlend drawBuffersBlend,
+        ExtDrawBuffers2? indexedDrawBuffers,
         GraphicsBlendState blend,
         int colorTargetCount)
     {
@@ -321,32 +330,38 @@ internal sealed class OpenGLGraphicsRenderPipeline : GraphicsDeviceObject, IGrap
                 GraphicsColorWriteMask.All)
             : attachments[0];
 
-        // GL 4.5 provides indexed blend factors/equations, but Silk.NET 2.23.0 exposes the
-        // indexed enable and color-mask operations only through the EXT_draw_buffers2 wrapper
-        // in its Legacy package. This backend does not mix OpenGL binding assemblies. Therefore
-        // enable state and write mask are required to be common across draw buffers; blend
-        // factors/equations remain independently configured through ARB_draw_buffers_blend.
-        for (int i = 1; i < colorTargetCount; i++)
+        // Per-attachment blend factors/equations are core on the required GL 4.5 baseline.
+        // Independent enable and write masks use Silk.NET's official EXT_draw_buffers2 wrapper.
+        if (indexedDrawBuffers is null)
         {
-            GraphicsBlendAttachmentState current = attachments.IsEmpty
-                ? first
-                : attachments[i];
-            if (current.BlendEnabled != first.BlendEnabled || current.WriteMask != first.WriteMask)
-                throw new GraphicsValidationException(
-                    "OpenGL 4.5 backend currently requires identical blend-enable and color-write-mask state for every color attachment.");
+            SetEnabled(gl, EnableCap.Blend, first.BlendEnabled);
+            GraphicsColorWriteMask commonMask = first.WriteMask;
+            gl.ColorMask(
+                (commonMask & GraphicsColorWriteMask.Red) != 0,
+                (commonMask & GraphicsColorWriteMask.Green) != 0,
+                (commonMask & GraphicsColorWriteMask.Blue) != 0,
+                (commonMask & GraphicsColorWriteMask.Alpha) != 0);
         }
-
-        SetEnabled(gl, EnableCap.Blend, first.BlendEnabled);
-        GraphicsColorWriteMask mask = first.WriteMask;
-        gl.ColorMask(
-            (mask & GraphicsColorWriteMask.Red) != 0,
-            (mask & GraphicsColorWriteMask.Green) != 0,
-            (mask & GraphicsColorWriteMask.Blue) != 0,
-            (mask & GraphicsColorWriteMask.Alpha) != 0);
 
         for (int i = 0; i < colorTargetCount; i++)
         {
             GraphicsBlendAttachmentState state = attachments.IsEmpty ? first : attachments[i];
+            if (indexedDrawBuffers is not null)
+            {
+                if (state.BlendEnabled)
+                    indexedDrawBuffers.EnableIndexed(EnableCap.Blend, (uint)i);
+                else
+                    indexedDrawBuffers.DisableIndexed(EnableCap.Blend, (uint)i);
+
+                GraphicsColorWriteMask mask = state.WriteMask;
+                indexedDrawBuffers.ColorMaskIndexed(
+                    (uint)i,
+                    (mask & GraphicsColorWriteMask.Red) != 0,
+                    (mask & GraphicsColorWriteMask.Green) != 0,
+                    (mask & GraphicsColorWriteMask.Blue) != 0,
+                    (mask & GraphicsColorWriteMask.Alpha) != 0);
+            }
+
             drawBuffersBlend.BlendFuncSeparate(
                 (uint)i,
                 OpenGLPipelineMapping.ToBlendFactor(state.SourceColor),

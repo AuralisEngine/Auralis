@@ -8,6 +8,7 @@ using Auralis.Graphics.Resources;
 using Auralis.Graphics.Synchronization;
 using Silk.NET.OpenGL;
 using Silk.NET.OpenGL.Extensions.ARB;
+using Silk.NET.OpenGL.Legacy.Extensions.EXT;
 
 namespace Auralis.Graphics.Backends.OpenGL;
 
@@ -37,6 +38,7 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
     private readonly ArbMultiDrawIndirect _multiDrawIndirectApi;
     private readonly ArbShaderImageLoadStore _imageLoadStoreApi;
     private readonly ArbDrawBuffersBlend _drawBuffersBlendApi;
+    private readonly ExtDrawBuffers2? _indexedDrawBuffersApi;
     private readonly ArbComputeShader _computeShaderApi;
     private readonly ArbUniformBufferObject _uniformBufferObjectApi;
     private readonly string _renderer;
@@ -49,6 +51,8 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
     internal uint MaxImageUnits { get; }
     internal uint UniformBufferOffsetAlignment { get; }
     internal uint StorageBufferOffsetAlignment { get; }
+    internal OpenGLLineWidthRange SupportedLineWidths { get; }
+    internal ExtDrawBuffers2? IndexedDrawBuffersApi => _indexedDrawBuffersApi;
     private int _disposeState;
 
     private OpenGLGraphicsDevice(
@@ -66,6 +70,8 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
         ArbMultiDrawIndirect multiDrawIndirectApi,
         ArbShaderImageLoadStore imageLoadStoreApi,
         ArbDrawBuffersBlend drawBuffersBlendApi,
+        ExtDrawBuffers2? indexedDrawBuffersApi,
+        OpenGLLineWidthRange supportedLineWidths,
         ArbComputeShader computeShaderApi,
         ArbUniformBufferObject uniformBufferObjectApi,
         uint maxComputeWorkGroupCountX,
@@ -98,6 +104,8 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
         _multiDrawIndirectApi = multiDrawIndirectApi;
         _imageLoadStoreApi = imageLoadStoreApi;
         _drawBuffersBlendApi = drawBuffersBlendApi;
+        _indexedDrawBuffersApi = indexedDrawBuffersApi;
+        SupportedLineWidths = supportedLineWidths;
         _computeShaderApi = computeShaderApi;
         _uniformBufferObjectApi = uniformBufferObjectApi;
         _renderer = renderer;
@@ -142,6 +150,7 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
         ArbMultiDrawIndirect? multiDrawIndirectApi = null;
         ArbShaderImageLoadStore? imageLoadStoreApi = null;
         ArbDrawBuffersBlend? drawBuffersBlendApi = null;
+        ExtDrawBuffers2? indexedDrawBuffersApi = null;
         ArbComputeShader? computeShaderApi = null;
         ArbUniformBufferObject? uniformBufferObjectApi = null;
         if (contextProvider.StateOwnership != OpenGLContextStateOwnership.Exclusive)
@@ -186,6 +195,8 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
             multiDrawIndirectApi = new ArbMultiDrawIndirect(gl.Context);
             imageLoadStoreApi = new ArbShaderImageLoadStore(gl.Context);
             drawBuffersBlendApi = new ArbDrawBuffersBlend(gl.Context);
+            if (gl.IsExtensionPresent(ExtDrawBuffers2.ExtensionName))
+                indexedDrawBuffersApi = new ExtDrawBuffers2(gl.Context);
             if (major > 4 || (major == 4 && minor >= 3))
                 computeShaderApi = new ArbComputeShader(gl.Context);
             uniformBufferObjectApi = new ArbUniformBufferObject(gl.Context);
@@ -193,8 +204,14 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
             string vendor = gl.GetStringS(StringName.Vendor);
             string renderer = gl.GetStringS(StringName.Renderer);
             string version = gl.GetStringS(StringName.Version);
+            gl.GetFloat(GLEnum.AliasedLineWidthRange, out System.Numerics.Vector2 nativeLineWidths);
+            OpenGLLineWidthRange supportedLineWidths = OpenGLLineWidthRange.FromNative(
+                nativeLineWidths.X, nativeLineWidths.Y);
             GraphicsDeviceCapabilities capabilities = QueryCapabilities(
-                gl, major, minor, internalFormatQuery, uniformBufferObjectApi!, contextProvider.SupportsPresentation);
+                gl, major, minor, internalFormatQuery, uniformBufferObjectApi!,
+                contextProvider.SupportsPresentation,
+                indexedDrawBuffersApi is not null,
+                supportedLineWidths);
             uint maxUniformBufferBindings = ToUInt(gl.GetInteger(GLEnum.MaxUniformBufferBindings));
             uint maxStorageBufferBindings = ToUInt(gl.GetInteger(GLEnum.MaxShaderStorageBufferBindings));
             uint maxTextureUnits = ToUInt(gl.GetInteger(GLEnum.MaxCombinedTextureImageUnits));
@@ -220,7 +237,8 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
                 contextProvider, gl, directStateAccess, textureViewApi, samplerObjects,
                 internalFormatQuery, syncApi, copyImageApi, viewportApi,
                 baseInstanceApi, drawIndirectApi, multiDrawIndirectApi, imageLoadStoreApi,
-                drawBuffersBlendApi, computeShaderApi!, uniformBufferObjectApi!,
+                drawBuffersBlendApi, indexedDrawBuffersApi, supportedLineWidths,
+                computeShaderApi!, uniformBufferObjectApi!,
                 maxComputeWorkGroupCountX, maxComputeWorkGroupCountY, maxComputeWorkGroupCountZ,
                 maxUniformBufferBindings, maxStorageBufferBindings, maxTextureUnits, maxImageUnits,
                 uniformBufferOffsetAlignment, storageBufferOffsetAlignment,
@@ -238,6 +256,7 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
             multiDrawIndirectApi = null;
             imageLoadStoreApi = null;
             drawBuffersBlendApi = null;
+            indexedDrawBuffersApi = null;
             computeShaderApi = null;
             uniformBufferObjectApi = null;
             return device;
@@ -246,6 +265,7 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
         {
             uniformBufferObjectApi?.Dispose();
             computeShaderApi?.Dispose();
+            indexedDrawBuffersApi?.Dispose();
             drawBuffersBlendApi?.Dispose();
             imageLoadStoreApi?.Dispose();
             multiDrawIndirectApi?.Dispose();
@@ -269,7 +289,9 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
         int minor,
         ArbInternalformatQuery internalFormatQuery,
         ArbUniformBufferObject uniformBufferObjectApi,
-        bool supportsPresentation)
+        bool supportsPresentation,
+        bool supportsIndependentBlend,
+        OpenGLLineWidthRange supportedLineWidths)
     {
         static bool AtLeast(int major, int minor, int requiredMajor, int requiredMinor) =>
             major > requiredMajor || (major == requiredMajor && minor >= requiredMinor);
@@ -286,6 +308,8 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
         if (hasTessellation) features |= GraphicsFeature.TessellationShaders;
         if (hasGeometry) features |= GraphicsFeature.GeometryShaders;
         if (hasAnisotropy) features |= GraphicsFeature.SamplerAnisotropy;
+        if (supportsIndependentBlend) features |= GraphicsFeature.IndependentBlend;
+        if (supportedLineWidths.SupportsWideLines) features |= GraphicsFeature.WideLines;
         // Timestamp queries, sparse resources, mesh/task shaders, depth bounds, and multi-viewport
         // are intentionally not advertised until the corresponding execution paths are implemented.
 
@@ -618,6 +642,7 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
 
                 _uniformBufferObjectApi.Dispose();
                 _computeShaderApi?.Dispose();
+                _indexedDrawBuffersApi?.Dispose();
                 _drawBuffersBlendApi.Dispose();
                 _imageLoadStoreApi.Dispose();
                 _multiDrawIndirectApi.Dispose();
