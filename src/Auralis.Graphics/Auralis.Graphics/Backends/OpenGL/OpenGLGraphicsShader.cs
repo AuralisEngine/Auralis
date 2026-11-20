@@ -66,12 +66,13 @@ internal sealed class OpenGLGraphicsShader : GraphicsDeviceObject, IGraphicsShad
         if (source.IndexOf('\0') >= 0)
             throw new GraphicsValidationException("GLSL source cannot contain embedded null characters.");
 
+        GraphicsShaderStage stage = description.Stage;
         uint shader = 0;
         try
         {
             shader = device.WithContext(gl =>
             {
-                uint handle = gl.CreateShader(ToShaderType(description.Stage));
+                uint handle = gl.CreateShader(ToShaderType(stage));
                 gl.ShaderSource(handle, source);
                 gl.CompileShader(handle);
                 gl.GetShader(handle, ShaderParameterName.CompileStatus, out int status);
