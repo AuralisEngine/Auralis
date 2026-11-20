@@ -107,7 +107,7 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
         bool hasSparseTextures = gl.IsExtensionPresent("GL_ARB_sparse_texture");
         bool hasMultiViewport = AtLeast(major, minor, 4, 1);
         bool hasDepthBounds = gl.IsExtensionPresent("GL_EXT_depth_bounds_test") ||
-                              gl.IsExtensionPresent("GL_NV_depth_buffer_float");
+                              gl.IsExtensionPresent("GL_NV_depth_bounds_test");
         bool hasMeshShaders = gl.IsExtensionPresent("GL_NV_mesh_shader") ||
                               gl.IsExtensionPresent("GL_EXT_mesh_shader");
 
