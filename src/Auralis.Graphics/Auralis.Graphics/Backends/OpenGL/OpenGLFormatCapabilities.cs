@@ -51,11 +51,11 @@ internal static class OpenGLFormatCapabilities
             {
                 if (internalFormatQuery.GetInternalformat(
                         TextureTarget.Texture2D,
-                        internalFormat,
+                        queryFormat,
                         InternalFormatPName.DepthRenderable) != 0 ||
                     internalFormatQuery.GetInternalformat(
                         TextureTarget.Texture2D,
-                        internalFormat,
+                        queryFormat,
                         InternalFormatPName.StencilRenderable) != 0)
                 {
                     support |= GraphicsFormatSupport.DepthStencilAttachment;
@@ -65,7 +65,7 @@ internal static class OpenGLFormatCapabilities
             {
                 if (internalFormatQuery.GetInternalformat(
                         TextureTarget.Texture2D,
-                        internalFormat,
+                        queryFormat,
                         InternalFormatPName.ColorRenderable) != 0)
                 {
                     support |= GraphicsFormatSupport.ColorAttachment;
@@ -73,7 +73,7 @@ internal static class OpenGLFormatCapabilities
 
                 if (internalFormatQuery.GetInternalformat(
                         TextureTarget.Texture2D,
-                        internalFormat,
+                        queryFormat,
                         InternalFormatPName.FramebufferBlend) != 0)
                 {
                     support |= GraphicsFormatSupport.Blend;
