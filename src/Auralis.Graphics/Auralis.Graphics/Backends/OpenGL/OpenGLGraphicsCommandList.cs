@@ -630,7 +630,8 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
         ArbBaseInstance baseInstanceApi,
         ArbDrawIndirect drawIndirectApi,
         ArbMultiDrawIndirect multiDrawIndirectApi,
-        ArbShaderImageLoadStore imageLoadStoreApi)
+        ArbShaderImageLoadStore imageLoadStoreApi,
+        ArbDrawBuffersBlend drawBuffersBlendApi)
     {
         ReadOnlySpan<OpenGLRecordedCommand> commands = Commands;
         uint framebuffer = 0;
@@ -692,7 +693,7 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
                         break;
                     case OpenGLCommandKind.SetRenderPipeline:
                         activePipeline = command.RenderPipeline!;
-                        activePipeline.Apply(gl);
+                        activePipeline.Apply(gl, drawBuffersBlendApi);
                         break;
                     case OpenGLCommandKind.SetBindingSet:
                         if (activePipeline?.Layout is not OpenGLGraphicsPipelineLayout activeLayout)
