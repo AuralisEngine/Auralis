@@ -43,10 +43,7 @@ internal sealed class OpenGLGraphicsPresentationSurface : GraphicsDeviceObject, 
         GraphicsPresentationTargetSnapshot snapshot = Target.GetSnapshot();
         snapshot.Validate();
 
-        if (!_device.ContextProvider.IsPresentationTargetCompatible(snapshot))
-            throw new GraphicsBackendUnavailableException(
-                GraphicsBackend.OpenGL,
-                "The current presentation target does not identify the drawable associated with the injected OpenGL context.");
+        OpenGLPresentationTargetValidation.ValidateTarget(_device.ContextProvider, snapshot);
 
         lock (_gate)
         {
@@ -91,9 +88,7 @@ internal sealed class OpenGLGraphicsPresentationSurface : GraphicsDeviceObject, 
             throw new GraphicsValidationException(
                 "The selected queue cannot present to the drawable represented by this OpenGL surface.");
 
-        if (!_device.ContextProvider.SupportsPresentMode(copy.PresentMode))
-            throw new GraphicsValidationException(
-                $"The OpenGL context provider cannot apply present mode {copy.PresentMode}.");
+        OpenGLPresentationTargetValidation.ValidatePresentMode(_device.ContextProvider, copy.PresentMode);
 
         _device.ContextProvider.SetPresentMode(copy.PresentMode);
         GraphicsPresentationTargetSnapshot snapshot = RefreshSnapshot();
