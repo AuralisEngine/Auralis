@@ -740,16 +740,20 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
         ArbDrawIndirect drawIndirectApi,
         ArbMultiDrawIndirect multiDrawIndirectApi,
         ArbShaderImageLoadStore imageLoadStoreApi,
-        ArbDrawBuffersBlend drawBuffersBlendApi)
+        ArbDrawBuffersBlend drawBuffersBlendApi,
+        ArbComputeShader computeShaderApi)
     {
         ReadOnlySpan<OpenGLRecordedCommand> commands = Commands;
         uint framebuffer = 0;
         OpenGLGraphicsRenderPipeline? activePipeline = null;
+        OpenGLGraphicsComputePipeline? activeComputePipeline = null;
+        OpenGLGraphicsPipelineLayout? activePipelineLayout = null;
         // Dynamic scissor state is command-list-local in the common API. Do not inherit an
         // enable bit from a previously submitted list on this state-owning context.
         gl.Disable(EnableCap.ScissorTest);
         int previousDrawFramebuffer = gl.GetInteger(GLEnum.DrawFramebufferBinding);
         int previousIndirectBuffer = gl.GetInteger(GLEnum.DrawIndirectBufferBinding);
+        int previousDispatchIndirectBuffer = gl.GetInteger(GLEnum.DispatchIndirectBufferBinding);
         try
         {
             for (int i = 0; i < commands.Length; i++)
@@ -805,12 +809,20 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
                         break;
                     case OpenGLCommandKind.SetRenderPipeline:
                         activePipeline = command.RenderPipeline!;
+                        activeComputePipeline = null;
+                        activePipelineLayout = (OpenGLGraphicsPipelineLayout)activePipeline.Layout;
                         activePipeline.Apply(gl, drawBuffersBlendApi);
                         break;
+                    case OpenGLCommandKind.SetComputePipeline:
+                        activeComputePipeline = command.ComputePipeline!;
+                        activePipeline = null;
+                        activePipelineLayout = (OpenGLGraphicsPipelineLayout)activeComputePipeline.Layout;
+                        gl.UseProgram(activeComputePipeline.Program);
+                        break;
                     case OpenGLCommandKind.SetBindingSet:
-                        if (activePipeline?.Layout is not OpenGLGraphicsPipelineLayout activeLayout)
-                            throw new GraphicsValidationException("A render pipeline must be active before descriptor sets are bound.");
-                        command.BindingSet!.Bind(gl, dsa, imageLoadStoreApi, activeLayout, command.SetIndex);
+                        if (activePipelineLayout is null)
+                            throw new GraphicsValidationException("A graphics or compute pipeline must be active before descriptor sets are bound.");
+                        command.BindingSet!.Bind(gl, dsa, imageLoadStoreApi, activePipelineLayout, command.SetIndex);
                         break;
                     case OpenGLCommandKind.SetVertexBuffer:
                         if (activePipeline is null)
@@ -900,6 +912,22 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
                                 command.Stride);
                         }
                         break;
+                    case OpenGLCommandKind.Dispatch:
+                        if (activeComputePipeline is null)
+                            throw new GraphicsValidationException("A compute pipeline must be active before dispatch.");
+                        computeShaderApi.DispatchCompute(
+                            command.GroupCountX,
+                            command.GroupCountY,
+                            command.GroupCountZ);
+                        break;
+                    case OpenGLCommandKind.DispatchIndirect:
+                        if (activeComputePipeline is null)
+                            throw new GraphicsValidationException("A compute pipeline must be active before indirect dispatch.");
+                        gl.BindBuffer(
+                            BufferTargetARB.DispatchIndirectBuffer,
+                            ((OpenGLGraphicsBuffer)command.SourceBuffer!).Handle);
+                        computeShaderApi.DispatchComputeIndirect(checked((nint)command.BufferOffset));
+                        break;
                     default:
                         throw new GraphicsException($"Unknown recorded OpenGL command kind: {command.Kind}.");
                 }
@@ -907,6 +935,9 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
         }
         finally
         {
+            gl.BindBuffer(
+                BufferTargetARB.DispatchIndirectBuffer,
+                unchecked((uint)previousDispatchIndirectBuffer));
             gl.BindBuffer(
                 BufferTargetARB.DrawIndirectBuffer,
                 unchecked((uint)previousIndirectBuffer));
