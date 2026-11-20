@@ -57,6 +57,12 @@ internal sealed class OpenGLGraphicsCommandQueue : IGraphicsCommandQueue
                     "Submitted command lists must be executable lists created by this device and queue.");
             }
 
+            for (int previous = 0; previous < i; previous++)
+            {
+                if (ReferenceEquals(lists[previous], list))
+                    throw new GraphicsValidationException("A command list cannot appear more than once in one submission.");
+            }
+
             lists[i] = list;
         }
 
@@ -72,14 +78,21 @@ internal sealed class OpenGLGraphicsCommandQueue : IGraphicsCommandQueue
             throw new ArgumentException("A non-zero signal value requires a signal fence.", nameof(signalValue));
         }
 
-        for (int i = 0; i < lists.Length; i++)
-            lists[i].MarkSubmitted();
-
         nint completionSync = 0;
+        int submittedCount = 0;
+        bool commandsIssued = false;
+        bool submissionQueued = false;
         try
         {
+            for (int i = 0; i < lists.Length; i++)
+            {
+                lists[i].MarkSubmitted();
+                submittedCount++;
+            }
+
             _device.WithContext(gl =>
             {
+                commandsIssued = true;
                 for (int i = 0; i < lists.Length; i++)
                     lists[i].Execute(
                         gl,
@@ -102,21 +115,42 @@ internal sealed class OpenGLGraphicsCommandQueue : IGraphicsCommandQueue
                 if (fence is not null)
                     fence.SignalFromGpu(gl, signalValue);
 
-                lock (_gate)
-                    _pending.Add(new PendingSubmission(lists, completionSync));
                 _device.OnSubmissionQueued();
+                try
+                {
+                    lock (_gate)
+                        _pending.Add(new PendingSubmission(lists, completionSync));
+                    submissionQueued = true;
+                }
+                catch
+                {
+                    _device.OnSubmissionCompleted();
+                    throw;
+                }
             });
         }
         catch
         {
-            _device.WithContext(gl =>
+            if (commandsIssued && !_device.IsDisposed)
             {
-                gl.Finish();
-                if (completionSync != 0)
-                    _device.SyncApi.DeleteSync(completionSync);
-            });
-            for (int i = 0; i < lists.Length; i++)
-                lists[i].Complete();
+                _device.WithContext(gl =>
+                {
+                    gl.Finish();
+                    if (completionSync != 0 && !submissionQueued)
+                        _device.SyncApi.DeleteSync(completionSync);
+                });
+            }
+            else if (completionSync != 0 && !_device.IsDisposed && !submissionQueued)
+            {
+                _device.WithContext(gl => _device.SyncApi.DeleteSync(completionSync));
+            }
+
+            for (int i = 0; i < submittedCount; i++)
+            {
+                if (lists[i].Lifecycle.State == GraphicsCommandListState.Pending)
+                    lists[i].Complete();
+            }
+
             throw;
         }
     }
