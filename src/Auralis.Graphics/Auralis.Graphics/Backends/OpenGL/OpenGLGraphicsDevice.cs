@@ -84,6 +84,11 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
         ArbInternalformatQuery? internalFormatQuery = null;
         ArbSync? syncApi = null;
         ArbCopyImage? copyImageApi = null;
+        if (contextProvider.StateOwnership != OpenGLContextStateOwnership.Exclusive)
+            throw new GraphicsBackendUnavailableException(
+                GraphicsBackend.OpenGL,
+                "The initial OpenGL backend requires exclusive ownership of context state; shared host-state preservation is not implemented.");
+
         contextProvider.MakeCurrent();
         try
         {
