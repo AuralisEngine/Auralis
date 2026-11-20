@@ -349,9 +349,9 @@ internal sealed class OpenGLGraphicsRenderPipeline : GraphicsDeviceObject, IGrap
             if (indexedDrawBuffers is not null)
             {
                 if (state.BlendEnabled)
-                    indexedDrawBuffers.EnableIndexed(EnableCap.Blend, (uint)i);
+                    indexedDrawBuffers.EnableIndexed(Silk.NET.OpenGL.Legacy.EnableCap.Blend, (uint)i);
                 else
-                    indexedDrawBuffers.DisableIndexed(EnableCap.Blend, (uint)i);
+                    indexedDrawBuffers.DisableIndexed(Silk.NET.OpenGL.Legacy.EnableCap.Blend, (uint)i);
 
                 GraphicsColorWriteMask mask = state.WriteMask;
                 indexedDrawBuffers.ColorMaskIndexed(

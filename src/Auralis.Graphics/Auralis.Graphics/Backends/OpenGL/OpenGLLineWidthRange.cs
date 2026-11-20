@@ -1,3 +1,5 @@
+using Auralis.Graphics.Abstractions;
+
 namespace Auralis.Graphics.Backends.OpenGL;
 
 /// <summary>Driver-reported aliased line-width limits queried from GL_ALIASED_LINE_WIDTH_RANGE.</summary>
