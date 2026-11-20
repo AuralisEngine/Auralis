@@ -545,10 +545,9 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
         TextureTarget target = OpenGLTextureTargetMapping.ForTexture(description);
         uint depth = description.Dimension switch
         {
-            GraphicsTextureDimension.Texture1D => 1,
-            GraphicsTextureDimension.Texture2D => 1,
             GraphicsTextureDimension.Texture3D => description.Depth,
-            GraphicsTextureDimension.Cube => description.ArrayLayers,
+            GraphicsTextureDimension.Texture2D or GraphicsTextureDimension.Cube =>
+                Math.Max(1u, description.ArrayLayers),
             _ => 1
         };
 
@@ -556,7 +555,7 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
         {
             uint width = Math.Max(1u, description.Width >> checked((int)mip));
             uint height = description.Dimension == GraphicsTextureDimension.Texture1D
-                ? 1u
+                ? Math.Max(1u, description.ArrayLayers)
                 : Math.Max(1u, description.Height >> checked((int)mip));
             uint mipDepth = description.Dimension == GraphicsTextureDimension.Texture3D
                 ? Math.Max(1u, depth >> checked((int)mip))
