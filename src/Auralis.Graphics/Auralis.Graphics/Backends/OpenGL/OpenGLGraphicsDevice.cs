@@ -468,27 +468,26 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
 
         return WithContext(gl =>
         {
-            int previousBinding = gl.GetInteger(GLEnum.ArrayBufferBinding);
-            uint buffer = gl.GenBuffer();
-            bool registered = false;
+            _directStateAccess.CreateBuffers(1, out uint buffer);
+            if (buffer == 0)
+                throw new GraphicsException("OpenGL failed to create a buffer object.");
+
             try
             {
-                gl.BindBuffer(BufferTargetARB.ArrayBuffer, buffer);
-                gl.BufferData(BufferTargetARB.ArrayBuffer, (nuint)sizeInBytes, null, BufferUsageARB.DynamicDraw);
+                _directStateAccess.NamedBufferStorage(
+                    buffer,
+                    (nuint)sizeInBytes,
+                    null,
+                    OpenGLBufferStorageMapping.GetStorageFlags(bufferDescription));
+
                 OpenGLGraphicsBuffer resource = new(this, bufferDescription, buffer);
                 RegisterUnderContext(resource);
-                registered = true;
                 return (IGraphicsBuffer)resource;
             }
             catch
             {
-                if (!registered)
-                    gl.DeleteBuffer(buffer);
+                gl.DeleteBuffer(buffer);
                 throw;
-            }
-            finally
-            {
-                gl.BindBuffer(BufferTargetARB.ArrayBuffer, unchecked((uint)previousBinding));
             }
         });
     }
