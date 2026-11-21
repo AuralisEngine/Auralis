@@ -1324,7 +1324,20 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
     protected override void DisposeCore()
     {
         if (_lifecycle.State == GraphicsCommandListState.Pending)
-            _queue.WaitForCompletion(this);
+        {
+            try
+            {
+                _queue.WaitForCompletion(this);
+            }
+            catch (ObjectDisposedException) when (Device.IsDisposed)
+            {
+                // Device shutdown owns the registered native resources until GPU idleness has
+                // been established (or the host context is destroyed after a failed Finish).
+                // Releasing this list's managed references cannot delete those native resources.
+                if (_lifecycle.State == GraphicsCommandListState.Pending)
+                    _lifecycle.MarkCompleted();
+            }
+        }
 
         if (_lifecycle.State == GraphicsCommandListState.Recording)
             _lifecycle.End();
