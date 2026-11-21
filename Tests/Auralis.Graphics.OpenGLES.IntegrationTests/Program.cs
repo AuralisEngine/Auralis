@@ -511,13 +511,14 @@ internal static class Program
         storageTexture.Dispose();
 
         OpenGLESGraphicsDevice glesDevice = (OpenGLESGraphicsDevice)device;
+        using IGraphicsBuffer sentinelBufferResource = device.CreateBuffer(new GraphicsBufferDescription(
+            sizeof(uint),
+            GraphicsBufferUsage.Storage,
+            GraphicsMemoryAccess.GpuOnly));
+        uint sentinelBuffer = ((OpenGLESGraphicsBuffer)sentinelBufferResource).Handle;
         context.MakeCurrent();
-        uint sentinelBuffer;
         try
         {
-            sentinelBuffer = glesDevice.Api.GenBuffer();
-            if (sentinelBuffer == 0)
-                throw new GraphicsException("Could not allocate the GLES sentinel buffer used to verify partially-bound unbinding.");
             glesDevice.Api.BindBufferBase(BufferTargetARB.ShaderStorageBuffer, 1, sentinelBuffer);
             glesDevice.Api.GetInteger(GLEnum.ShaderStorageBufferBinding, 1, out int seededBinding);
             if (seededBinding != (int)sentinelBuffer)
@@ -543,6 +544,10 @@ internal static class Program
             if (imageBinding != (int)originalStorageImageHandle)
                 throw new InvalidOperationException(
                     $"The storage-image descriptor snapshot bound {imageBinding}, expected {originalStorageImageHandle}.");
+            glesDevice.Api.GetInteger(GLEnum.SamplerBinding, 1, out int separateSamplerBinding);
+            if (separateSamplerBinding != (int)originalSamplerHandle)
+                throw new InvalidOperationException(
+                    $"The standalone sampler descriptor bound {separateSamplerBinding}, expected {originalSamplerHandle}.");
             glesDevice.Api.GetInteger(GLEnum.SamplerBinding, 2, out int samplerBinding);
             if (samplerBinding != (int)originalSamplerHandle)
                 throw new InvalidOperationException(
@@ -552,7 +557,6 @@ internal static class Program
             if (textureBinding != (int)originalTextureHandle)
                 throw new InvalidOperationException(
                     $"The combined-texture descriptor snapshot bound {textureBinding}, expected {originalTextureHandle}.");
-            glesDevice.Api.DeleteBuffer(sentinelBuffer);
         }
         finally
         {
@@ -622,6 +626,14 @@ internal static class Program
         for (int i = 0; i < values.Length; i++)
             BitConverter.TryWriteBytes(memory.Span.Slice(i * sizeof(uint), sizeof(uint)), values[i]);
         buffer.Unmap();
+    }
+
+
+    private static void AssertUInt(uint actual, uint expected)
+    {
+        if (actual != expected)
+            throw new InvalidOperationException(
+                $"GPU readback was 0x{actual:X8}; expected 0x{expected:X8}.");
     }
 
     private static uint ReadUInt(IGraphicsBuffer buffer)
