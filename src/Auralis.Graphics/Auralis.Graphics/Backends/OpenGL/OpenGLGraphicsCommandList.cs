@@ -943,9 +943,6 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
         // Dynamic scissor state is command-list-local in the common API. Do not inherit an
         // enable bit from a previously submitted list on this state-owning context.
         gl.Disable(EnableCap.ScissorTest);
-        int previousDrawFramebuffer = gl.GetInteger(GLEnum.DrawFramebufferBinding);
-        int previousIndirectBuffer = gl.GetInteger(GLEnum.DrawIndirectBufferBinding);
-        int previousDispatchIndirectBuffer = gl.GetInteger(GLEnum.DispatchIndirectBufferBinding);
         try
         {
             for (int i = 0; i < commands.Length; i++)
@@ -1342,7 +1339,7 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
         }
     }
 
-    internal void MarkCompletedAfterGpu() => _lifecycle.MarkCompleted();
+    internal void MarkCompletedAfterGpu() => _lifecycle.TryMarkCompleted();
 
     internal void ReleaseCompletedResourcesIfDisposed()
     {
@@ -1356,8 +1353,7 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
 
     internal void Complete()
     {
-        if (_lifecycle.State == GraphicsCommandListState.Pending)
-            _lifecycle.MarkCompleted();
+        _lifecycle.TryMarkCompleted();
         ReleaseCompletedResourcesIfDisposed();
     }
 
