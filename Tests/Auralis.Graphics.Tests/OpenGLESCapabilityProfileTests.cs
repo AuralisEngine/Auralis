@@ -749,7 +749,7 @@ public sealed class OpenGLESTextureCopyCompatibilityTests
     }
 }
 
-public sealed class OpenGLESFormatCapabilityTests
+public sealed class OpenGLESIntegerFormatCapabilityTests
 {
     [Fact]
     public void QueryCapabilities_ExposesMrtLimitsAndIntegerColorFormatsWithoutBlendOrFiltering()
