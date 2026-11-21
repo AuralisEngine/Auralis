@@ -138,6 +138,10 @@ internal sealed class OpenGLGraphicsCommandQueue : IGraphicsCommandQueue
                     if (fence is not null)
                         fence.SignalFromGpu(gl, signalValue);
 
+                    // Make the completion sync observable to nonblocking ClientWaitSync polling
+                    // even when the application supplies no fence or performs no later GL calls.
+                    gl.Flush();
+
                     _device.OnSubmissionQueued();
                     submissionCounted = true;
                     lock (_gate)
