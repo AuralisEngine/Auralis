@@ -34,22 +34,23 @@ public readonly record struct OpenGLESVersion(int Major, int Minor) : IComparabl
             return false;
 
         int index = markerIndex + marker.Length;
-        while (index < versionString.Length &&
-               !char.IsAsciiDigit(versionString[index]) &&
-               versionString[index] != '-')
-        {
-            index++;
-        }
 
-        // Older implementations may report "OpenGL ES-CM 1.1"; skip the profile suffix.
+        // Allow the optional legacy profile suffix ("-CM"), but do not scan arbitrary words:
+        // otherwise a GLSL version embedded later in the same string could be mistaken for GL_VERSION.
         if (index < versionString.Length && versionString[index] == '-')
         {
             index++;
+            int profileStart = index;
             while (index < versionString.Length && char.IsAsciiLetter(versionString[index]))
                 index++;
-            while (index < versionString.Length && char.IsWhiteSpace(versionString[index]))
-                index++;
+            if (profileStart == index)
+                return false;
         }
+
+        while (index < versionString.Length && char.IsWhiteSpace(versionString[index]))
+            index++;
+        if (index >= versionString.Length || !char.IsAsciiDigit(versionString[index]))
+            return false;
 
         int majorStart = index;
         while (index < versionString.Length && char.IsAsciiDigit(versionString[index]))
