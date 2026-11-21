@@ -142,11 +142,13 @@ internal sealed class OpenGLGraphicsCommandQueue : IGraphicsCommandQueue
                     // even when the application supplies no fence or performs no later GL calls.
                     gl.Flush();
 
-                    _device.OnSubmissionQueued();
-                    submissionCounted = true;
                     lock (_gate)
                     {
+                        // Publish the owning record before incrementing the count. If record
+                        // allocation fails, the failed-submit orphan path has no count to balance.
                         _pending.Add(new PendingSubmission(lists, listCount, completionSync));
+                        _device.OnSubmissionQueued();
+                        submissionCounted = true;
                         submissionQueued = true;
                     }
                 }
