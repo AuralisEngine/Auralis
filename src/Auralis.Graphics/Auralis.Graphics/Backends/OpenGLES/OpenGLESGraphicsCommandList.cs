@@ -1249,13 +1249,13 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
             for (int i = 0; i < command.ColorCount; i++)
             {
                 OpenGLESGraphicsTexture texture = (OpenGLESGraphicsTexture)_renderTargetViews[command.ViewOffset + i].Texture;
-                if (texture.Target != TextureTarget.Texture2D)
-                    throw new GraphicsValidationException("GLES offscreen color attachments currently require 2D textures.");
+                if (texture.Target is not (TextureTarget.Texture2D or TextureTarget.Texture2DMultisample))
+                    throw new GraphicsValidationException("GLES offscreen color attachments require 2D or 2D-multisample textures.");
                 GLEnum attachment = (GLEnum)((uint)GLEnum.ColorAttachment0 + (uint)i);
                 gl.FramebufferTexture2D(
                     FramebufferTarget.Framebuffer,
                     attachment,
-                    TextureTarget.Texture2D,
+                    texture.Target,
                     texture.Handle,
                     0);
                 drawBuffers[i] = attachment;
@@ -1276,8 +1276,8 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
             if (command.DepthTarget is not null)
             {
                 OpenGLESGraphicsTexture texture = (OpenGLESGraphicsTexture)command.DepthTarget.Texture;
-                if (texture.Target != TextureTarget.Texture2D)
-                    throw new GraphicsValidationException("GLES depth attachments currently require 2D textures.");
+                if (texture.Target is not (TextureTarget.Texture2D or TextureTarget.Texture2DMultisample))
+                    throw new GraphicsValidationException("GLES depth attachments require 2D or 2D-multisample textures.");
                 GraphicsFormat format = GetViewFormat(command.DepthTarget);
                 GLEnum attachment = format == GraphicsFormat.D24UNormS8UInt
                     ? GLEnum.DepthStencilAttachment
