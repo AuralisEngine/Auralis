@@ -590,6 +590,8 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
         ArgumentNullException.ThrowIfNull(destination);
         EnsureOwned(source);
         EnsureOwned(destination);
+        if (ReferenceEquals(source, destination))
+            throw new GraphicsValidationException("A GLES texture cannot be copied onto itself.");
         OpenGLESTextureCompatibility.ValidateCopy(source.Description, destination.Description);
 
         _commands.Add(new OpenGLESCmd
