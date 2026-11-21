@@ -44,7 +44,7 @@ internal sealed class OpenGLESGraphicsTexture : OpenGLESNativeDeviceObject, IGra
         in GraphicsTextureDescription description)
     {
         GraphicsTextureDescription copy = description;
-        TextureTarget target = OpenGLESTextureCompatibility.ValidateAndGetTarget(copy);
+        TextureTarget target = OpenGLESTextureCompatibility.ValidateAndGetTarget(copy, device.Version);
         SizedInternalFormat format = GetInternalFormat(copy.Format);
         uint handle = gl.GenTexture();
         if (handle == 0)
@@ -53,21 +53,34 @@ internal sealed class OpenGLESGraphicsTexture : OpenGLESNativeDeviceObject, IGra
         try
         {
             gl.BindTexture(target, handle);
-            if ((copy.Dimension == GraphicsTextureDimension.Texture2D && copy.ArrayLayers == 1) ||
-                copy.Dimension == GraphicsTextureDimension.Cube)
+            if (target == TextureTarget.Texture2DMultisample)
             {
-                gl.TexStorage2D(target, copy.MipLevels, format, copy.Width, copy.Height);
+                gl.TexStorage2DMultisample(
+                    target,
+                    copy.SampleCount,
+                    format,
+                    copy.Width,
+                    copy.Height,
+                    fixedsamplelocations: true);
             }
             else
             {
-                uint depth = copy.Dimension == GraphicsTextureDimension.Texture3D
-                    ? copy.Depth
-                    : copy.ArrayLayers;
-                gl.TexStorage3D(target, copy.MipLevels, format, copy.Width, copy.Height, depth);
-            }
+                if ((copy.Dimension == GraphicsTextureDimension.Texture2D && copy.ArrayLayers == 1) ||
+                    copy.Dimension == GraphicsTextureDimension.Cube)
+                {
+                    gl.TexStorage2D(target, copy.MipLevels, format, copy.Width, copy.Height);
+                }
+                else
+                {
+                    uint depth = copy.Dimension == GraphicsTextureDimension.Texture3D
+                        ? copy.Depth
+                        : copy.ArrayLayers;
+                    gl.TexStorage3D(target, copy.MipLevels, format, copy.Width, copy.Height, depth);
+                }
 
-            gl.TexParameter(target, TextureParameterName.TextureBaseLevel, 0);
-            gl.TexParameter(target, TextureParameterName.TextureMaxLevel, checked((int)copy.MipLevels - 1));
+                gl.TexParameter(target, TextureParameterName.TextureBaseLevel, 0);
+                gl.TexParameter(target, TextureParameterName.TextureMaxLevel, checked((int)copy.MipLevels - 1));
+            }
             gl.BindTexture(target, 0);
 
             OpenGLESGraphicsTexture texture = new(device, copy, target, handle);
@@ -95,7 +108,9 @@ internal sealed class OpenGLESGraphicsTexture : OpenGLESNativeDeviceObject, IGra
                 "OpenGL ES texture views currently support the identity/full-resource view only; texture-view extensions are not assumed.");
         }
 
-        GraphicsTextureViewType expected = Description.Dimension switch
+        GraphicsTextureViewType expected = Description.SampleCount > 1
+            ? GraphicsTextureViewType.Texture2DMultisample
+            : Description.Dimension switch
         {
             GraphicsTextureDimension.Texture2D when Description.ArrayLayers > 1 => GraphicsTextureViewType.Texture2DArray,
             GraphicsTextureDimension.Texture2D => GraphicsTextureViewType.Texture2D,
