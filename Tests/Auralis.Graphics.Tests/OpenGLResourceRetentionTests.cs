@@ -1,4 +1,5 @@
 using Auralis.Graphics.Backends.OpenGL;
+using Auralis.Graphics.Abstractions;
 using Auralis.Graphics.Commands;
 using Auralis.Graphics.Devices;
 using Silk.NET.OpenGL;
@@ -44,7 +45,7 @@ public sealed class OpenGLResourceRetentionTests
     public void ResettingCommandListReleasesItsRecordedNativeReferences()
     {
         var retention = new OpenGLResourceRetention();
-        var resource = new InstrumentedNativeResource("buffer");
+        var resource = new InstrumentedNativeResource();
 
         retention.Retain(resource);
         resource.DisposeOwner();
@@ -61,7 +62,7 @@ public sealed class OpenGLResourceRetentionTests
     public void DisposingUnsubmittedCommandListReleasesItsRecordedNativeReferences()
     {
         var retention = new OpenGLResourceRetention();
-        var resource = new InstrumentedNativeResource("texture");
+        var resource = new InstrumentedNativeResource();
 
         retention.Retain(resource);
         resource.DisposeOwner();
