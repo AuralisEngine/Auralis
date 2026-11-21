@@ -537,9 +537,6 @@ public sealed class OpenGLESComputeWorkGroupValidationTests
 using Auralis.Graphics.Abstractions;
 using Auralis.Graphics.Backends.OpenGLES;
 using Auralis.Graphics.Devices;
-using Xunit;
-
-namespace Auralis.Graphics.Tests;
 
 public sealed class OpenGLESFormatCapabilityTests
 {
