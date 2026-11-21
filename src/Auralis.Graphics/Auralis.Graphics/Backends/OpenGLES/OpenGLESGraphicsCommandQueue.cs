@@ -83,14 +83,16 @@ internal sealed class OpenGLESGraphicsCommandQueue : IGraphicsCommandQueue
         {
             _device.WithContext(gl =>
             {
-                for (int i = 0; i < lists.Length; i++)
-                {
-                    lists[i].MarkSubmitted();
-                    submitted++;
-                }
-
                 try
                 {
+                    // Keep the state transition and its failure recovery under the same context
+                    // gate. A concurrent Dispose therefore cannot observe an unowned Pending list.
+                    for (int i = 0; i < lists.Length; i++)
+                    {
+                        lists[i].MarkSubmitted();
+                        submitted++;
+                    }
+
                     commandsStarted = true;
                     for (int i = 0; i < lists.Length; i++)
                         lists[i].Execute(gl);
@@ -108,38 +110,61 @@ internal sealed class OpenGLESGraphicsCommandQueue : IGraphicsCommandQueue
                         queued = true;
                     }
                 }
-                catch
+                catch (Exception submissionError)
                 {
+                    // If any command may have reached the driver, finish it before completing lists.
+                    // If Finish fails, lists remain Pending and WaitForCompletion has an explicit
+                    // unowned-submission recovery path that retries Finish before releasing refs.
+                    Exception? cleanupFailure = null;
+                    bool gpuWorkFinished = !commandsStarted;
                     if (commandsStarted)
-                        gl.Finish();
+                    {
+                        try
+                        {
+                            gl.Finish();
+                            gpuWorkFinished = true;
+                        }
+                        catch (Exception exception)
+                        {
+                            cleanupFailure ??= exception;
+                        }
+                    }
+
                     if (completionSync != 0)
                     {
-                        gl.DeleteSync(completionSync);
+                        try { gl.DeleteSync(completionSync); }
+                        catch (Exception exception) { cleanupFailure ??= exception; }
                         completionSync = 0;
                     }
+
+                    if (gpuWorkFinished)
+                    {
+                        for (int i = 0; i < submitted; i++)
+                        {
+                            if (lists[i].Lifecycle.State != GraphicsCommandListState.Pending)
+                                continue;
+
+                            try { lists[i].MarkCompletedAfterGpu(); }
+                            catch (Exception exception) { cleanupFailure ??= exception; }
+                        }
+                    }
+
+                    if (cleanupFailure is not null)
+                        throw new AggregateException(
+                            "GLES submission failed and its in-context recovery also failed.",
+                            submissionError,
+                            cleanupFailure);
+
+                    ExceptionDispatchInfo.Capture(submissionError).Throw();
                     throw;
                 }
             });
         }
         catch (Exception submissionError)
         {
-            Exception? completionError = null;
-            if (!queued)
-            {
-                // Execute has already forced the command stream idle on failure. Release the
-                // retained command-list resources only after that point.
-                for (int i = 0; i < submitted; i++)
-                {
-                    try { lists[i].Complete(); }
-                    catch (Exception exception) { completionError ??= exception; }
-                }
-            }
-
-            if (completionError is not null)
-                throw new AggregateException(
-                    "GLES submission failed and command-list cleanup also failed.",
-                    submissionError,
-                    completionError);
+            // The failure path above completes successfully marked lists while still holding the
+            // context gate. Do not call Complete here: that would race a waiting Dispose and could
+            // release retained resources without a GPU-completion owner.
             ExceptionDispatchInfo.Capture(submissionError).Throw();
             throw;
         }
@@ -159,7 +184,7 @@ internal sealed class OpenGLESGraphicsCommandQueue : IGraphicsCommandQueue
         if (_device.IsDisposed)
             return;
 
-        List<OpenGLESGraphicsCommandList>? completed = null;
+        List<PendingSubmission>? completed = null;
         _device.WithContext(gl =>
         {
             lock (_gate)
@@ -172,14 +197,14 @@ internal sealed class OpenGLESGraphicsCommandQueue : IGraphicsCommandQueue
                         continue;
                     if (status == GLEnum.WaitFailed)
                         throw new GraphicsException("OpenGL ES failed while polling a command submission.");
-
                     if (status is not (GLEnum.AlreadySignaled or GLEnum.ConditionSatisfied))
                         throw new GraphicsException($"OpenGL ES returned unexpected sync status {status}.");
 
                     gl.DeleteSync(submission.Sync);
+                    MarkSubmissionCompleted(submission);
                     _pending.RemoveAt(i);
-                    completed ??= new List<OpenGLESGraphicsCommandList>(4);
-                    completed.AddRange(submission.CommandLists);
+                    completed ??= new List<PendingSubmission>(4);
+                    completed.Add(submission);
                 }
             }
         });
@@ -193,8 +218,9 @@ internal sealed class OpenGLESGraphicsCommandQueue : IGraphicsCommandQueue
     {
         while (commandList.Lifecycle.State == GraphicsCommandListState.Pending)
         {
-            bool foundPending = false;
-            OpenGLESGraphicsCommandList[]? completedLists = null;
+            PendingSubmission completedSubmission = default;
+            bool hasCompletedSubmission = false;
+            bool recoveredUnqueuedSubmission = false;
 
             _device.WithContext(gl =>
             {
@@ -209,65 +235,92 @@ internal sealed class OpenGLESGraphicsCommandQueue : IGraphicsCommandQueue
                         if (!contains)
                             continue;
 
-                        foundPending = true;
-                        GLEnum status = gl.ClientWaitSync(submission.Sync, (SyncObjectMask)SyncObjectMask.Bit, 1_000_000);
+                        // Wait only for this list's owning submission. The finite wait releases
+                        // the context gate between iterations so unrelated device work can proceed.
+                        GLEnum status = gl.ClientWaitSync(
+                            submission.Sync,
+                            (SyncObjectMask)SyncObjectMask.Bit,
+                            1_000_000);
                         if (status == GLEnum.WaitFailed)
                             throw new GraphicsException("OpenGL ES failed while waiting for command-list completion.");
+                        if (status is not (GLEnum.AlreadySignaled or GLEnum.ConditionSatisfied or GLEnum.TimeoutExpired))
+                            throw new GraphicsException($"OpenGL ES returned unexpected sync status {status}.");
+
                         if (status is GLEnum.AlreadySignaled or GLEnum.ConditionSatisfied)
                         {
                             gl.DeleteSync(submission.Sync);
+                            MarkSubmissionCompleted(submission);
                             _pending.RemoveAt(i);
-                            completedLists = submission.CommandLists;
+                            completedSubmission = submission;
+                            hasCompletedSubmission = true;
                         }
-                        break;
+                        return;
                     }
+                }
+
+                if (commandList.Lifecycle.State == GraphicsCommandListState.Pending)
+                {
+                    // A failed submission can transition to Pending before a queue record exists.
+                    // This fallback is only for that orphaned list; keep unrelated pending records
+                    // intact and never release the list until Finish confirms the stream is idle.
+                    gl.Finish();
+                    if (commandList.Lifecycle.State == GraphicsCommandListState.Pending)
+                        commandList.MarkCompletedAfterGpu();
+                    recoveredUnqueuedSubmission = true;
                 }
             });
 
-            if (!foundPending && commandList.Lifecycle.State == GraphicsCommandListState.Pending)
-                throw new GraphicsException("The GLES command list is pending but has no owning queue submission.");
-
-            if (completedLists is not null)
-            {
-                CompleteAll(completedLists);
-            }
+            if (hasCompletedSubmission)
+                CompleteAll([completedSubmission]);
+            else if (recoveredUnqueuedSubmission)
+                commandList.ReleaseCompletedResourcesIfDisposed();
         }
+    }
+
+    private static void MarkSubmissionCompleted(PendingSubmission submission)
+    {
+        for (int i = 0; i < submission.CommandLists.Length; i++)
+            submission.CommandLists[i].MarkCompletedAfterGpu();
     }
 
     /// <summary>Called with the owning context current after the device has finished the GPU.</summary>
     internal void DrainUnderContext(GL gl)
     {
-        List<OpenGLESGraphicsCommandList>? completed = null;
+        List<PendingSubmission>? completed = null;
         lock (_gate)
         {
             for (int i = _pending.Count - 1; i >= 0; i--)
             {
                 PendingSubmission submission = _pending[i];
                 gl.DeleteSync(submission.Sync);
-                completed ??= new List<OpenGLESGraphicsCommandList>(4);
-                completed.AddRange(submission.CommandLists);
+                MarkSubmissionCompleted(submission);
+                completed ??= new List<PendingSubmission>(4);
+                completed.Add(submission);
             }
             _pending.Clear();
         }
 
-        if (completed is null)
-            return;
-        CompleteAll(completed);
+        if (completed is not null)
+            CompleteAll(completed);
     }
 
-    private static void CompleteAll(IReadOnlyList<OpenGLESGraphicsCommandList> commandLists)
+    private static void CompleteAll(IReadOnlyList<PendingSubmission> submissions)
     {
         List<Exception>? failures = null;
-        for (int i = 0; i < commandLists.Count; i++)
+        for (int i = 0; i < submissions.Count; i++)
         {
-            try
+            OpenGLESGraphicsCommandList[] commandLists = submissions[i].CommandLists;
+            for (int j = 0; j < commandLists.Length; j++)
             {
-                commandLists[i].Complete();
-            }
-            catch (Exception exception)
-            {
-                failures ??= new List<Exception>();
-                failures.Add(exception);
+                try
+                {
+                    commandLists[j].ReleaseCompletedResourcesIfDisposed();
+                }
+                catch (Exception exception)
+                {
+                    failures ??= new List<Exception>();
+                    failures.Add(exception);
+                }
             }
         }
 
