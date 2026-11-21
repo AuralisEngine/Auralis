@@ -209,7 +209,10 @@ internal sealed class OpenGLGraphicsCommandQueue : IGraphicsCommandQueue
                     {
                         try
                         {
-                            _device.OnSubmissionCompleted();
+                            if (_device.IsDisposed)
+                                _device.OnSubmissionCompleted();
+                            else
+                                _device.WithContext(_ => _device.OnSubmissionCompleted());
                             submissionCounted = false;
                         }
                         catch (Exception exception)
