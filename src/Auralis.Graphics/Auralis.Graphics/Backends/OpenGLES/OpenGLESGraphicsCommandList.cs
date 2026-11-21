@@ -275,8 +275,9 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
             throw new GraphicsValidationException("A depth attachment must be selected before clearing depth.");
         if (!clearDepth && !clearStencil)
             throw new ArgumentException("At least one depth/stencil aspect must be cleared.");
-        if (clearStencil)
-            throw new GraphicsValidationException("Stencil attachment clears are not implemented by this GLES backend.");
+        if (clearStencil && _depthFormat != GraphicsFormat.D24UNormS8UInt)
+            throw new GraphicsValidationException(
+                "A stencil clear requires the GLES D24UNormS8UInt depth/stencil attachment format.");
         if (clearDepth && (!float.IsFinite(depth) || depth < 0 || depth > 1))
             throw new ArgumentOutOfRangeException(nameof(depth));
 
@@ -725,8 +726,13 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
                     case OpenGLESCmdKind.ClearDepthStencil:
                         if (command.ClearDepthEnabled)
                         {
-                            gl.ClearDepth(command.ClearDepth);
-                            gl.Clear((uint)GLEnum.DepthBufferBit);
+                            Span<float> depth = stackalloc float[1] { command.ClearDepth };
+                            gl.ClearBuffer(GLEnum.Depth, 0, depth);
+                        }
+                        if (command.ClearStencilEnabled)
+                        {
+                            Span<int> stencil = stackalloc int[1] { unchecked((int)command.ClearStencil) };
+                            gl.ClearBuffer(GLEnum.Stencil, 0, stencil);
                         }
                         break;
 
