@@ -199,7 +199,8 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
             ValidateRenderTarget(depthStencilTarget, ref width, ref height, depthAttachment: true);
             EnsureOwned(depthStencilTarget);
             GraphicsFormat format = GetViewFormat(depthStencilTarget);
-            if (format is not (GraphicsFormat.D16UNorm or GraphicsFormat.D24UNormS8UInt))
+            if (format is not (GraphicsFormat.D16UNorm or GraphicsFormat.D24UNormS8UInt or
+                GraphicsFormat.D32Float or GraphicsFormat.D32FloatS8UInt))
                 throw new GraphicsValidationException($"Depth format {format} is not implemented for GLES render targets.");
         }
 
@@ -307,7 +308,7 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
             throw new GraphicsValidationException("A depth attachment must be selected before clearing depth.");
         if (!clearDepth && !clearStencil)
             throw new ArgumentException("At least one depth/stencil aspect must be cleared.");
-        if (clearStencil && _depthFormat != GraphicsFormat.D24UNormS8UInt)
+        if (clearStencil && _depthFormat is not (GraphicsFormat.D24UNormS8UInt or GraphicsFormat.D32FloatS8UInt))
             throw new GraphicsValidationException(
                 "A stencil clear requires the GLES D24UNormS8UInt depth/stencil attachment format.");
         if (clearDepth && (!float.IsFinite(depth) || depth < 0 || depth > 1))
@@ -1283,7 +1284,7 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
                 if (depthView.Target is not (TextureTarget.Texture2D or TextureTarget.Texture2DMultisample))
                     throw new GraphicsValidationException("GLES framebuffer depth views must be 2D or 2D-multisample.");
                 GraphicsFormat format = GetViewFormat(command.DepthTarget);
-                GLEnum attachment = format == GraphicsFormat.D24UNormS8UInt
+                GLEnum attachment = format is GraphicsFormat.D24UNormS8UInt or GraphicsFormat.D32FloatS8UInt
                     ? GLEnum.DepthStencilAttachment
                     : GLEnum.DepthAttachment;
                 gl.FramebufferTexture2D(
@@ -1452,7 +1453,8 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
         GraphicsDepthStencilState depthState = _renderPipeline.Description.DepthStencil;
         if ((depthState.DepthTestEnabled || depthState.DepthWriteEnabled) && !_hasDepthTarget)
             throw new GraphicsValidationException("The active pipeline requires a depth attachment.");
-        if (depthState.StencilTestEnabled && _depthFormat != GraphicsFormat.D24UNormS8UInt)
+        if (depthState.StencilTestEnabled &&
+            _depthFormat is not (GraphicsFormat.D24UNormS8UInt or GraphicsFormat.D32FloatS8UInt))
             throw new GraphicsValidationException("Stencil testing requires a D24S8 depth/stencil attachment.");
         for (uint set = 0; set < (uint)_pipelineLayout!.BindingLayouts.Length; set++)
             if (!_boundSets.Contains(set))
