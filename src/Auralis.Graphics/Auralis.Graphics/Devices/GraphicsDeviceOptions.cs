@@ -47,7 +47,8 @@ public sealed record GraphicsDeviceOptions
             GraphicsFeature.DepthClamp | GraphicsFeature.FillModeNonSolid |
             GraphicsFeature.TaskShaders | GraphicsFeature.IndependentBlend |
             GraphicsFeature.DepthBiasClamp | GraphicsFeature.SpirVShaders |
-            GraphicsFeature.BaseVertexDrawing | GraphicsFeature.BaseInstanceDrawing;
+            GraphicsFeature.BaseVertexDrawing | GraphicsFeature.BaseInstanceDrawing |
+            GraphicsFeature.TextureViews;
 
         const GraphicsQueueCapabilities allQueues =
             GraphicsQueueCapabilities.Graphics | GraphicsQueueCapabilities.Compute |
