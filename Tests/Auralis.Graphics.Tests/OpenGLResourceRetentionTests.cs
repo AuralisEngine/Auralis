@@ -194,7 +194,7 @@ public sealed class OpenGLResourceRetentionTests
     }
 
     [Fact]
-    public void ConcurrentRetainsRacingOwnerDisposalReleaseExactlyOnce()
+    public async Task ConcurrentRetainsRacingOwnerDisposalReleaseExactlyOnce()
     {
         var resource = new InstrumentedNativeResource();
         using var start = new ManualResetEventSlim(initialState: false);
@@ -220,7 +220,7 @@ public sealed class OpenGLResourceRetentionTests
         });
 
         start.Set();
-        Task.WaitAll(retainingWorkers, ownerDisposal);
+        await Task.WhenAll(retainingWorkers, ownerDisposal);
 
         Assert.Equal(1, resource.NativeReleaseCount);
     }
