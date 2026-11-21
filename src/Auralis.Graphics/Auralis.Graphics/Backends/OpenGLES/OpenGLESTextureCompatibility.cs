@@ -7,12 +7,26 @@ namespace Auralis.Graphics.Backends.OpenGLES;
 /// <summary>Pure GLES texture compatibility validation, independent of a live driver/context.</summary>
 internal static class OpenGLESTextureCompatibility
 {
-    internal static TextureTarget ValidateAndGetTarget(in GraphicsTextureDescription description)
+    internal static TextureTarget ValidateAndGetTarget(
+        in GraphicsTextureDescription description,
+        OpenGLESVersion version = default)
     {
         description.Validate();
 
-        if (description.SampleCount != 1)
-            throw new GraphicsValidationException("OpenGL ES backend does not currently implement multisample texture storage.");
+        if (description.SampleCount > 1)
+        {
+            if (!version.IsAtLeast(3, 1))
+                throw new GraphicsValidationException(
+                    "Multisample texture storage requires OpenGL ES 3.1 or newer.");
+            if (description.Dimension != GraphicsTextureDimension.Texture2D ||
+                description.ArrayLayers != 1 ||
+                description.MipLevels != 1)
+            {
+                throw new GraphicsValidationException(
+                    "GLES core multisample texture storage currently supports only single-layer, single-mip 2D textures.");
+            }
+            return TextureTarget.Texture2DMultisample;
+        }
         if (description.Dimension == GraphicsTextureDimension.Texture1D)
             throw new GraphicsValidationException("OpenGL ES has no 1D texture target.");
         if (description.Dimension == GraphicsTextureDimension.Cube && description.ArrayLayers != 6)
