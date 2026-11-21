@@ -87,6 +87,7 @@ internal sealed class OpenGLGraphicsCommandQueue : IGraphicsCommandQueue
         int submittedCount = 0;
         bool commandsIssued = false;
         bool submissionQueued = false;
+        bool submissionCounted = false;
         try
         {
             _device.WithContext(gl =>
@@ -138,18 +139,11 @@ internal sealed class OpenGLGraphicsCommandQueue : IGraphicsCommandQueue
                         fence.SignalFromGpu(gl, signalValue);
 
                     _device.OnSubmissionQueued();
-                    try
+                    submissionCounted = true;
+                    lock (_gate)
                     {
-                        lock (_gate)
-                        {
-                            _pending.Add(new PendingSubmission(lists, listCount, completionSync));
-                            submissionQueued = true;
-                        }
-                    }
-                    catch
-                    {
-                        _device.OnSubmissionCompleted();
-                        throw;
+                        _pending.Add(new PendingSubmission(lists, listCount, completionSync));
+                        submissionQueued = true;
                     }
                 }
                 finally
@@ -178,6 +172,14 @@ internal sealed class OpenGLGraphicsCommandQueue : IGraphicsCommandQueue
                 else if (completionSync != 0 && !_device.IsDisposed)
                 {
                     _device.WithContext(gl => _device.SyncApi.DeleteSync(completionSync));
+                }
+
+                // Roll back global submission accounting only after glFinish has guaranteed that
+                // any already-issued commands can no longer reference deferred native resources.
+                if (submissionCounted)
+                {
+                    _device.OnSubmissionCompleted();
+                    submissionCounted = false;
                 }
 
                 for (int i = 0; i < submittedCount; i++)
