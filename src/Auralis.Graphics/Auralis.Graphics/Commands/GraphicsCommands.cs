@@ -253,6 +253,9 @@ public interface IGraphicsCommandList : IGraphicsDeviceObject
     /// <summary>Records one or more mesh-task commands from a GPU indirect-argument buffer.</summary>
     void DrawMeshTasksIndirect(IGraphicsBuffer arguments, ulong offset, uint drawCount = 1, uint stride = 0);
 
+    /// <summary>
+    /// Records a compute dispatch. If any group count is zero, the operation is a valid no-op and no GPU dispatch is recorded.
+    /// </summary>
     void Dispatch(uint groupCountX, uint groupCountY = 1, uint groupCountZ = 1);
 
     void DispatchIndirect(IGraphicsBuffer arguments, ulong offset);
