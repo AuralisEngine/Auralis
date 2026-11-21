@@ -1,6 +1,7 @@
 using System.Runtime.InteropServices;
 using Auralis.Graphics.Abstractions;
 using Auralis.Graphics.Commands;
+using Auralis.Graphics.Backends.OpenGL;
 using Auralis.Graphics.Devices;
 using Auralis.Graphics.Pipelines;
 using Auralis.Graphics.Resources;
@@ -1100,7 +1101,7 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
                     case OpenGLESCmdKind.DrawMeshTasksIndirect:
                     {
                         OpenGLESGraphicsDevice meshDevice = _queue.GlesDevice;
-                        DrawMeshTasksIndirectExtDelegate drawIndirect =
+                        OpenGLESGraphicsDevice.DrawMeshTasksIndirectExtDelegate drawIndirect =
                             meshDevice.DrawMeshTasksIndirectExt ??
                             throw new GraphicsFeatureNotSupportedException(
                                 GraphicsFeature.MeshShaders, GraphicsFeature.MeshShaders);
