@@ -185,7 +185,7 @@ internal sealed class OpenGLESGraphicsSwapChain : OpenGLESNativeDeviceObject, IG
                     anyUnacquired = true;
                     if (image.PresentSync != 0)
                     {
-                        GLEnum status = gl.ClientWaitSync(image.PresentSync, 0, 0);
+                        GLEnum status = gl.ClientWaitSync(image.PresentSync, (uint)0, 0);
                         if (status == GLEnum.TimeoutExpired)
                             continue;
                         if (status == GLEnum.WaitFailed)
@@ -267,10 +267,10 @@ internal sealed class OpenGLESGraphicsSwapChain : OpenGLESNativeDeviceObject, IG
                 0, 0,
                 checked((int)snapshot.Extent.Width),
                 checked((int)snapshot.Extent.Height),
-                GLEnum.ColorBufferBit,
+                (uint)GLEnum.ColorBufferBit,
                 GLEnum.Linear);
 
-            nint sync = gl.FenceSync(SyncCondition.SyncGpuCommandsComplete, 0);
+            nint sync = gl.FenceSync(SyncCondition.SyncGpuCommandsComplete, (uint)0);
             if (sync == 0)
                 throw new GraphicsException("OpenGL ES failed to create a presentation sync object.");
 
