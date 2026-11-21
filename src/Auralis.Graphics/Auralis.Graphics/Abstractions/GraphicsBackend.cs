@@ -6,7 +6,8 @@ public enum GraphicsBackend
     Direct3D12,
     Vulkan,
     Metal,
-    OpenGL
+    OpenGL,
+    OpenGLES
 }
 
 /// <summary>Broad hardware class reported by a graphics adapter.</summary>
@@ -97,10 +98,10 @@ public enum GraphicsQueueType
 }
 
 /// <summary>
- /// Coarse device-level queue capabilities. Present indicates that the device may expose presentation
- /// queues, but it never proves compatibility with a particular native surface. Use
- /// IGraphicsPresentationSurface.SupportsPresentation for the exact queue/surface pair.
- /// </summary>
+/// Coarse device-level queue capabilities. Present indicates that the device may expose presentation
+/// queues, but it never proves compatibility with a particular native surface. Use
+/// IGraphicsPresentationSurface.SupportsPresentation for the exact queue/surface pair.
+/// </summary>
 [Flags]
 public enum GraphicsQueueCapabilities
 {
