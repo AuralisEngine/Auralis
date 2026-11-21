@@ -22,7 +22,7 @@ internal sealed class OpenGLSwapChainImage
 /// selected texture to the provider's actual default drawable and asks that provider to swap it.
 /// The default framebuffer is never exposed as an IGraphicsTexture.
 /// </summary>
-internal sealed class OpenGLGraphicsSwapChain : GraphicsDeviceObject, IGraphicsSwapChain, IOpenGLNativeResource
+internal sealed class OpenGLGraphicsSwapChain : OpenGLNativeDeviceObject, IGraphicsSwapChain
 {
     private readonly OpenGLGraphicsPresentationSurface _surface;
     private readonly OpenGLGraphicsCommandQueue _queue;
@@ -38,7 +38,7 @@ internal sealed class OpenGLGraphicsSwapChain : GraphicsDeviceObject, IGraphicsS
         OpenGLGraphicsPresentationSurface surface,
         OpenGLGraphicsCommandQueue queue,
         in GraphicsSwapChainDescription description,
-        in GraphicsPresentationTargetSnapshot snapshot) : base(surface.Device)
+        in GraphicsPresentationTargetSnapshot snapshot) : base((OpenGLGraphicsDevice)surface.Device)
     {
         _surface = surface;
         _queue = queue;
@@ -406,12 +406,12 @@ internal sealed class OpenGLGraphicsSwapChain : GraphicsDeviceObject, IGraphicsS
     {
         // Enqueue the framebuffer/sync objects before textures so FIFO deferred deletion drops
         // framebuffer references before releasing the attached texture names.
-        _device.ReleaseResource(this);
+        ReleaseOwnerReference();
         for (int i = 0; i < _images.Length; i++)
             _images[i].Texture.Dispose();
     }
 
-    public void ReleaseNative(GL gl)
+    public override void ReleaseNative(GL gl)
     {
         if (Interlocked.Exchange(ref _nativeReleased, 1) != 0)
             return;
