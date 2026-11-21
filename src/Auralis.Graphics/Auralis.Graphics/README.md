@@ -311,7 +311,7 @@ using IGraphicsDevice device = await GraphicsDeviceFactory.CreateAsync(
 - Samplers use GLES sampler objects. Border-clamp modes are rejected; anisotropy is set only when the extension is available.
 - Shader creation compiles GLSL ES source with driver diagnostics. Source must declare `#version 300 es`, `#version 310 es`, or `#version 320 es` as appropriate for the stage and context. Desktop GLSL source and SPIR-V are rejected.
 - Binding layouts map uniform buffers, storage buffers, sampled textures, samplers, combined texture/sampler pairs, and storage images to GLES binding slots. Unsupported binding flags and incomplete non-partially-bound descriptors are rejected.
-- Render pipelines create linked programs and vertex-array objects; implemented fixed-function state includes culling, front-face winding, depth/stencil state, polygon offset, and one color-blend attachment. ES 3.2 patch vertex state is configured for tessellation pipelines.
+- Render pipelines create linked programs and vertex-array objects; implemented fixed-function state includes culling, front-face winding, depth/stencil state, polygon offset, and one color-blend attachment. ES 3.2 tessellation pipelines currently accept only the GLES default of three patch control points; arbitrary patch sizes are rejected because the current Silk.NET.OpenGLES 2.23.0 binding surface does not expose the required patch-parameter entry point.
 - Command lists support buffer copies, supported 2D framebuffer-blit texture copies, render-target binding, viewport/scissor, color/depth clears, vertex/index binding, direct and instanced drawing, one-command indirect drawing, compute dispatch/indirect dispatch, descriptor binds, and memory barriers.
 - Recorded and submitted command lists retain referenced native resources until reset/disposal or observed GPU completion. Device shutdown finishes the GLES stream and drains pending submissions before native resource deletion.
 - When a host drawable is supplied, the presentation surface creates backend-owned color images and framebuffer objects, blits the selected image to the host default framebuffer, and delegates the actual buffer swap to the host provider.
@@ -320,4 +320,12 @@ using IGraphicsDevice device = await GraphicsDeviceFactory.CreateAsync(
 
 This backend is a distinct GLES implementation, but it does not claim feature-for-feature parity with desktop OpenGL. It currently supports one color attachment, single-sample render targets, 2D color/depth framebuffer attachments, one indirect draw per indirect command, and no base-instance or base-vertex drawing. Integer color clears and stencil clears are rejected. Texture copies are restricted to identical single-sample 2D textures that can be used as framebuffer color attachments. Texture subviews, texture format reinterpretation, persistent mapping, independent blend attachments, multi-draw indirect, task/mesh shaders, and SPIR-V are not implemented. Requests outside these supported contracts fail explicitly rather than being silently ignored.
 
-The GLES context and driver path has not been executed in this environment. The hardware-independent tests cover version/extension parsing, capability reporting, provider registration/failure behavior, and the native resource-reference state machine. A successful build or unit-test run is not evidence of real-driver correctness. Actual-driver execution must be reported separately from build-only verification.
+Run the actual-driver test executable explicitly on a machine with a usable GLES 3.1+ implementation and GLFW support:
+
+```bash
+AURALIS_RUN_OPENGLES_HARDWARE_TESTS=1 dotnet run --project Tests/Auralis.Graphics.OpenGLES.IntegrationTests/Auralis.Graphics.OpenGLES.IntegrationTests.csproj --configuration Release
+```
+
+Without the environment variable, or when GLFW cannot create an ES context, the runner reports `SKIP` and exits with code 77. The CI workflow restores and builds the GLES hardware integration project but deliberately does not execute it; CI runs only the hardware-independent graphics unit tests.
+
+The GLES context and driver path has not been executed in this environment. The hardware-independent tests cover version/extension parsing, capability reporting, provider registration/failure behavior, GLSL ES stage/version validation, texture-format/description validation, and the native resource-reference state machine. A successful build or unit-test run is not evidence of real-driver correctness. Actual-driver execution must be reported separately from build-only verification.
