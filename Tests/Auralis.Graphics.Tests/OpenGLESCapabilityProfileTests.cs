@@ -79,7 +79,9 @@ public sealed class OpenGLESCapabilityProfileTests
         [
             "GL_EXT_texture_filter_anisotropic",
             "GL_EXT_draw_buffers_indexed",
-            "GL_EXT_multi_draw_indirect"
+            "GL_EXT_multi_draw_indirect",
+            "GL_EXT_draw_elements_base_vertex",
+            "GL_EXT_base_instance"
         ];
 
         OpenGLESCapabilityProfile profile = OpenGLESCapabilityProfile.Create(
@@ -92,6 +94,8 @@ public sealed class OpenGLESCapabilityProfileTests
         Assert.True(profile.Features.Supports(GraphicsFeature.SamplerAnisotropy));
         Assert.True(profile.Features.Supports(GraphicsFeature.IndependentBlend));
         Assert.True(profile.Features.Supports(GraphicsFeature.MultiDrawIndirect));
+        Assert.True(profile.Features.Supports(GraphicsFeature.BaseVertexDrawing));
+        Assert.True(profile.Features.Supports(GraphicsFeature.BaseInstanceDrawing));
         Assert.True(profile.Features.Supports(GraphicsFeature.TimelineSynchronization));
     }
 
