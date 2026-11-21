@@ -12,7 +12,7 @@ using Auralis.Graphics.Synchronization;
 using Silk.NET.OpenGL;
 using Silk.NET.OpenGL.Extensions.ARB;
 using Silk.NET.OpenGL.Legacy.Extensions.EXT;
-using Silk.NET.OpenGL.Extensions.EXT;
+using OpenGLExtMeshShader = Silk.NET.OpenGL.Extensions.EXT.ExtMeshShader;
 
 namespace Auralis.Graphics.Backends.OpenGL;
 
@@ -45,7 +45,7 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
     private readonly ExtDrawBuffers2? _indexedDrawBuffersApi;
     private readonly ExtDepthBoundsTest? _depthBoundsApi;
     private readonly ArbPolygonOffsetClamp? _polygonOffsetClampApi;
-    private readonly ExtMeshShader? _meshShaderApi;
+    private readonly OpenGLExtMeshShader? _meshShaderApi;
     private readonly ArbES2Compatibility _shaderBinaryApi;
     private readonly ArbGlSpirv? _spirvApi;
     private readonly ArbComputeShader _computeShaderApi;
@@ -67,7 +67,7 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
     internal ExtDrawBuffers2? IndexedDrawBuffersApi => _indexedDrawBuffersApi;
     internal ExtDepthBoundsTest? DepthBoundsApi => _depthBoundsApi;
     internal ArbPolygonOffsetClamp? PolygonOffsetClampApi => _polygonOffsetClampApi;
-    internal ExtMeshShader? MeshShaderApi => _meshShaderApi;
+    internal OpenGLExtMeshShader? MeshShaderApi => _meshShaderApi;
     internal ArbES2Compatibility ShaderBinaryApi => _shaderBinaryApi;
     internal ArbGlSpirv? SpirVApi => _spirvApi;
     internal bool DebugLayerEnabled => _debugLayerEnabled;
@@ -94,7 +94,7 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
         ExtDrawBuffers2? indexedDrawBuffersApi,
         ExtDepthBoundsTest? depthBoundsApi,
         ArbPolygonOffsetClamp? polygonOffsetClampApi,
-        ExtMeshShader? meshShaderApi,
+        OpenGLExtMeshShader? meshShaderApi,
         ArbES2Compatibility shaderBinaryApi,
         ArbGlSpirv? spirvApi,
         OpenGLLineWidthRange supportedLineWidths,
@@ -190,7 +190,7 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
         ExtDrawBuffers2? indexedDrawBuffersApi = null;
         ExtDepthBoundsTest? depthBoundsApi = null;
         ArbPolygonOffsetClamp? polygonOffsetClampApi = null;
-        ExtMeshShader? meshShaderApi = null;
+        OpenGLExtMeshShader? meshShaderApi = null;
         ArbES2Compatibility? shaderBinaryApi = null;
         ArbGlSpirv? spirvApi = null;
         ArbComputeShader? computeShaderApi = null;
@@ -243,8 +243,8 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
                 depthBoundsApi = new ExtDepthBoundsTest(gl.Context);
             if (gl.IsExtensionPresent(ArbPolygonOffsetClamp.ExtensionName))
                 polygonOffsetClampApi = new ArbPolygonOffsetClamp(gl.Context);
-            if (gl.IsExtensionPresent(ExtMeshShader.ExtensionName))
-                meshShaderApi = new ExtMeshShader(gl.Context);
+            if (gl.IsExtensionPresent(OpenGLExtMeshShader.ExtensionName))
+                meshShaderApi = new OpenGLExtMeshShader(gl.Context);
             shaderBinaryApi = new ArbES2Compatibility(gl.Context);
             if (gl.IsExtensionPresent(ArbGlSpirv.ExtensionName))
                 spirvApi = new ArbGlSpirv(gl.Context);
