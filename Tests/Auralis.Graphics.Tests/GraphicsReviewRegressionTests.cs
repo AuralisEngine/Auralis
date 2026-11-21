@@ -581,6 +581,39 @@ public sealed class GraphicsReviewRegressionTests
         Assert.Throws<ArgumentException>(() => incompatibleView.Validate(mutable));
     }
 
+    [Fact]
+    public void CpuFenceSignalsCannotOvertakePendingGpuSignals()
+    {
+        GraphicsCommandValidation.ValidateCpuFenceSignalDoesNotOvertakeGpu(4, 5);
+        GraphicsCommandValidation.ValidateCpuFenceSignalDoesNotOvertakeGpu(5, 5);
+        Assert.Throws<GraphicsValidationException>(() =>
+            GraphicsCommandValidation.ValidateCpuFenceSignalDoesNotOvertakeGpu(10, 5));
+        GraphicsCommandValidation.ValidateCpuFenceSignalDoesNotOvertakeGpu(10, null);
+    }
+
+    [Fact]
+    public void IndexedIndirectRequiresZeroIndexBufferOffset()
+    {
+        GraphicsCommandValidation.ValidateIndexedIndirectIndexBufferOffset(0);
+        Assert.Throws<GraphicsValidationException>(() =>
+            GraphicsCommandValidation.ValidateIndexedIndirectIndexBufferOffset(2));
+        Assert.Throws<GraphicsValidationException>(() =>
+            GraphicsCommandValidation.ValidateIndexedIndirectIndexBufferOffset(4));
+    }
+
+    [Fact]
+    public void TextureCopyRejectsAliasedSourceAndDestination()
+    {
+        var device = CreateDevice();
+        var texture = new TestTexture(device, CreateTextureDescription(
+            GraphicsTextureUsage.CopySource | GraphicsTextureUsage.CopyDestination));
+        var other = new TestTexture(device, texture.Description);
+
+        GraphicsCommandValidation.ValidateTextureCopyNotAliased(texture, other);
+        Assert.Throws<GraphicsValidationException>(() =>
+            GraphicsCommandValidation.ValidateTextureCopyNotAliased(texture, texture));
+    }
+
     private static GraphicsDeviceFactoryTests.TestDevice CreateDevice(
         GraphicsFeature features = GraphicsFeature.None,
         params GraphicsFormatCapabilities[] formats) =>
