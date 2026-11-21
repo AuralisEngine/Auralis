@@ -517,8 +517,13 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
     {
         EnsureRecording();
         EnsureComputeReady();
-        if (groupCountX == 0 || groupCountY == 0 || groupCountZ == 0)
-            throw new ArgumentOutOfRangeException(nameof(groupCountX));
+        OpenGLESComputeWorkGroupValidation.ValidateDispatch(
+            groupCountX,
+            groupCountY,
+            groupCountZ,
+            _queue.GlesDevice.MaxComputeWorkGroupCountX,
+            _queue.GlesDevice.MaxComputeWorkGroupCountY,
+            _queue.GlesDevice.MaxComputeWorkGroupCountZ);
         _commands.Add(new OpenGLESCmd
         {
             Kind = OpenGLESCmdKind.Dispatch,

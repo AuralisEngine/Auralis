@@ -446,6 +446,14 @@ internal sealed class OpenGLESGraphicsComputePipeline : OpenGLESGraphicsPipeline
             uint program = LinkProgram(device, gl, [description.ComputeShader]);
             try
             {
+                Span<int> localWorkGroupSize = stackalloc int[3];
+                gl.GetProgram(program, GLEnum.ComputeWorkGroupSize, localWorkGroupSize);
+                OpenGLESComputeWorkGroupValidation.ValidateLocalSize(
+                    localWorkGroupSize[0],
+                    localWorkGroupSize[1],
+                    localWorkGroupSize[2],
+                    device.Capabilities.Limits);
+
                 OpenGLESGraphicsComputePipeline pipeline = new(device, description, program);
                 device.RegisterUnderContext(pipeline);
                 return pipeline;

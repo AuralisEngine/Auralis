@@ -24,6 +24,7 @@ internal sealed class OpenGLESGraphicsCommandQueue : IGraphicsCommandQueue
     }
 
     public IGraphicsDevice Device => _device;
+    internal OpenGLESGraphicsDevice GlesDevice => _device;
     public uint Index => 0;
     public GraphicsQueueType QueueType { get; }
 

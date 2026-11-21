@@ -454,3 +454,72 @@ public sealed class OpenGLESTextureCompatibilityTests
             OpenGLESTextureCompatibility.ValidateAndGetTarget(cubeArray));
     }
 }
+
+
+public sealed class OpenGLESComputeWorkGroupValidationTests
+{
+    private static readonly GraphicsDeviceLimits s_limits = new(
+        MaxBufferSizeInBytes: 0,
+        MaxTextureDimension1D: 0,
+        MaxTextureDimension2D: 0,
+        MaxTextureDimension3D: 0,
+        MaxTextureArrayLayers: 0,
+        MaxVertexInputAttributes: 0,
+        MaxVertexInputBindings: 0,
+        MaxBoundDescriptorSets: 0,
+        MaxComputeWorkGroupInvocations: 256,
+        MaxComputeWorkGroupSizeX: 128,
+        MaxComputeWorkGroupSizeY: 128,
+        MaxComputeWorkGroupSizeZ: 64,
+        MaxSamplerAnisotropy: 1);
+
+    [Fact]
+    public void Dispatch_AllowsCountsAtEachAxisLimit() =>
+        OpenGLESComputeWorkGroupValidation.ValidateDispatch(65_535, 65_535, 65_535, 65_535, 65_535, 65_535);
+
+    [Theory]
+    [InlineData(0u, 1u, 1u)]
+    [InlineData(1u, 0u, 1u)]
+    [InlineData(1u, 1u, 0u)]
+    public void Dispatch_RejectsZeroCountOnEveryAxis(uint x, uint y, uint z) =>
+        Assert.Throws<GraphicsValidationException>(() =>
+            OpenGLESComputeWorkGroupValidation.ValidateDispatch(x, y, z, 65_535, 65_535, 65_535));
+
+    [Theory]
+    [InlineData(65_536u, 1u, 1u)]
+    [InlineData(1u, 65_536u, 1u)]
+    [InlineData(1u, 1u, 65_536u)]
+    public void Dispatch_RejectsEachAxisIndependentlyWhenItExceedsTheLimit(uint x, uint y, uint z) =>
+        Assert.Throws<GraphicsValidationException>(() =>
+            OpenGLESComputeWorkGroupValidation.ValidateDispatch(x, y, z, 65_535, 65_535, 65_535));
+
+    [Fact]
+    public void Dispatch_RejectsMissingNativeLimits() =>
+        Assert.Throws<GraphicsValidationException>(() =>
+            OpenGLESComputeWorkGroupValidation.ValidateDispatch(1, 1, 1, 65_535, 0, 65_535));
+
+    [Fact]
+    public void LocalSize_AllowsAxisAndInvocationValuesAtLimits() =>
+        OpenGLESComputeWorkGroupValidation.ValidateLocalSize(16, 16, 1, s_limits);
+
+    [Theory]
+    [InlineData(129, 1, 1)]
+    [InlineData(1, 129, 1)]
+    [InlineData(1, 1, 65)]
+    public void LocalSize_RejectsPerAxisLimitViolations(int x, int y, int z) =>
+        Assert.Throws<GraphicsValidationException>(() =>
+            OpenGLESComputeWorkGroupValidation.ValidateLocalSize(x, y, z, s_limits));
+
+    [Fact]
+    public void LocalSize_RejectsProductAboveInvocationLimit() =>
+        Assert.Throws<GraphicsValidationException>(() =>
+            OpenGLESComputeWorkGroupValidation.ValidateLocalSize(17, 16, 1, s_limits));
+
+    [Theory]
+    [InlineData(0, 1, 1)]
+    [InlineData(1, -1, 1)]
+    [InlineData(1, 1, 0)]
+    public void LocalSize_RejectsNonPositiveDimensions(int x, int y, int z) =>
+        Assert.Throws<GraphicsValidationException>(() =>
+            OpenGLESComputeWorkGroupValidation.ValidateLocalSize(x, y, z, s_limits));
+}

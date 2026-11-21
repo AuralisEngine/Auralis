@@ -50,6 +50,9 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
         MaxImageUnits = limits.MaxImageUnits;
         UniformBufferOffsetAlignment = limits.UniformBufferOffsetAlignment;
         StorageBufferOffsetAlignment = limits.StorageBufferOffsetAlignment;
+        MaxComputeWorkGroupCountX = limits.MaxComputeWorkGroupCountX;
+        MaxComputeWorkGroupCountY = limits.MaxComputeWorkGroupCountY;
+        MaxComputeWorkGroupCountZ = limits.MaxComputeWorkGroupCountZ;
         _ownsContextProvider = contextProvider.Ownership == OpenGLESContextOwnership.Owned;
 
         Backend = GraphicsBackend.OpenGLES;
@@ -99,6 +102,9 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
     internal uint MaxImageUnits { get; }
     internal uint UniformBufferOffsetAlignment { get; }
     internal uint StorageBufferOffsetAlignment { get; }
+    internal uint MaxComputeWorkGroupCountX { get; }
+    internal uint MaxComputeWorkGroupCountY { get; }
+    internal uint MaxComputeWorkGroupCountZ { get; }
 
     internal static OpenGLESGraphicsDevice Create(
         IOpenGLESContextProvider contextProvider,
@@ -176,9 +182,45 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
         uint max3DTextureSize = ToUInt(gl.GetInteger(GLEnum.Max3DTextureSize));
         uint maxArrayLayers = ToUInt(gl.GetInteger(GLEnum.MaxArrayTextureLayers));
         uint maxVertexAttributes = ToUInt(gl.GetInteger(GLEnum.MaxVertexAttribs));
-        uint maxComputeInvocations = profile.Version.IsAtLeast(3, 1)
-            ? ToUInt(gl.GetInteger(GLEnum.MaxComputeWorkGroupInvocations))
-            : 0;
+        uint maxComputeInvocations = 0;
+        uint maxComputeWorkGroupSizeX = 0;
+        uint maxComputeWorkGroupSizeY = 0;
+        uint maxComputeWorkGroupSizeZ = 0;
+        uint maxComputeWorkGroupCountX = 0;
+        uint maxComputeWorkGroupCountY = 0;
+        uint maxComputeWorkGroupCountZ = 0;
+        if (profile.Version.IsAtLeast(3, 1))
+        {
+            maxComputeInvocations = ToUInt(gl.GetInteger(GLEnum.MaxComputeWorkGroupInvocations));
+
+            gl.GetInteger(GLEnum.MaxComputeWorkGroupSize, 0, out int workGroupSizeX);
+            gl.GetInteger(GLEnum.MaxComputeWorkGroupSize, 1, out int workGroupSizeY);
+            gl.GetInteger(GLEnum.MaxComputeWorkGroupSize, 2, out int workGroupSizeZ);
+            maxComputeWorkGroupSizeX = ToUInt(workGroupSizeX);
+            maxComputeWorkGroupSizeY = ToUInt(workGroupSizeY);
+            maxComputeWorkGroupSizeZ = ToUInt(workGroupSizeZ);
+
+            gl.GetInteger(GLEnum.MaxComputeWorkGroupCount, 0, out int workGroupCountX);
+            gl.GetInteger(GLEnum.MaxComputeWorkGroupCount, 1, out int workGroupCountY);
+            gl.GetInteger(GLEnum.MaxComputeWorkGroupCount, 2, out int workGroupCountZ);
+            maxComputeWorkGroupCountX = ToUInt(workGroupCountX);
+            maxComputeWorkGroupCountY = ToUInt(workGroupCountY);
+            maxComputeWorkGroupCountZ = ToUInt(workGroupCountZ);
+
+            if (maxComputeInvocations == 0 ||
+                maxComputeWorkGroupSizeX == 0 ||
+                maxComputeWorkGroupSizeY == 0 ||
+                maxComputeWorkGroupSizeZ == 0 ||
+                maxComputeWorkGroupCountX == 0 ||
+                maxComputeWorkGroupCountY == 0 ||
+                maxComputeWorkGroupCountZ == 0)
+            {
+                throw new GraphicsBackendUnavailableException(
+                    GraphicsBackend.OpenGLES,
+                    "The GLES 3.1+ context did not return valid compute work-group size and dispatch-count limits.");
+            }
+        }
+
         uint maxTessellationPatchSize = profile.Version.IsAtLeast(3, 2)
             ? ToUInt(gl.GetInteger(GLEnum.MaxPatchVertices))
             : 0;
@@ -202,6 +244,12 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
             uniformAlignment,
             storageAlignment,
             maxComputeInvocations,
+            maxComputeWorkGroupSizeX,
+            maxComputeWorkGroupSizeY,
+            maxComputeWorkGroupSizeZ,
+            maxComputeWorkGroupCountX,
+            maxComputeWorkGroupCountY,
+            maxComputeWorkGroupCountZ,
             maxTessellationPatchSize,
             maxAnisotropy);
     }
@@ -220,9 +268,9 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
             MaxVertexInputBindings: queried.MaxVertexAttributes,
             MaxBoundDescriptorSets: 0,
             MaxComputeWorkGroupInvocations: queried.MaxComputeInvocations,
-            MaxComputeWorkGroupSizeX: 0,
-            MaxComputeWorkGroupSizeY: 0,
-            MaxComputeWorkGroupSizeZ: 0,
+            MaxComputeWorkGroupSizeX: queried.MaxComputeWorkGroupSizeX,
+            MaxComputeWorkGroupSizeY: queried.MaxComputeWorkGroupSizeY,
+            MaxComputeWorkGroupSizeZ: queried.MaxComputeWorkGroupSizeZ,
             MaxSamplerAnisotropy: queried.MaxAnisotropy,
             MaxTessellationPatchSize: queried.MaxTessellationPatchSize);
 
@@ -287,6 +335,12 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
         uint UniformBufferOffsetAlignment,
         uint StorageBufferOffsetAlignment,
         uint MaxComputeInvocations,
+        uint MaxComputeWorkGroupSizeX,
+        uint MaxComputeWorkGroupSizeY,
+        uint MaxComputeWorkGroupSizeZ,
+        uint MaxComputeWorkGroupCountX,
+        uint MaxComputeWorkGroupCountY,
+        uint MaxComputeWorkGroupCountZ,
         uint MaxTessellationPatchSize,
         float MaxAnisotropy);
 
