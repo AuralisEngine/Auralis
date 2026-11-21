@@ -337,7 +337,15 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
                 spirvApi is not null,
                 supportsMeshShaders,
                 supportsTaskShaders,
-                supportedLineWidths);
+                supportedLineWidths,
+                maxMeshWorkGroupCountX,
+                maxMeshWorkGroupCountY,
+                maxMeshWorkGroupCountZ,
+                maxMeshWorkGroupTotalCount,
+                maxTaskWorkGroupCountX,
+                maxTaskWorkGroupCountY,
+                maxTaskWorkGroupCountZ,
+                maxTaskWorkGroupTotalCount);
 
             cancellationToken.ThrowIfCancellationRequested();
 
@@ -420,7 +428,15 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
         bool supportsSpirV,
         bool supportsMeshShaders,
         bool supportsTaskShaders,
-        OpenGLLineWidthRange supportedLineWidths)
+        OpenGLLineWidthRange supportedLineWidths,
+        uint maxMeshWorkGroupCountX,
+        uint maxMeshWorkGroupCountY,
+        uint maxMeshWorkGroupCountZ,
+        uint maxMeshWorkGroupTotalCount,
+        uint maxTaskWorkGroupCountX,
+        uint maxTaskWorkGroupCountY,
+        uint maxTaskWorkGroupCountZ,
+        uint maxTaskWorkGroupTotalCount)
     {
         static bool AtLeast(int major, int minor, int requiredMajor, int requiredMinor) =>
             major > requiredMajor || (major == requiredMajor && minor >= requiredMinor);
