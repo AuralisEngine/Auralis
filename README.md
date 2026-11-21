@@ -4,7 +4,7 @@ Auralis is an early-stage, modular C# game engine and runtime framework targetin
 
 ## Solution Layout
 
-The repository uses the new `.slnx` solution format ([`Auralis.slnx`](Auralis.slnx)), with folders reserved for planned subsystems (animation, audio, graphics, physics, rendering, scene, simulation, editor, platform).
+The repository uses the new `.slnx` solution format ([`Auralis.slnx`](Auralis.slnx)). It contains the engine/runtime foundations, an early asset-pipeline library, and a graphics library with desktop OpenGL and OpenGL ES backends; additional rendering, physics, audio, animation, editor, and platform subsystems remain under development.
 
 ```
 Auralis/
@@ -18,6 +18,8 @@ Auralis/
 │   │   │                             #   Quaternion, Matrix, Plane, Point,
 │   │   │                             #   Rectangle, Size2D(-F), MathUtilities
 │   │   └── Auralis.Core.IO/          # Core I/O abstractions
+│   ├── Auralis.Graphics/              # Graphics contracts + desktop OpenGL 4.5 / OpenGL ES backends
+│   │   └── Auralis.Graphics/
 │   ├── AuralisRuntime/
 │   │   └── Auralis.Engine/           # Engine runtime: Entity / Component model
 │   │                                 #   (Entity, ComponentBase, EntityComponent,
@@ -38,6 +40,7 @@ Auralis/
 | `Auralis.Core` | Base building blocks: `Platform`/`PlatformType` detection, `MemoryUtilities`, `DisposeBase`, `IReferenceCountable`. |
 | `Auralis.Core.Mathematics` | Fully XML-documented math library with vectors, quaternions, matrices, planes, and geometric types. |
 | `Auralis.Core.IO` | Input/output support for the core layer. |
+| `Auralis.Graphics` | Backend-neutral graphics API with opt-in desktop OpenGL 4.5 Core and OpenGL ES 3.1+ implementations; hardware integration runners are separate and opt-in. |
 | `Auralis.Engine` | Entity–component runtime with transforms and scripting hooks. |
 | `Auralis.Tools.AssetPipeline.Interchange` | Interchange-format parsers/writers, currently focused on FBX documents. |
 | `Aurlais.World` | Placeholder world/scene assembly layer (early stub). |
@@ -64,7 +67,7 @@ dotnet build src/Auralis.Core/Auralis.Core.Mathematics/Auralis.Core.Mathematics.
 
 ## Status
 
-Auralis is under heavy development. Many subsystems declared in the solution (graphics, rendering, physics, audio, animation, editor, platform) are placeholders awaiting implementation, and existing APIs may change without notice.
+Auralis is under heavy development and existing APIs may change without notice. The graphics library already contains desktop OpenGL 4.5 Core and OpenGL ES 3.1+ backends; Direct3D 12, Vulkan, and Metal remain planned. Rendering, physics, audio, animation, editor, and platform subsystems are at varying stages of development. OpenGL integration runners require an explicitly enabled, compatible real driver and are not executed by the default CI workflow.
 
 ## License
 
