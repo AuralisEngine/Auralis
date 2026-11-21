@@ -9,7 +9,8 @@ internal static class OpenGLESTextureCompatibility
 {
     internal static TextureTarget ValidateAndGetTarget(
         in GraphicsTextureDescription description,
-        OpenGLESVersion version = default)
+        OpenGLESVersion version = default,
+        bool supportsCubeMapArray = false)
     {
         description.Validate();
 
@@ -32,8 +33,13 @@ internal static class OpenGLESTextureCompatibility
         }
         if (description.Dimension == GraphicsTextureDimension.Texture1D)
             throw new GraphicsValidationException("OpenGL ES has no 1D texture target.");
-        if (description.Dimension == GraphicsTextureDimension.Cube && description.ArrayLayers != 6)
-            throw new GraphicsValidationException("Cube-map arrays are not implemented by this OpenGL ES backend.");
+        if (description.Dimension == GraphicsTextureDimension.Cube &&
+            (description.ArrayLayers < 6 || description.ArrayLayers % 6 != 0))
+            throw new GraphicsValidationException("Cube-map textures require a multiple of six layers.");
+        if (description.Dimension == GraphicsTextureDimension.Cube &&
+            description.ArrayLayers > 6 && !supportsCubeMapArray)
+            throw new GraphicsValidationException(
+                "Cube-map arrays require OpenGL ES 3.2 or GL_OES_texture_cube_map_array.");
         _ = OpenGLESGraphicsTexture.GetInternalFormat(description.Format);
         return OpenGLESGraphicsTexture.GetTextureTarget(description);
     }
