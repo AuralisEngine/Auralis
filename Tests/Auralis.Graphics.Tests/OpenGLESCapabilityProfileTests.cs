@@ -1,6 +1,8 @@
 using Auralis.Graphics.Abstractions;
 using Auralis.Graphics.Backends.OpenGLES;
 using Auralis.Graphics.Devices;
+using Auralis.Graphics.Presentation;
+using Auralis.Graphics.Devices;
 
 namespace Auralis.Graphics.Tests;
 
@@ -191,5 +193,82 @@ public sealed class OpenGLESResourceReferenceStateTests
         Assert.Equal(0, finalReleases);
         Assert.True(state.CloseOwner());
         Assert.Equal(0, state.ReferenceCount);
+    }
+}
+
+public sealed class OpenGLESBackendProviderTests
+{
+    [Fact]
+    public void ProviderRegistersInTheExistingBackendRegistry()
+    {
+        FakeOpenGLESContextProvider context = new();
+        OpenGLESGraphicsBackendProvider provider = new(context);
+        GraphicsBackendProviderRegistry registry = new();
+
+        registry.Register(provider);
+
+        Assert.Equal(1, registry.Count);
+        Assert.Same(provider, registry.GetProvider(GraphicsBackend.OpenGLES));
+    }
+
+    [Fact]
+    public async Task FactoryRejectsAnUnavailableGlesProvider()
+    {
+        FakeOpenGLESContextProvider context = new() { Available = false };
+        GraphicsBackendProviderRegistry registry = new();
+        registry.Register(new OpenGLESGraphicsBackendProvider(context));
+
+        await Assert.ThrowsAsync<GraphicsBackendUnavailableException>(async () =>
+            await GraphicsDeviceFactory.CreateAsync(
+                registry,
+                new GraphicsDeviceOptions { Backend = GraphicsBackend.OpenGLES }));
+    }
+
+    [Fact]
+    public async Task OwnedContextProviderIsDisposedWhenDeviceInitializationFails()
+    {
+        FakeOpenGLESContextProvider context = new()
+        {
+            Ownership = OpenGLESContextOwnership.Owned,
+            ThrowFromMakeCurrent = true
+        };
+        OpenGLESGraphicsBackendProvider provider = new(context);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+            await provider.CreateDeviceAsync(new GraphicsDeviceOptions
+            {
+                Backend = GraphicsBackend.OpenGLES,
+                RequiredQueues = GraphicsQueueCapabilities.Graphics
+            }));
+
+        Assert.True(context.IsDisposed);
+        Assert.Equal(0, context.ReleaseCurrentCount);
+    }
+
+    private sealed class FakeOpenGLESContextProvider : IOpenGLESContextProvider
+    {
+        public object ContextIdentity => this;
+        public OpenGLESContextOwnership Ownership { get; set; } = OpenGLESContextOwnership.Borrowed;
+        public OpenGLESContextStateOwnership StateOwnership => OpenGLESContextStateOwnership.Exclusive;
+        public bool Available { get; set; } = true;
+        public bool IsAvailable => Available;
+        public string? UnavailableReason => IsAvailable ? null : "Disabled in test.";
+        public bool SupportsPresentation => false;
+        public bool ThrowFromMakeCurrent { get; set; }
+        public bool IsDisposed { get; private set; }
+        public int ReleaseCurrentCount { get; private set; }
+
+        public bool IsPresentationTargetCompatible(in GraphicsPresentationTargetSnapshot target) => false;
+        public bool SupportsPresentMode(GraphicsPresentMode presentMode) => false;
+        public void SetPresentMode(GraphicsPresentMode presentMode) => throw new NotSupportedException();
+        public void MakeCurrent()
+        {
+            if (ThrowFromMakeCurrent)
+                throw new InvalidOperationException("Simulated GLES context activation failure.");
+        }
+        public void ReleaseCurrent() => ReleaseCurrentCount++;
+        public nint GetProcAddress(string name) => 0;
+        public void SwapBuffers() => throw new NotSupportedException();
+        public void Dispose() => IsDisposed = true;
     }
 }
