@@ -126,7 +126,7 @@ internal sealed class OpenGLGraphicsFence : OpenGLNativeDeviceObject, IGraphicsF
             bool completed = _device.WithContext(gl =>
             {
                 lock (_gate)
-                    return PollCompleted(gl, 10_000_000) >= value;
+                    return PollCompleted(gl, 1_000_000) >= value;
             });
 
             if (completed)
