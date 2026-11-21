@@ -77,7 +77,8 @@ public enum GraphicsFeature : ulong
     DepthBiasClamp = 1UL << 24,
     SpirVShaders = 1UL << 25,
     BaseVertexDrawing = 1UL << 26,
-    BaseInstanceDrawing = 1UL << 27
+    BaseInstanceDrawing = 1UL << 27,
+    TextureViews = 1UL << 28
 }
 
 /// <summary>A strongly typed set of optional graphics features reported by a device.</summary>
