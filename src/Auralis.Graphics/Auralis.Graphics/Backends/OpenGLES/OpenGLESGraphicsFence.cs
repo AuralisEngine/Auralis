@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using Auralis.Graphics.Abstractions;
+using Auralis.Graphics.Commands;
 using Auralis.Graphics.Synchronization;
 using Silk.NET.OpenGLES;
 
