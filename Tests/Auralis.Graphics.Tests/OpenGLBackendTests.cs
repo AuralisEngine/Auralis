@@ -369,6 +369,86 @@ public sealed class OpenGLBackendTests
     }
 
     [Fact]
+    public void PartiallyBoundDescriptorArraysSnapshotMissingElementsExplicitly()
+    {
+        var device = new GraphicsDeviceFactoryTests.TestDevice(
+            GraphicsBackend.OpenGL, GraphicsFeature.None, GraphicsQueueCapabilities.Graphics);
+        var partialLayout = new OpenGLGraphicsBindingLayout(
+            device,
+            new GraphicsBindingLayoutDescription(
+            [
+                new(0, GraphicsDescriptorType.UniformBuffer, 3,
+                    GraphicsShaderStages.Vertex, GraphicsBindingFlags.PartiallyBound)
+            ]));
+        var partialSet = new OpenGLGraphicsBindingSet(partialLayout);
+        var buffer = new TranslationTestBuffer(
+            device,
+            new GraphicsBufferDescription(256, GraphicsBufferUsage.Constant));
+
+        partialSet.SetBuffer(0, 1, buffer);
+
+        List<OpenGLBindingValue> snapshot = new();
+        Assert.Equal(0, partialSet.SnapshotTo(snapshot));
+        Assert.Equal(3, snapshot.Count);
+        Assert.Null(snapshot[0].Buffer);
+        Assert.Same(buffer, snapshot[1].Buffer);
+        Assert.Null(snapshot[2].Buffer);
+
+        partialSet.Dispose();
+        partialLayout.Dispose();
+        buffer.Dispose();
+        device.Dispose();
+    }
+
+    [Fact]
+    public void NonPartiallyBoundDescriptorsStillRequireEveryElement()
+    {
+        var device = new GraphicsDeviceFactoryTests.TestDevice(
+            GraphicsBackend.OpenGL, GraphicsFeature.None, GraphicsQueueCapabilities.Graphics);
+        var layout = new OpenGLGraphicsBindingLayout(
+            device,
+            new GraphicsBindingLayoutDescription(
+            [
+                new(0, GraphicsDescriptorType.UniformBuffer, 2, GraphicsShaderStages.Vertex)
+            ]));
+        var set = new OpenGLGraphicsBindingSet(layout);
+
+        Assert.Throws<GraphicsValidationException>(
+            () => set.SnapshotTo(new List<OpenGLBindingValue>()));
+
+        set.Dispose();
+        layout.Dispose();
+        device.Dispose();
+    }
+
+    [Fact]
+    public void UpdateAfterBindAndVariableCountRemainUnsupportedByOpenGL()
+    {
+        var device = new GraphicsDeviceFactoryTests.TestDevice(
+            GraphicsBackend.OpenGL, GraphicsFeature.None, GraphicsQueueCapabilities.Graphics);
+
+        Assert.Throws<GraphicsValidationException>(() =>
+            new OpenGLGraphicsBindingLayout(
+                device,
+                new GraphicsBindingLayoutDescription(
+                [
+                    new(0, GraphicsDescriptorType.UniformBuffer, 1,
+                        GraphicsShaderStages.Vertex, GraphicsBindingFlags.UpdateAfterBind)
+                ])));
+
+        Assert.Throws<GraphicsValidationException>(() =>
+            new OpenGLGraphicsBindingLayout(
+                device,
+                new GraphicsBindingLayoutDescription(
+                [
+                    new(0, GraphicsDescriptorType.UniformBuffer, 1,
+                        GraphicsShaderStages.Vertex, GraphicsBindingFlags.VariableCount)
+                ])));
+
+        device.Dispose();
+    }
+
+    [Fact]
     public void RenderPipelineEnumsMapToSilkOpenGLEnums()
     {
         Assert.Equal(PrimitiveType.Triangles,
