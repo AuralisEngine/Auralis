@@ -44,7 +44,8 @@ internal sealed class OpenGLESGraphicsTexture : OpenGLESNativeDeviceObject, IGra
         in GraphicsTextureDescription description)
     {
         GraphicsTextureDescription copy = description;
-        TextureTarget target = OpenGLESTextureCompatibility.ValidateAndGetTarget(copy, device.Version);
+        TextureTarget target = OpenGLESTextureCompatibility.ValidateAndGetTarget(
+            copy, device.Version, device.SupportsCubeMapArray);
         SizedInternalFormat format = GetInternalFormat(copy.Format);
         uint handle = gl.GenTexture();
         if (handle == 0)
@@ -164,7 +165,9 @@ internal sealed class OpenGLESGraphicsTexture : OpenGLESNativeDeviceObject, IGra
                 ? TextureTarget.Texture2DArray
                 : TextureTarget.Texture2D,
             GraphicsTextureDimension.Texture3D => TextureTarget.Texture3D,
-            GraphicsTextureDimension.Cube => TextureTarget.TextureCubeMap,
+            GraphicsTextureDimension.Cube => description.ArrayLayers > 6
+            ? TextureTarget.TextureCubeMapArray
+            : TextureTarget.TextureCubeMap,
             _ => throw new GraphicsValidationException(
                 $"OpenGL ES does not support the requested texture dimensionality: {description.Dimension}.")
         };
