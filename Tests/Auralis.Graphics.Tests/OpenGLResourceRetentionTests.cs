@@ -79,7 +79,7 @@ public sealed class OpenGLResourceRetentionTests
     {
         var lifecycle = new GraphicsCommandListLifecycle(GraphicsQueueType.Graphics);
         var retention = new OpenGLResourceRetention();
-        var resource = new InstrumentedNativeResource("buffer");
+        var resource = new InstrumentedNativeResource();
 
         lifecycle.Begin();
         retention.Retain(resource);
