@@ -7,6 +7,9 @@ using Auralis.Graphics.OpenGL.TestSupport;
 using Auralis.Graphics.Pipelines;
 using Auralis.Graphics.Resources;
 using Auralis.Graphics.Synchronization;
+using Silk.NET.OpenGL;
+using Auralis.Graphics.Backends.OpenGL;
+using Silk.NET.OpenGL;
 
 namespace Auralis.Graphics.OpenGL.IntegrationTests;
 
@@ -55,6 +58,10 @@ internal static class Program
             Run("buffer dispose after submission while GPU work is pending", session, CopyBufferAfterSubmitDispose,
                 ref passed, ref skipped, ref failed);
             Run("partially-bound descriptor switching and indirect compute", session, PartiallyBoundIndirectCompute,
+                ref passed, ref skipped, ref failed);
+            Run("compute descriptor categories, snapshots, and resource retention", session, ComputeDescriptorTypesAndSnapshots,
+                ref passed, ref skipped, ref failed);
+            Run("compute descriptor categories, snapshots, and resource retention", session, ComputeDescriptorTypesAndSnapshots,
                 ref passed, ref skipped, ref failed);
             Run("conventional direct and indirect graphics draws", session, ConventionalDirectAndIndirectDraw,
                 ref passed, ref skipped, ref failed);
@@ -280,6 +287,268 @@ internal static class Program
 
         AssertUInt(ReadBuffer(outputAtSlotOne, sizeof(uint)), 0x00A11CEu);
         AssertUInt(ReadBuffer(outputAtSlotZero, sizeof(uint)), 0x000B005u);
+    }
+
+
+    private static void ComputeDescriptorTypesAndSnapshots(GlfwOpenGLHardwareSession session)
+    {
+        IGraphicsDevice device = session.Device;
+        if (!device.Capabilities.Features.Supports(GraphicsFeature.ComputeShaders))
+            throw new HardwareTestSkippedException("The selected context does not expose compute shaders.");
+        RequireFormat(device, GraphicsFormat.RGBA8UNorm,
+            GraphicsFormatSupport.Sampled | GraphicsFormatSupport.ColorAttachment | GraphicsFormatSupport.Storage);
+
+        using IGraphicsTexture sampledTexture = device.CreateTexture(new GraphicsTextureDescription(
+            GraphicsTextureDimension.Texture2D, GraphicsFormat.RGBA8UNorm,
+            2, 1, 1, 1, 1, 1,
+            GraphicsTextureUsage.Sampled | GraphicsTextureUsage.ColorAttachment));
+        using IGraphicsTextureView sampledView = sampledTexture.CreateView(new GraphicsTextureViewDescription(
+            GraphicsFormat.Unknown, GraphicsTextureViewType.Texture2D, 0, 1, 0, 1));
+        ClearTwoTexelTexture(device, sampledView);
+
+        using IGraphicsTexture alternativeSampledTexture = device.CreateTexture(new GraphicsTextureDescription(
+            GraphicsTextureDimension.Texture2D, GraphicsFormat.RGBA8UNorm,
+            2, 1, 1, 1, 1, 1,
+            GraphicsTextureUsage.Sampled | GraphicsTextureUsage.ColorAttachment));
+        using IGraphicsTextureView alternativeSampledView = alternativeSampledTexture.CreateView(new GraphicsTextureViewDescription(
+            GraphicsFormat.Unknown, GraphicsTextureViewType.Texture2D, 0, 1, 0, 1));
+        ClearTexture(device, alternativeSampledView, 2, 1, new GraphicsClearColor(0, 1, 0, 1));
+
+        using IGraphicsTexture storageTexture = device.CreateTexture(new GraphicsTextureDescription(
+            GraphicsTextureDimension.Texture2D, GraphicsFormat.RGBA8UNorm,
+            1, 1, 1, 1, 1, 1, GraphicsTextureUsage.Storage));
+        using IGraphicsTextureView storageView = storageTexture.CreateView(new GraphicsTextureViewDescription(
+            GraphicsFormat.Unknown, GraphicsTextureViewType.Texture2D, 0, 1, 0, 1));
+        using IGraphicsTexture alternativeStorageTexture = device.CreateTexture(new GraphicsTextureDescription(
+            GraphicsTextureDimension.Texture2D, GraphicsFormat.RGBA8UNorm,
+            1, 1, 1, 1, 1, 1, GraphicsTextureUsage.Storage));
+        using IGraphicsTextureView alternativeStorageView = alternativeStorageTexture.CreateView(new GraphicsTextureViewDescription(
+            GraphicsFormat.Unknown, GraphicsTextureViewType.Texture2D, 0, 1, 0, 1));
+
+        using IGraphicsBuffer parameters = CreateBuffer(
+            device, 4 * sizeof(uint), GraphicsBufferUsage.Constant, GraphicsMemoryAccess.CpuReadWrite);
+        using IGraphicsBuffer alternativeParameters = CreateBuffer(
+            device, 4 * sizeof(uint), GraphicsBufferUsage.Constant, GraphicsMemoryAccess.CpuReadWrite);
+        using IGraphicsBuffer output = CreateBuffer(
+            device, sizeof(uint), GraphicsBufferUsage.Storage, GraphicsMemoryAccess.CpuReadWrite);
+        using IGraphicsBuffer alternativeOutput = CreateBuffer(
+            device, sizeof(uint), GraphicsBufferUsage.Storage, GraphicsMemoryAccess.CpuReadWrite);
+        using IGraphicsBuffer partialOutput = CreateBuffer(
+            device, sizeof(uint), GraphicsBufferUsage.Storage, GraphicsMemoryAccess.CpuReadWrite);
+        using IGraphicsBuffer alternativePartialOutput = CreateBuffer(
+            device, sizeof(uint), GraphicsBufferUsage.Storage, GraphicsMemoryAccess.CpuReadWrite);
+        using IGraphicsBuffer sentinelBuffer = CreateBuffer(
+            device, sizeof(uint), GraphicsBufferUsage.Storage, GraphicsMemoryAccess.GpuOnly);
+
+        WriteUInts(parameters, 7u, 0x00A11CEu, 0, 0);
+        WriteUInts(alternativeParameters, 0x22u, 0xBADu, 0, 0);
+        WriteUInts(output, 0xDEADBEEFu);
+        WriteUInts(alternativeOutput, 0xDEADBEEFu);
+        WriteUInts(partialOutput, 0xDEADBEEFu);
+        WriteUInts(alternativePartialOutput, 0xDEADBEEFu);
+
+        using IGraphicsSampler linearSampler = device.CreateSampler(new GraphicsSamplerDescription(
+            GraphicsFilter.Linear, GraphicsFilter.Linear, GraphicsFilter.Linear,
+            GraphicsAddressMode.ClampToEdge, GraphicsAddressMode.ClampToEdge, GraphicsAddressMode.ClampToEdge,
+            0, 0));
+        using IGraphicsSampler nearestSampler = device.CreateSampler(new GraphicsSamplerDescription(
+            GraphicsFilter.Nearest, GraphicsFilter.Nearest, GraphicsFilter.Nearest,
+            GraphicsAddressMode.ClampToEdge, GraphicsAddressMode.ClampToEdge, GraphicsAddressMode.ClampToEdge,
+            0, 0));
+
+        uint originalTextureHandle = ((OpenGLGraphicsTextureView)sampledView).Handle;
+        uint originalSamplerHandle = ((OpenGLGraphicsSampler)linearSampler).Handle;
+        uint originalStorageImageHandle = ((OpenGLGraphicsTextureView)storageView).Handle;
+        uint sentinelBufferHandle = ((OpenGLGraphicsBuffer)sentinelBuffer).Handle;
+
+        using IGraphicsBindingLayout bindingLayout = device.CreateBindingLayout(new GraphicsBindingLayoutDescription(
+        [
+            new GraphicsBindingLayoutEntry(0, GraphicsDescriptorType.UniformBuffer, 1, GraphicsShaderStages.Compute),
+            new GraphicsBindingLayoutEntry(1, GraphicsDescriptorType.StorageBuffer, 1, GraphicsShaderStages.Compute),
+            new GraphicsBindingLayoutEntry(2, GraphicsDescriptorType.SampledTexture, 1, GraphicsShaderStages.Compute),
+            new GraphicsBindingLayoutEntry(3, GraphicsDescriptorType.Sampler, 1, GraphicsShaderStages.Compute),
+            new GraphicsBindingLayoutEntry(4, GraphicsDescriptorType.CombinedTextureSampler, 1, GraphicsShaderStages.Compute),
+            new GraphicsBindingLayoutEntry(5, GraphicsDescriptorType.StorageTexture, 1, GraphicsShaderStages.Compute),
+            new GraphicsBindingLayoutEntry(
+                6, GraphicsDescriptorType.StorageBuffer, 2, GraphicsShaderStages.Compute,
+                GraphicsBindingFlags.PartiallyBound)
+        ]));
+        using IGraphicsBindingSet bindingSet = device.CreateBindingSet(bindingLayout);
+        bindingSet.SetBuffer(0, 0, parameters, 0, 4 * sizeof(uint));
+        bindingSet.SetBuffer(1, 0, output, 0, sizeof(uint));
+        bindingSet.SetTexture(2, 0, sampledView);
+        bindingSet.SetSampler(3, 0, linearSampler);
+        bindingSet.SetTexture(4, 0, sampledView);
+        bindingSet.SetSampler(4, 0, linearSampler);
+        bindingSet.SetTexture(5, 0, storageView);
+        // Partially-bound SSBO element zero is intentionally left empty. Element one is populated.
+        bindingSet.SetBuffer(6, 1, partialOutput, 0, sizeof(uint));
+
+        IGraphicsBindingLayout[] layouts = [bindingLayout];
+        using IGraphicsPipelineLayout pipelineLayout = device.CreatePipelineLayout(layouts);
+        using IGraphicsShader shader = CreateShader(
+            device,
+            GraphicsShaderStage.Compute,
+            """
+            #version 450 core
+            layout(local_size_x = 1) in;
+            layout(std140, binding = 0) uniform Parameters { uvec4 values; } parameters;
+            layout(std430, binding = 0) buffer Result { uint value; } resultBuffer;
+            layout(binding = 0) uniform sampler2D sampledOnly;
+            layout(binding = 2) uniform sampler2D sampledWithSampler;
+            layout(rgba8, binding = 0) coherent uniform image2D storageOutput;
+            layout(std430, binding = 1) buffer PartialResult { uint marker; } partialResults[2];
+
+            void main()
+            {
+                vec4 exactTexel = texelFetch(sampledOnly, ivec2(0, 0), 0);
+                vec4 filteredTexel = texture(sampledWithSampler, vec2(0.375, 0.5));
+                imageStore(storageOutput, ivec2(0, 0), filteredTexel);
+                memoryBarrierImage();
+                vec4 imageReadback = imageLoad(storageOutput, ivec2(0, 0));
+
+                resultBuffer.value =
+                    (uint(round(exactTexel.r * 255.0)) << 24u) |
+                    (uint(round(imageReadback.r * 255.0)) << 16u) |
+                    (uint(round(imageReadback.b * 255.0)) << 8u) |
+                    parameters.values.x;
+                partialResults[1].marker = parameters.values.y;
+            }
+            """);
+        using IGraphicsComputePipeline pipeline = device.CreateComputePipeline(
+            new GraphicsComputePipelineDescription(pipelineLayout, shader));
+
+        IGraphicsCommandQueue queue = device.GetQueue(GraphicsQueueType.Compute);
+        using IGraphicsCommandList commandList = queue.CreateCommandList();
+        using IGraphicsFence fence = device.CreateFence();
+
+        commandList.Begin();
+        commandList.SetComputePipeline(pipeline);
+        commandList.SetBindingSet(0, bindingSet);
+        commandList.Dispatch(1);
+        GraphicsResourceBarrier[] readbackBarriers =
+        [
+            new GraphicsResourceBarrier(
+                output,
+                GraphicsPipelineStage.ComputeShader,
+                GraphicsPipelineStage.Host,
+                GraphicsResourceAccess.ShaderWrite,
+                GraphicsResourceAccess.HostRead),
+            new GraphicsResourceBarrier(
+                partialOutput,
+                GraphicsPipelineStage.ComputeShader,
+                GraphicsPipelineStage.Host,
+                GraphicsResourceAccess.ShaderWrite,
+                GraphicsResourceAccess.HostRead)
+        ];
+        commandList.MemoryBarrier(readbackBarriers);
+        commandList.End();
+
+        // Change every descriptor after recording and dispose the set. The command list must
+        // continue using the original copied values rather than the mutated descriptor-set storage.
+        bindingSet.SetBuffer(0, 0, alternativeParameters, 0, 4 * sizeof(uint));
+        bindingSet.SetBuffer(1, 0, alternativeOutput, 0, sizeof(uint));
+        bindingSet.SetTexture(2, 0, alternativeSampledView);
+        bindingSet.SetSampler(3, 0, nearestSampler);
+        bindingSet.SetTexture(4, 0, alternativeSampledView);
+        bindingSet.SetSampler(4, 0, nearestSampler);
+        bindingSet.SetTexture(5, 0, alternativeStorageView);
+        bindingSet.SetBuffer(6, 1, alternativePartialOutput, 0, sizeof(uint));
+        bindingSet.Dispose();
+
+        // Close original owners before submission; the executable command list retains their native objects.
+        sampledView.Dispose();
+        sampledTexture.Dispose();
+        linearSampler.Dispose();
+        parameters.Dispose();
+        storageView.Dispose();
+        storageTexture.Dispose();
+        pipeline.Dispose();
+
+        session.ContextProvider.MakeCurrent();
+        try
+        {
+            using GL gl = GL.GetApi(session.ContextProvider.GetProcAddress);
+            gl.BindBufferBase(BufferTargetARB.ShaderStorageBuffer, 1, sentinelBufferHandle);
+            gl.GetInteger(GLEnum.ShaderStorageBufferBinding, 1, out int seededBinding);
+            AssertUInt(unchecked((uint)seededBinding), sentinelBufferHandle);
+        }
+        finally
+        {
+            session.ContextProvider.ReleaseCurrent();
+        }
+
+        queue.Submit([commandList], fence, 1);
+        WaitForGpu(fence, commandList, 1);
+
+        session.ContextProvider.MakeCurrent();
+        try
+        {
+            using GL gl = GL.GetApi(session.ContextProvider.GetProcAddress);
+            gl.GetInteger(GLEnum.ShaderStorageBufferBinding, 1, out int unboundSlot);
+            AssertUInt(unchecked((uint)unboundSlot), 0u);
+            gl.GetInteger(GLEnum.ImageBindingName, 0, out int imageBinding);
+            AssertUInt(unchecked((uint)imageBinding), originalStorageImageHandle);
+            gl.GetInteger(GLEnum.SamplerBinding, 1, out int separateSamplerBinding);
+            AssertUInt(unchecked((uint)separateSamplerBinding), originalSamplerHandle);
+            gl.GetInteger(GLEnum.SamplerBinding, 2, out int combinedSamplerBinding);
+            AssertUInt(unchecked((uint)combinedSamplerBinding), originalSamplerHandle);
+            gl.ActiveTexture((TextureUnit)0x84C2);
+            gl.GetInteger(GLEnum.TextureBinding2D, out int textureBinding);
+            AssertUInt(unchecked((uint)textureBinding), originalTextureHandle);
+        }
+        finally
+        {
+            session.ContextProvider.ReleaseCurrent();
+        }
+
+        AssertUInt(ReadUInt(output), (0xFFu << 24) | (191u << 16) | (64u << 8) | 7u);
+        AssertUInt(ReadUInt(partialOutput), 0x00A11CEu);
+        AssertUInt(ReadUInt(alternativeOutput), 0xDEADBEEFu);
+        AssertUInt(ReadUInt(alternativePartialOutput), 0xDEADBEEFu);
+    }
+
+    private static void ClearTwoTexelTexture(IGraphicsDevice device, IGraphicsTextureView textureView) =>
+        ClearTexture(
+            device,
+            textureView,
+            2,
+            1,
+            new GraphicsClearColor(1, 0, 0, 1),
+            new GraphicsClearColor(0, 0, 1, 1));
+
+    private static void ClearTexture(
+        IGraphicsDevice device,
+        IGraphicsTextureView textureView,
+        uint width,
+        uint height,
+        GraphicsClearColor firstColor,
+        GraphicsClearColor? secondColor = null)
+    {
+        IGraphicsCommandQueue queue = device.GetQueue(GraphicsQueueType.Graphics);
+        using IGraphicsCommandList commandList = queue.CreateCommandList();
+        using IGraphicsFence fence = device.CreateFence();
+        IGraphicsTextureView[] targets = [textureView];
+
+        commandList.Begin();
+        commandList.SetRenderTargets(targets);
+        commandList.SetViewport(new GraphicsViewport(0, 0, width, height));
+        if (secondColor is { } nextColor)
+        {
+            commandList.SetScissor(new GraphicsScissorRect(0, 0, 1, height));
+            commandList.ClearColor(0, firstColor);
+            commandList.SetScissor(new GraphicsScissorRect(1, 0, width - 1, height));
+            commandList.ClearColor(0, nextColor);
+        }
+        else
+        {
+            commandList.SetScissor(new GraphicsScissorRect(0, 0, width, height));
+            commandList.ClearColor(0, firstColor);
+        }
+        commandList.End();
+
+        queue.Submit([commandList], fence, 1);
+        WaitForGpu(fence, commandList, 1);
     }
 
     private static void ConventionalDirectAndIndirectDraw(GlfwOpenGLHardwareSession session)
