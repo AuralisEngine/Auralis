@@ -16,7 +16,7 @@ public sealed class OpenGLResourceRetentionTests
     public void DisposedBufferRemainsAliveUntilRecordedReferencesAreReleased()
     {
         var retention = new OpenGLResourceRetention();
-        var buffer = new InstrumentedNativeResource("buffer");
+        var buffer = new InstrumentedNativeResource();
 
         retention.Retain(buffer);
         buffer.DisposeOwner();
@@ -30,7 +30,7 @@ public sealed class OpenGLResourceRetentionTests
     public void DisposedTextureRemainsAliveUntilRecordedReferencesAreReleased()
     {
         var retention = new OpenGLResourceRetention();
-        var texture = new InstrumentedNativeResource("texture");
+        var texture = new InstrumentedNativeResource();
 
         retention.Retain(texture);
         texture.DisposeOwner();
@@ -102,7 +102,7 @@ public sealed class OpenGLResourceRetentionTests
     {
         var firstList = new OpenGLResourceRetention();
         var secondList = new OpenGLResourceRetention();
-        var resource = new InstrumentedNativeResource("shared texture");
+        var resource = new InstrumentedNativeResource();
 
         firstList.Retain(resource);
         secondList.Retain(resource);
@@ -120,7 +120,7 @@ public sealed class OpenGLResourceRetentionTests
     {
         var lifecycle = new GraphicsCommandListLifecycle(GraphicsQueueType.Compute);
         var retention = new OpenGLResourceRetention();
-        var resource = new InstrumentedNativeResource("indirect arguments");
+        var resource = new InstrumentedNativeResource();
 
         lifecycle.Begin();
         retention.Retain(resource);
@@ -141,7 +141,7 @@ public sealed class OpenGLResourceRetentionTests
     public void DeviceDisposalMayForceNativeReleaseBeforeManagedRetentionsDrain()
     {
         var retention = new OpenGLResourceRetention();
-        var resource = new InstrumentedNativeResource("pipeline");
+        var resource = new InstrumentedNativeResource();
 
         retention.Retain(resource);
         resource.DisposeOwner();
@@ -159,7 +159,7 @@ public sealed class OpenGLResourceRetentionTests
     public void RepeatedDisposalAndDuplicateReleaseCannotDeleteNativeResourceTwice()
     {
         var retention = new OpenGLResourceRetention();
-        var resource = new InstrumentedNativeResource("sampler");
+        var resource = new InstrumentedNativeResource();
 
         retention.Retain(resource);
         retention.Retain(resource); // A list holds one reference per distinct object.
@@ -174,7 +174,7 @@ public sealed class OpenGLResourceRetentionTests
         Assert.Throws<InvalidOperationException>(resource.ReleaseReference);
     }
 
-    private sealed class InstrumentedNativeResource(string name) : IOpenGLNativeResource
+    private sealed class InstrumentedNativeResource : IOpenGLNativeResource
     {
         private OpenGLNativeResourceReferenceState _references = new(1);
         private int _ownerDisposed;
