@@ -44,17 +44,8 @@ internal sealed class OpenGLESGraphicsTexture : OpenGLESNativeDeviceObject, IGra
         in GraphicsTextureDescription description)
     {
         GraphicsTextureDescription copy = description;
-        if (copy.SampleCount != 1)
-            throw new GraphicsValidationException("OpenGL ES backend does not currently implement multisample texture storage.");
-        if (copy.Dimension == GraphicsTextureDimension.Texture1D)
-            throw new GraphicsValidationException("OpenGL ES has no 1D texture target.");
-        if (copy.Dimension == GraphicsTextureDimension.Cube && copy.ArrayLayers != 6)
-            throw new GraphicsValidationException("Cube-map arrays are not implemented by this OpenGL ES backend.");
-        if ((copy.CreationOptions & GraphicsResourceCreationOptions.AllowAliasing) != 0)
-            throw new GraphicsValidationException("OpenGL ES does not expose resource aliasing through this backend.");
-
+        TextureTarget target = OpenGLESTextureCompatibility.ValidateAndGetTarget(copy);
         SizedInternalFormat format = GetInternalFormat(copy.Format);
-        TextureTarget target = GetTextureTarget(copy);
         uint handle = gl.GenTexture();
         if (handle == 0)
             throw new GraphicsException("OpenGL ES failed to allocate a texture name.");
@@ -62,7 +53,7 @@ internal sealed class OpenGLESGraphicsTexture : OpenGLESNativeDeviceObject, IGra
         try
         {
             gl.BindTexture(target, handle);
-            if (copy.Dimension == GraphicsTextureDimension.Texture2D ||
+            if ((copy.Dimension == GraphicsTextureDimension.Texture2D && copy.ArrayLayers == 1) ||
                 copy.Dimension == GraphicsTextureDimension.Cube)
             {
                 gl.TexStorage2D(target, copy.MipLevels, format, copy.Width, copy.Height);
@@ -76,7 +67,7 @@ internal sealed class OpenGLESGraphicsTexture : OpenGLESNativeDeviceObject, IGra
             }
 
             gl.TexParameter(target, TextureParameterName.TextureBaseLevel, 0);
-            gl.TexParameteri(target, TextureParameterName.TextureMaxLevel, checked((int)copy.MipLevels - 1));
+            gl.TexParameter(target, TextureParameterName.TextureMaxLevel, checked((int)copy.MipLevels - 1));
             gl.BindTexture(target, 0);
 
             OpenGLESGraphicsTexture texture = new(device, copy, target, handle);
@@ -142,7 +133,7 @@ internal sealed class OpenGLESGraphicsTexture : OpenGLESNativeDeviceObject, IGra
         _ => throw new GraphicsValidationException($"OpenGL ES has no implemented storage mapping for format {format}.")
     };
 
-    private static TextureTarget GetTextureTarget(in GraphicsTextureDescription description) =>
+    internal static TextureTarget GetTextureTarget(in GraphicsTextureDescription description) =>
         description.Dimension switch
         {
             GraphicsTextureDimension.Texture2D => description.ArrayLayers > 1
