@@ -145,7 +145,8 @@ public sealed class OpenGLESCapabilityProfile
         bool multiDrawIndirectEntryPointsAvailable = true,
         bool indexedBlendEntryPointsAvailable = true,
         bool baseVertexEntryPointsAvailable = true,
-        bool baseInstanceEntryPointsAvailable = true)
+        bool baseInstanceEntryPointsAvailable = true,
+        bool textureViewEntryPointAvailable = true)
     {
         if (version.Major < 1 || version.Minor < 0)
             throw new ArgumentOutOfRangeException(nameof(version));
@@ -198,6 +199,8 @@ public sealed class OpenGLESCapabilityProfile
             Contains(extensionCopy, "GL_EXT_base_instance") &&
             Contains(extensionCopy, "GL_EXT_draw_elements_base_vertex"))
             features |= GraphicsFeature.BaseInstanceDrawing;
+        if (textureViewEntryPointAvailable && Contains(extensionCopy, "GL_EXT_texture_view"))
+            features |= GraphicsFeature.TextureViews;
 
         GraphicsQueueCapabilities queues =
             GraphicsQueueCapabilities.Graphics | GraphicsQueueCapabilities.Copy;
