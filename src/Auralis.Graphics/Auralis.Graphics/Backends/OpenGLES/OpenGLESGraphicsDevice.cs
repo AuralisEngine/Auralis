@@ -583,7 +583,7 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
             fullFloatStorageSupport |= GraphicsFormatSupport.Storage;
         }
 
-        GraphicsFormatCapabilities[] formats =
+        List<GraphicsFormatCapabilities> formats =
         [
             new(GraphicsFormat.R8UNorm, normalizedSingleSupport, SampleCounts(GraphicsFormat.R8UNorm)),
             new(GraphicsFormat.RG8UNorm, normalizedSingleSupport, SampleCounts(GraphicsFormat.RG8UNorm)),
@@ -627,11 +627,39 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
             new(GraphicsFormat.D32FloatS8UInt, depthSupport, SampleCounts(GraphicsFormat.D32FloatS8UInt))
         ];
 
+        GraphicsFormatSupport compressedSupport = GraphicsFormatSupport.Sampled | GraphicsFormatSupport.LinearFiltering;
+        if (supportsImageCopy)
+            compressedSupport |= GraphicsFormatSupport.CopySource | GraphicsFormatSupport.CopyDestination;
+
+        if (profile.HasExtension("GL_EXT_texture_compression_s3tc"))
+        {
+            formats.Add(new(GraphicsFormat.BC1UNorm, compressedSupport, GraphicsSampleCountFlags.One));
+            formats.Add(new(GraphicsFormat.BC3UNorm, compressedSupport, GraphicsSampleCountFlags.One));
+        }
+        if (profile.HasExtension("GL_EXT_texture_compression_s3tc_srgb"))
+        {
+            formats.Add(new(GraphicsFormat.BC1UNormSrgb, compressedSupport, GraphicsSampleCountFlags.One));
+            formats.Add(new(GraphicsFormat.BC3UNormSrgb, compressedSupport, GraphicsSampleCountFlags.One));
+        }
+        if (profile.HasExtension("GL_EXT_texture_compression_rgtc"))
+            formats.Add(new(GraphicsFormat.BC5UNorm, compressedSupport, GraphicsSampleCountFlags.One));
+        if (profile.HasExtension("GL_EXT_texture_compression_bptc"))
+        {
+            formats.Add(new(GraphicsFormat.BC7UNorm, compressedSupport, GraphicsSampleCountFlags.One));
+            formats.Add(new(GraphicsFormat.BC7UNormSrgb, compressedSupport, GraphicsSampleCountFlags.One));
+        }
+        if (profile.HasExtension("GL_KHR_texture_compression_astc_ldr") ||
+            profile.HasExtension("GL_OES_texture_compression_astc"))
+        {
+            formats.Add(new(GraphicsFormat.ASTC4x4UNorm, compressedSupport, GraphicsSampleCountFlags.One));
+            formats.Add(new(GraphicsFormat.ASTC4x4UNormSrgb, compressedSupport, GraphicsSampleCountFlags.One));
+        }
+
         return new GraphicsDeviceCapabilities(
             profile.Features,
             profile.QueueCapabilities,
             limits,
-            formats);
+            formats.ToArray());
     }
 
     private static GraphicsSampleCountFlags QueryTextureSampleCounts(GL gl, GraphicsFormat format)
