@@ -163,6 +163,9 @@ public sealed class OpenGLESCapabilityProfile
         bool es32 = version.IsAtLeast(3, 2);
         GraphicsFeature features = GraphicsFeature.None;
 
+        if (version.IsAtLeast(3, 0))
+            features |= GraphicsFeature.TimelineSynchronization;
+
         if (es31)
         {
             features |= GraphicsFeature.ComputeShaders | GraphicsFeature.IndirectDrawing;
