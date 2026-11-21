@@ -127,7 +127,8 @@ internal sealed class OpenGLGraphicsCommandQueue : IGraphicsCommandQueue
                             _device.ImageLoadStoreApi,
                             _device.DrawBuffersBlendApi,
                             _device.ComputeShaderApi,
-                            _device.MeshShaderApi);
+                            _device.MeshShaderApi,
+                            _device.NvMeshShaderApi);
 
                     completionSync = _device.SyncApi.FenceSync(
                         SyncCondition.SyncGpuCommandsComplete,
