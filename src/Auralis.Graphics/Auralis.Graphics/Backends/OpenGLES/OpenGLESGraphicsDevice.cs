@@ -218,7 +218,7 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
             MaxTextureArrayLayers: queried.MaxArrayLayers,
             MaxVertexInputAttributes: queried.MaxVertexAttributes,
             MaxVertexInputBindings: queried.MaxVertexAttributes,
-            MaxBoundDescriptorSets: uint.MaxValue,
+            MaxBoundDescriptorSets: 0,
             MaxComputeWorkGroupInvocations: queried.MaxComputeInvocations,
             MaxComputeWorkGroupSizeX: 0,
             MaxComputeWorkGroupSizeY: 0,
