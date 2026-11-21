@@ -23,4 +23,47 @@ internal static class OpenGLESTextureCompatibility
         _ = OpenGLESGraphicsTexture.GetInternalFormat(description.Format);
         return OpenGLESGraphicsTexture.GetTextureTarget(description);
     }
+
+    internal static void ValidateCopy(
+        in GraphicsTextureDescription source,
+        in GraphicsTextureDescription destination)
+    {
+        source.Validate();
+        destination.Validate();
+
+        if ((source.Usage & (GraphicsTextureUsage.CopySource | GraphicsTextureUsage.ColorAttachment)) !=
+                (GraphicsTextureUsage.CopySource | GraphicsTextureUsage.ColorAttachment) ||
+            (destination.Usage & (GraphicsTextureUsage.CopyDestination | GraphicsTextureUsage.ColorAttachment)) !=
+                (GraphicsTextureUsage.CopyDestination | GraphicsTextureUsage.ColorAttachment))
+        {
+            throw new GraphicsValidationException(
+                "The GLES framebuffer-blit copy requires CopySource and ColorAttachment on the source, " +
+                "and CopyDestination and ColorAttachment on the destination.");
+        }
+
+        if (source.Dimension != GraphicsTextureDimension.Texture2D ||
+            destination.Dimension != GraphicsTextureDimension.Texture2D ||
+            source.SampleCount != 1 ||
+            destination.SampleCount != 1 ||
+            source.ArrayLayers != 1 ||
+            destination.ArrayLayers != 1 ||
+            source.MipLevels != 1 ||
+            destination.MipLevels != 1)
+        {
+            throw new GraphicsValidationException(
+                "The GLES framebuffer-blit copy supports only single-sample, single-layer, single-mip 2D textures.");
+        }
+
+        if (source.Width != destination.Width ||
+            source.Height != destination.Height ||
+            source.Format != destination.Format)
+        {
+            throw new GraphicsValidationException(
+                "The GLES framebuffer-blit source and destination must have identical extents and formats.");
+        }
+
+        if (source.Format is not (GraphicsFormat.RGBA8UNorm or GraphicsFormat.RGBA8UNormSrgb))
+            throw new GraphicsValidationException(
+                $"The GLES color framebuffer-blit copy path does not support format {source.Format}.");
+    }
 }
