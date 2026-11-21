@@ -433,6 +433,40 @@ public sealed class OpenGLESTextureCompatibilityTests
     }
 
     [Fact]
+    public void Es31MultisampleTextureUsesTheNativeMultisampleTarget()
+    {
+        GraphicsTextureDescription description = new(
+            GraphicsTextureDimension.Texture2D,
+            GraphicsFormat.RGBA8UNorm,
+            128, 64, 1, 1, 1, 4,
+            GraphicsTextureUsage.Sampled | GraphicsTextureUsage.ColorAttachment);
+
+        Assert.Equal(
+            Silk.NET.OpenGLES.TextureTarget.Texture2DMultisample,
+            OpenGLESTextureCompatibility.ValidateAndGetTarget(description, new OpenGLESVersion(3, 1)));
+    }
+
+    [Fact]
+    public void MultisampleTextureRequiresEs31AndRejectsAliasing()
+    {
+        GraphicsTextureDescription description = new(
+            GraphicsTextureDimension.Texture2D,
+            GraphicsFormat.RGBA8UNorm,
+            128, 64, 1, 1, 1, 4,
+            GraphicsTextureUsage.Sampled);
+
+        Assert.Throws<GraphicsValidationException>(() =>
+            OpenGLESTextureCompatibility.ValidateAndGetTarget(description, new OpenGLESVersion(3, 0)));
+
+        GraphicsTextureDescription aliased = description with
+        {
+            CreationOptions = GraphicsResourceCreationOptions.AllowAliasing
+        };
+        Assert.Throws<GraphicsValidationException>(() =>
+            OpenGLESTextureCompatibility.ValidateAndGetTarget(aliased, new OpenGLESVersion(3, 1)));
+    }
+
+    [Fact]
     public void RejectsUnsupportedGlesTextureKindsWithoutAContext()
     {
         GraphicsTextureDescription oneDimensional = new(
@@ -838,9 +872,17 @@ public sealed class OpenGLESIntegerFormatCapabilityTests
             MaxColorAttachments: 4,
             MaxColorDrawBuffers: 4);
 
+        GraphicsSampleCountFlags[] formatSampleCounts =
+            new GraphicsSampleCountFlags[Enum.GetValues<GraphicsFormat>().Length];
+        Array.Fill(formatSampleCounts, GraphicsSampleCountFlags.One);
+        formatSampleCounts[(int)GraphicsFormat.RGBA8UNorm] |= GraphicsSampleCountFlags.Four;
+        queried = queried with { FormatSampleCounts = formatSampleCounts };
+
         GraphicsDeviceCapabilities capabilities =
             OpenGLESGraphicsDevice.QueryCapabilities(profile, queried);
 
+        Assert.True(capabilities.SupportsSampleCount(GraphicsFormat.RGBA8UNorm, 4));
+        Assert.False(capabilities.SupportsSampleCount(GraphicsFormat.RGBA8UNorm, 8));
         Assert.Equal(4u, capabilities.Limits.MaxColorAttachments);
         Assert.Equal(4u, capabilities.Limits.MaxColorDrawBuffers);
 
@@ -851,6 +893,7 @@ public sealed class OpenGLESIntegerFormatCapabilityTests
         Assert.False(capabilities.SupportsFormat(
             GraphicsFormat.RGBA8UInt, GraphicsFormatSupport.LinearFiltering));
         Assert.True(capabilities.SupportsSampleCount(GraphicsFormat.RGBA8UInt, 1));
+        Assert.False(capabilities.SupportsSampleCount(GraphicsFormat.RGBA8UInt, 4));
     }
 
     [Theory]
