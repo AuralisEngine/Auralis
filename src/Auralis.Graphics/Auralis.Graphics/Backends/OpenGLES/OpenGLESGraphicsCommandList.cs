@@ -56,6 +56,7 @@ internal struct OpenGLESCmd
     internal OpenGLESGraphicsComputePipeline? ComputePipeline;
     internal uint SetIndex;
     internal OpenGLESGraphicsBindingLayout? BindingLayout;
+    internal OpenGLESGraphicsPipelineLayout? PipelineLayout;
     internal int BindingValueOffset;
     internal int BindingValueCount;
     internal uint VertexBinding;
@@ -147,8 +148,8 @@ internal sealed class OpenGLESGraphicsCommandList : GraphicsDeviceObject, IGraph
             EnsureOwned(barrier.Resource);
         }
 
-        // GLES exposes a global memory barrier rather than resource/range-specific barriers. Use the
-        // conservative all-bits mask because the common abstraction carries cross-API access scopes.
+        // GLES exposes a global memory barrier rather than resource/range-specific barriers. The
+        // all-bits token is defined by GLES 3.1 and covers every common access transition.
         _commands.Add(new OpenGLESCmd { Kind = OpenGLESCmdKind.Barrier });
     }
 
@@ -235,9 +236,13 @@ internal sealed class OpenGLESGraphicsCommandList : GraphicsDeviceObject, IGraph
         });
     }
 
-    public void ClearColorUInt(uint attachmentIndex, in GraphicsClearColorUInt color) =>
-        throw new GraphicsFeatureNotSupportedException(
-            GraphicsFeature.None, GraphicsFeature.None);
+    public void ClearColorUInt(uint attachmentIndex, in GraphicsClearColorUInt color)
+    {
+        EnsureRecording();
+        EnsureGraphicsQueue();
+        throw new GraphicsValidationException(
+            "Unsigned-integer color attachment clears are not implemented by this OpenGL ES backend.");
+    }
 
     public void ClearColorSInt(uint attachmentIndex, in GraphicsClearColorSInt color) =>
         throw new GraphicsValidationException("Integer framebuffer clear operations are not implemented by this GLES backend.");
@@ -335,6 +340,7 @@ internal sealed class OpenGLESGraphicsCommandList : GraphicsDeviceObject, IGraph
             Kind = OpenGLESCmdKind.BindingSet,
             SetIndex = setIndex,
             BindingLayout = (OpenGLESGraphicsBindingLayout)glesSet.Layout,
+            PipelineLayout = _pipelineLayout,
             BindingValueOffset = offset,
             BindingValueCount = glesSet.ValueCount
         });
@@ -479,6 +485,7 @@ internal sealed class OpenGLESGraphicsCommandList : GraphicsDeviceObject, IGraph
         {
             Kind = OpenGLESCmdKind.DrawIndexedIndirect,
             Buffer0 = arguments,
+            Buffer1 = _indexBuffer,
             Offset0 = offset,
             IndexFormat = (uint)_indexFormat
         });
@@ -597,6 +604,7 @@ internal sealed class OpenGLESGraphicsCommandList : GraphicsDeviceObject, IGraph
         uint framebuffer = 0;
         uint readFramebuffer = 0;
         uint drawFramebuffer = 0;
+        OpenGLESGraphicsRenderPipeline? activeRenderPipeline = null;
         try
         {
             for (int i = 0; i < _commands.Count; i++)
@@ -605,7 +613,7 @@ internal sealed class OpenGLESGraphicsCommandList : GraphicsDeviceObject, IGraph
                 switch (command.Kind)
                 {
                     case OpenGLESCmdKind.Barrier:
-                        gl.MemoryBarrier((MemoryBarrierMask)0xFFFFFFFF);
+                        gl.MemoryBarrier((uint)MemoryBarrierMask.AllBarrierBits);
                         break;
 
                     case OpenGLESCmdKind.CopyBuffer:
@@ -693,10 +701,12 @@ internal sealed class OpenGLESGraphicsCommandList : GraphicsDeviceObject, IGraph
                         break;
 
                     case OpenGLESCmdKind.RenderPipeline:
-                        command.RenderPipeline!.BindPipelineState(gl);
+                        activeRenderPipeline = command.RenderPipeline!;
+                        activeRenderPipeline.BindPipelineState(gl);
                         break;
 
                     case OpenGLESCmdKind.ComputePipeline:
+                        activeRenderPipeline = null;
                         command.ComputePipeline!.BindPipelineState(gl);
                         break;
 
@@ -705,12 +715,13 @@ internal sealed class OpenGLESGraphicsCommandList : GraphicsDeviceObject, IGraph
                         break;
 
                     case OpenGLESCmdKind.VertexBuffer:
-                        _renderPipeline!.ConfigureVertexBinding(
+                        (activeRenderPipeline ?? throw new GraphicsValidationException(
+                            "A render pipeline must be bound before configuring vertex input.")).ConfigureVertexBinding(
                             gl,
                             command.VertexBinding,
                             ((OpenGLESGraphicsBuffer)command.Buffer0!).Handle,
                             command.Offset0,
-                            GetVertexStride(_renderPipeline.Description.VertexInput!, command.VertexBinding));
+                            GetVertexStride(activeRenderPipeline.Description.VertexInput!, command.VertexBinding));
                         break;
 
                     case OpenGLESCmdKind.IndexBuffer:
@@ -719,7 +730,8 @@ internal sealed class OpenGLESGraphicsCommandList : GraphicsDeviceObject, IGraph
 
                     case OpenGLESCmdKind.Draw:
                         gl.DrawArraysInstanced(
-                            GetPrimitive(_renderPipeline!.Description.Topology),
+                            GetPrimitive((activeRenderPipeline ?? throw new GraphicsValidationException(
+                                "A render pipeline must be bound before drawing.")).Description.Topology),
                             checked((int)command.FirstVertex),
                             command.VertexCount,
                             command.InstanceCount);
@@ -728,7 +740,8 @@ internal sealed class OpenGLESGraphicsCommandList : GraphicsDeviceObject, IGraph
                     case OpenGLESCmdKind.DrawIndexed:
                         gl.BindBuffer(BufferTargetARB.ElementArrayBuffer, ((OpenGLESGraphicsBuffer)command.Buffer0!).Handle);
                         gl.DrawElementsInstanced(
-                            GetPrimitive(_renderPipeline!.Description.Topology),
+                            GetPrimitive((activeRenderPipeline ?? throw new GraphicsValidationException(
+                                "A render pipeline must be bound before drawing.")).Description.Topology),
                             command.IndexCount,
                             command.IndexFormat == (uint)GraphicsIndexFormat.UInt16
                                 ? DrawElementsType.UnsignedShort
@@ -739,15 +752,17 @@ internal sealed class OpenGLESGraphicsCommandList : GraphicsDeviceObject, IGraph
 
                     case OpenGLESCmdKind.DrawIndirect:
                         gl.BindBuffer(BufferTargetARB.DrawIndirectBuffer, ((OpenGLESGraphicsBuffer)command.Buffer0!).Handle);
-                        gl.DrawArraysIndirect(GetPrimitive(_renderPipeline!.Description.Topology), (void*)checked((nint)command.Offset0));
+                        gl.DrawArraysIndirect(GetPrimitive((activeRenderPipeline ?? throw new GraphicsValidationException(
+                            "A render pipeline must be bound before drawing.")).Description.Topology), (void*)checked((nint)command.Offset0));
                         gl.BindBuffer(BufferTargetARB.DrawIndirectBuffer, 0);
                         break;
 
                     case OpenGLESCmdKind.DrawIndexedIndirect:
-                        gl.BindBuffer(BufferTargetARB.ElementArrayBuffer, ((OpenGLESGraphicsBuffer)_indexBuffer!).Handle);
+                        gl.BindBuffer(BufferTargetARB.ElementArrayBuffer, ((OpenGLESGraphicsBuffer)command.Buffer1!).Handle);
                         gl.BindBuffer(BufferTargetARB.DrawIndirectBuffer, ((OpenGLESGraphicsBuffer)command.Buffer0!).Handle);
                         gl.DrawElementsIndirect(
-                            GetPrimitive(_renderPipeline!.Description.Topology),
+                            GetPrimitive((activeRenderPipeline ?? throw new GraphicsValidationException(
+                                "A render pipeline must be bound before drawing.")).Description.Topology),
                             command.IndexFormat == (uint)GraphicsIndexFormat.UInt16
                                 ? DrawElementsType.UnsignedShort
                                 : DrawElementsType.UnsignedInt,
@@ -786,8 +801,8 @@ internal sealed class OpenGLESGraphicsCommandList : GraphicsDeviceObject, IGraph
 
     private void BindSet(GL gl, in OpenGLESCmd command)
     {
-        if (_pipelineLayout is null || command.BindingLayout is null)
-            throw new GraphicsValidationException("No GLES pipeline layout is active.");
+        if (command.PipelineLayout is null || command.BindingLayout is null)
+            throw new GraphicsValidationException("The recorded GLES descriptor set has no pipeline layout.");
 
         ReadOnlySpan<OpenGLESBindingValue> values = CollectionsMarshal.AsSpan(_bindingValues)
             .Slice(command.BindingValueOffset, command.BindingValueCount);
@@ -796,7 +811,7 @@ internal sealed class OpenGLESGraphicsCommandList : GraphicsDeviceObject, IGraph
         for (int i = 0; i < entries.Length; i++)
         {
             GraphicsBindingLayoutEntry entry = entries[i];
-            if (!_pipelineLayout.TryGetMapping(command.SetIndex, entry.Binding, out OpenGLESDescriptorMapping mapping))
+            if (!command.PipelineLayout.TryGetMapping(command.SetIndex, entry.Binding, out OpenGLESDescriptorMapping mapping))
                 throw new GraphicsValidationException("The active GLES pipeline layout is missing a binding mapping.");
 
             for (uint element = 0; element < entry.Count; element++)
