@@ -64,6 +64,41 @@ public sealed class GraphicsReviewRegressionTests
     }
 
     [Fact]
+    public void RenderTargetValidationComparesEffectiveMipExtentsRatherThanParentExtents()
+    {
+        var colorCapabilities = new GraphicsFormatCapabilities(
+            GraphicsFormat.RGBA8UNorm,
+            GraphicsFormatSupport.ColorAttachment,
+            GraphicsSampleCountFlags.One);
+        var device = CreateDevice(GraphicsFeature.None, colorCapabilities);
+
+        var mipmappedTexture = new TestTexture(device, new GraphicsTextureDescription(
+            GraphicsTextureDimension.Texture2D,
+            GraphicsFormat.RGBA8UNorm,
+            256, 128, 1, 2, 1, 1,
+            GraphicsTextureUsage.ColorAttachment));
+        var matchingBaseTexture = new TestTexture(device, new GraphicsTextureDescription(
+            GraphicsTextureDimension.Texture2D,
+            GraphicsFormat.RGBA8UNorm,
+            128, 64, 1, 1, 1, 1,
+            GraphicsTextureUsage.ColorAttachment));
+
+        var mipView = new TestTextureView(mipmappedTexture, new GraphicsTextureViewDescription(
+            GraphicsFormat.Unknown, GraphicsTextureViewType.Texture2D, 1, 1, 0, 1));
+        var baseView = new TestTextureView(matchingBaseTexture, new GraphicsTextureViewDescription(
+            GraphicsFormat.Unknown, GraphicsTextureViewType.Texture2D, 0, 1, 0, 1));
+
+        Assert.Equal(
+            new GraphicsRenderTargetExtent(128, 64, 1),
+            GraphicsRenderTargetValidation.Validate(device, [mipView, baseView]));
+
+        var mismatchedBaseTexture = new TestTexture(device, matchingBaseTexture.Description with { Width = 64 });
+        var mismatchedBaseView = new TestTextureView(mismatchedBaseTexture, baseView.Description);
+        Assert.Throws<GraphicsValidationException>(() =>
+            GraphicsRenderTargetValidation.Validate(device, [mipView, mismatchedBaseView]));
+    }
+
+    [Fact]
     public void RenderTargetAndDynamicStateDescriptionsRejectInvalidValues()
     {
         Assert.Throws<ArgumentOutOfRangeException>(() =>
