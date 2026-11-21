@@ -654,7 +654,10 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
         GraphicsCommandValidation.ValidateTextureCopyNotAliased(source, destination);
         EnsureOwned(source);
         EnsureOwned(destination);
-        OpenGLESTextureCompatibility.ValidateCopy(source.Description, destination.Description);
+        OpenGLESTextureCompatibility.ValidateCopy(
+            source.Description,
+            destination.Description,
+            _queue.GlesDevice.CopyImageApi is not null);
 
         _commands.Add(new OpenGLESCmd
         {
@@ -725,6 +728,40 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
                         break;
 
                     case OpenGLESCmdKind.CopyTexture:
+                        if (_queue.GlesDevice.CopyImageApi is { } copyImage)
+                        {
+                            OpenGLESGraphicsTexture sourceTexture = (OpenGLESGraphicsTexture)command.Texture0!;
+                            OpenGLESGraphicsTexture destinationTexture = (OpenGLESGraphicsTexture)command.Texture1!;
+                            GraphicsTextureDescription sourceDescription = sourceTexture.Description;
+
+                            for (uint mip = 0; mip < sourceDescription.MipLevels; mip++)
+                            {
+                                uint width = Math.Max(1u, sourceDescription.Width >> checked((int)mip));
+                                uint height = Math.Max(1u, sourceDescription.Height >> checked((int)mip));
+                                uint depth = sourceDescription.Dimension switch
+                                {
+                                    GraphicsTextureDimension.Texture3D =>
+                                        Math.Max(1u, sourceDescription.Depth >> checked((int)mip)),
+                                    GraphicsTextureDimension.Texture2D when sourceDescription.ArrayLayers > 1 =>
+                                        sourceDescription.ArrayLayers,
+                                    GraphicsTextureDimension.Cube => sourceDescription.ArrayLayers,
+                                    _ => 1u
+                                };
+
+                                copyImage.CopyImageSubData(
+                                    sourceTexture.Handle,
+                                    (EXT)sourceTexture.Target,
+                                    checked((int)mip),
+                                    0, 0, 0,
+                                    destinationTexture.Handle,
+                                    (EXT)destinationTexture.Target,
+                                    checked((int)mip),
+                                    0, 0, 0,
+                                    width, height, depth);
+                            }
+                            break;
+                        }
+
                         readFramebuffer = gl.GenFramebuffer();
                         if (readFramebuffer == 0)
                             throw new GraphicsException("OpenGL ES failed to create the texture-copy read framebuffer.");
