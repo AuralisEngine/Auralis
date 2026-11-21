@@ -264,7 +264,11 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
             if (gl.IsExtensionPresent(ArbPolygonOffsetClamp.ExtensionName))
                 polygonOffsetClampApi = new ArbPolygonOffsetClamp(gl.Context);
             if (gl.IsExtensionPresent(OpenGLExtMeshShader.ExtensionName) &&
-                HasEntryPoints(contextProvider, "glDrawMeshTasksEXT", "glDrawMeshTasksIndirectEXT"))
+                HasEntryPoints(
+                    contextProvider,
+                    "glDrawMeshTasksEXT",
+                    "glDrawMeshTasksIndirectEXT",
+                    "glMultiDrawMeshTasksIndirectEXT"))
             {
                 meshShaderApi = new OpenGLExtMeshShader(gl.Context);
             }
@@ -560,6 +564,16 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
             queues,
             limits,
             formats);
+    }
+
+    private static bool HasEntryPoints(
+        IOpenGLContextProvider contextProvider,
+        params string[] names)
+    {
+        for (int i = 0; i < names.Length; i++)
+            if (contextProvider.GetProcAddress(names[i]) == 0)
+                return false;
+        return true;
     }
 
     private static uint ToUInt(int value) => value > 0 ? (uint)value : 0;
