@@ -84,6 +84,16 @@ internal sealed unsafe class OpenGLMappedMemoryManager : MemoryManager<byte>
     /// <summary>Invalidates future Memory/Span/Pin operations but leaves existing native pins valid.</summary>
     internal void Invalidate() => Dispose(disposing: true);
 
+    internal void ValidateNoPins()
+    {
+        lock (_gate)
+        {
+            if (_pinCount != 0)
+                throw new InvalidOperationException(
+                    "The mapped buffer cannot be released while one or more MemoryHandle pins are active.");
+        }
+    }
+
     /// <summary>Waits until previously issued MemoryHandle pins have been released.</summary>
     internal void WaitForPins()
     {
