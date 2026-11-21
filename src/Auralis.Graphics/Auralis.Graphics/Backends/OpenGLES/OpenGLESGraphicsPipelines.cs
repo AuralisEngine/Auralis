@@ -3,6 +3,7 @@ using Auralis.Graphics.Devices;
 using Auralis.Graphics.Pipelines;
 using Auralis.Graphics.Resources;
 using Silk.NET.OpenGLES;
+using Silk.NET.OpenGLES.Extensions.EXT;
 
 namespace Auralis.Graphics.Backends.OpenGLES;
 
@@ -243,35 +244,73 @@ internal sealed unsafe class OpenGLESGraphicsRenderPipeline : OpenGLESGraphicsPi
         ReadOnlySpan<GraphicsBlendAttachmentState> blendStates = blend.Attachments;
         if (blendStates.Length > 1)
         {
+            ExtDrawBuffersIndexed? indexedBlend = ((OpenGLESGraphicsDevice)Device).DrawBuffersIndexedApi;
+            bool differs = false;
             for (int i = 1; i < blendStates.Length; i++)
+                differs |= blendStates[i] != blendStates[0];
+
+            if (differs && indexedBlend is null)
+                throw new GraphicsFeatureNotSupportedException(
+                    GraphicsFeature.IndependentBlend, GraphicsFeature.IndependentBlend);
+
+            if (indexedBlend is not null && differs)
             {
-                if (blendStates[i] != blendStates[0])
-                    throw new GraphicsValidationException(
-                        "Per-attachment blend differences require GL_EXT_draw_buffers_indexed; " +
-                        "identical states are applied as one common blend configuration.");
+                for (uint i = 0; i < (uint)blendStates.Length; i++)
+                {
+                    GraphicsBlendAttachmentState state = blendStates[(int)i];
+                    if (state.BlendEnabled)
+                        indexedBlend.Enable(EnableCap.Blend, i);
+                    else
+                        indexedBlend.Disable(EnableCap.Blend, i);
+
+                    indexedBlend.BlendEquationSeparate(
+                        i,
+                        (BlendEquationModeEXT)GetBlendEquation(state.ColorOperation),
+                        (BlendEquationModeEXT)GetBlendEquation(state.AlphaOperation));
+                    indexedBlend.BlendFuncSeparate(
+                        i,
+                        (BlendingFactor)GetBlendFactor(state.SourceColor),
+                        (BlendingFactor)GetBlendFactor(state.DestinationColor),
+                        (BlendingFactor)GetBlendFactor(state.SourceAlpha),
+                        (BlendingFactor)GetBlendFactor(state.DestinationAlpha));
+                    indexedBlend.ColorMask(
+                        i,
+                        (state.WriteMask & GraphicsColorWriteMask.Red) != 0,
+                        (state.WriteMask & GraphicsColorWriteMask.Green) != 0,
+                        (state.WriteMask & GraphicsColorWriteMask.Blue) != 0,
+                        (state.WriteMask & GraphicsColorWriteMask.Alpha) != 0);
+                }
+            }
+            else
+            {
+                ApplyCommonBlendState(gl, blendStates[0]);
             }
         }
-        if (!blendStates.IsEmpty)
+        else if (!blendStates.IsEmpty)
         {
-            GraphicsBlendAttachmentState state = blendStates[0];
-            SetEnabled(gl, GLEnum.Blend, state.BlendEnabled);
-            gl.BlendEquationSeparate(GetBlendEquation(state.ColorOperation), GetBlendEquation(state.AlphaOperation));
-            gl.BlendFuncSeparate(
-                GetBlendFactor(state.SourceColor),
-                GetBlendFactor(state.DestinationColor),
-                GetBlendFactor(state.SourceAlpha),
-                GetBlendFactor(state.DestinationAlpha));
-            gl.ColorMask(
-                (state.WriteMask & GraphicsColorWriteMask.Red) != 0,
-                (state.WriteMask & GraphicsColorWriteMask.Green) != 0,
-                (state.WriteMask & GraphicsColorWriteMask.Blue) != 0,
-                (state.WriteMask & GraphicsColorWriteMask.Alpha) != 0);
+            ApplyCommonBlendState(gl, blendStates[0]);
         }
         else
         {
             gl.Disable(GLEnum.Blend);
             gl.ColorMask(true, true, true, true);
         }
+    }
+
+    private static void ApplyCommonBlendState(GL gl, GraphicsBlendAttachmentState state)
+    {
+        SetEnabled(gl, GLEnum.Blend, state.BlendEnabled);
+        gl.BlendEquationSeparate(GetBlendEquation(state.ColorOperation), GetBlendEquation(state.AlphaOperation));
+        gl.BlendFuncSeparate(
+            GetBlendFactor(state.SourceColor),
+            GetBlendFactor(state.DestinationColor),
+            GetBlendFactor(state.SourceAlpha),
+            GetBlendFactor(state.DestinationAlpha));
+        gl.ColorMask(
+            (state.WriteMask & GraphicsColorWriteMask.Red) != 0,
+            (state.WriteMask & GraphicsColorWriteMask.Green) != 0,
+            (state.WriteMask & GraphicsColorWriteMask.Blue) != 0,
+            (state.WriteMask & GraphicsColorWriteMask.Alpha) != 0);
     }
 
     internal void ConfigureVertexBinding(
