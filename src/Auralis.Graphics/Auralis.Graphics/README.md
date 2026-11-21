@@ -319,7 +319,7 @@ using IGraphicsDevice device = await GraphicsDeviceFactory.CreateAsync(
 - Timeline fences use GLES sync objects. Logical graphics, compute, and copy queue roles are serialized over one GLES command stream; they are not physically independent hardware queues.
 - Anisotropic filtering is advertised only when `GL_EXT_texture_filter_anisotropic` is present and the driver-reported maximum is queried.
 - Presentation is advertised only when the injected context provider reports a compatible host drawable. A generic currentable context does not imply presentation support.
-- Mesh/task shaders are not currently claimed for GLES. Desktop `GL_EXT_mesh_shader` support does not establish GLES support, and the GLES extension, shader-language, function, and driver contract is not assumed equivalent. GLES SPIR-V ingestion remains unsupported: desktop `GL_ARB_gl_spirv` is not a GLES ingestion mechanism, and this backend has no verified native GLES SPIR-V path.
+- GLES mesh/task shaders use the distinct `GL_EXT_mesh_shader` contract when the extension and all required direct/indirect entry points resolve. ESSL 3.10 or newer must enable `GL_EXT_mesh_shader`; mesh/task work-group count and total-count limits are queried from the driver. Native three-dimensional direct/indirect dispatch is supported. Native multi-draw mesh indirect is optional; without it, multiple native indirect calls are issued using GPU-resident offsets. This does not imply desktop NV semantics. GLES SPIR-V ingestion remains unsupported: desktop `GL_ARB_gl_spirv` is not a GLES ingestion mechanism, and this backend has no verified native GLES SPIR-V path.
 - GLES does not claim descriptor indexing, update-after-bind, variable-count descriptors, persistent mapping, sparse residency, timestamp-query results, or indexed multi-viewport. Those features either lack a native implementation here or need common API semantics that the existing contracts do not yet expose.
 
 ### Implemented operations
@@ -339,7 +339,7 @@ using IGraphicsDevice device = await GraphicsDeviceFactory.CreateAsync(
 
 - The GLES backend still uses one context command stream. Logical graphics/compute/copy roles do not represent separate physical hardware queues.
 - 1D textures remain unsupported because GLES has no native 1D texture target.
-- Mesh/task shaders remain unsupported until a verifiable GLES extension and stage/function contract can be integrated; desktop EXT/NV functionality is not treated as equivalent.
+- GLES EXT mesh/task support is extension-gated and depends on `GL_EXT_mesh_shader`, the resolved required entry points, and driver-reported limits. Desktop NV's one-dimensional dispatch and 8-byte indirect command are a separate contract and are not reused by GLES.
 - SPIR-V ingestion remains unsupported because the backend has no verified native GLES ingestion extension/path.
 - Native multi-draw-indirect is optional. Its CPU-loop fallback preserves GPU-resident indirect-buffer semantics but does not claim native multi-draw feature support.
 - Independent per-attachment blending requires `GL_EXT_draw_buffers_indexed`; otherwise the same blend configuration applies across all MRT attachments.
