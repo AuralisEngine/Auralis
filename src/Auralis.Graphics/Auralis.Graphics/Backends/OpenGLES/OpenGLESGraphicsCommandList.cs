@@ -660,7 +660,7 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
         OpenGLESTextureCompatibility.ValidateCopy(
             source.Description,
             destination.Description,
-            _queue.GlesDevice.CopyImageApi is not null);
+            _queue.GlesDevice.HasImageCopy);
 
         _commands.Add(new OpenGLESCmd
         {
@@ -731,7 +731,7 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
                         break;
 
                     case OpenGLESCmdKind.CopyTexture:
-                        if (_queue.GlesDevice.CopyImageApi is { } copyImage)
+                        if (_queue.GlesDevice.HasImageCopy)
                         {
                             OpenGLESGraphicsTexture sourceTexture = (OpenGLESGraphicsTexture)command.Texture0!;
                             OpenGLESGraphicsTexture destinationTexture = (OpenGLESGraphicsTexture)command.Texture1!;
@@ -751,16 +751,32 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
                                     _ => 1u
                                 };
 
-                                copyImage.CopyImageSubData(
-                                    sourceTexture.Handle,
-                                    (EXT)sourceTexture.Target,
-                                    checked((int)mip),
-                                    0, 0, 0,
-                                    destinationTexture.Handle,
-                                    (EXT)destinationTexture.Target,
-                                    checked((int)mip),
-                                    0, 0, 0,
-                                    width, height, depth);
+                                if (_queue.GlesDevice.CopyImageApi is { } copyImage)
+                                {
+                                    copyImage.CopyImageSubData(
+                                        sourceTexture.Handle,
+                                        (EXT)sourceTexture.Target,
+                                        checked((int)mip),
+                                        0, 0, 0,
+                                        destinationTexture.Handle,
+                                        (EXT)destinationTexture.Target,
+                                        checked((int)mip),
+                                        0, 0, 0,
+                                        width, height, depth);
+                                }
+                                else
+                                {
+                                    _queue.GlesDevice.CopyImageSubDataOes!(
+                                        sourceTexture.Handle,
+                                        sourceTexture.Target,
+                                        checked((int)mip),
+                                        0, 0, 0,
+                                        destinationTexture.Handle,
+                                        destinationTexture.Target,
+                                        checked((int)mip),
+                                        0, 0, 0,
+                                        width, height, depth);
+                                }
                             }
                             break;
                         }
