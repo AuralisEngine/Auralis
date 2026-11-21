@@ -103,7 +103,7 @@ internal sealed class OpenGLESGraphicsTexture : OpenGLESNativeDeviceObject, IGra
 
         return _device.WithContext(gl =>
             OpenGLESGraphicsTextureView.CreateUnderContext(
-                _device, gl, _device.TextureViewApi, this, copy));
+                _device, gl, _device.TextureViewExt, this, copy));
     }
 
     protected override void DisposeCore() => ReleaseOwnerReference();
@@ -186,7 +186,7 @@ internal sealed class OpenGLESGraphicsTextureView : OpenGLESNativeDeviceObject, 
     internal static OpenGLESGraphicsTextureView CreateUnderContext(
         OpenGLESGraphicsDevice device,
         GL gl,
-        ExtTextureView? textureViewApi,
+        OpenGLESGraphicsDevice.TextureViewExtDelegate? textureViewApi,
         OpenGLESGraphicsTexture texture,
         in GraphicsTextureViewDescription description)
     {
@@ -223,7 +223,7 @@ internal sealed class OpenGLESGraphicsTextureView : OpenGLESNativeDeviceObject, 
                     throw new GraphicsException("OpenGL ES failed to allocate a texture-view name.");
 
                 ownsHandle = true;
-                textureViewApi!.TextureView(
+                textureViewApi!(
                     handle,
                     target,
                     texture.Handle,
