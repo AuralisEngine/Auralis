@@ -18,9 +18,10 @@ internal static class OpenGLESComputeWorkGroupValidation
             throw new GraphicsValidationException(
                 "OpenGL ES compute dispatch limits were not reported; dispatch cannot be validated safely.");
 
-        if (groupCountX > maxGroupCountX || groupCountY > maxGroupCountY || groupCountZ > maxGroupCountZ)
+        // GLES rejects a dispatch count equal to the corresponding maximum as well as one above it.
+        if (groupCountX >= maxGroupCountX || groupCountY >= maxGroupCountY || groupCountZ >= maxGroupCountZ)
             throw new GraphicsValidationException(
-                $"OpenGL ES compute dispatch ({groupCountX}, {groupCountY}, {groupCountZ}) exceeds " +
+                $"OpenGL ES compute dispatch ({groupCountX}, {groupCountY}, {groupCountZ}) must be below " +
                 $"the device work-group count limits ({maxGroupCountX}, {maxGroupCountY}, {maxGroupCountZ}).");
     }
 

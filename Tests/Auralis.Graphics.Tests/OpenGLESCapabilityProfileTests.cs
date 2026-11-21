@@ -474,8 +474,8 @@ public sealed class OpenGLESComputeWorkGroupValidationTests
         MaxSamplerAnisotropy: 1);
 
     [Fact]
-    public void Dispatch_AllowsCountsAtEachAxisLimit() =>
-        OpenGLESComputeWorkGroupValidation.ValidateDispatch(65_535, 65_535, 65_535, 65_535, 65_535, 65_535);
+    public void Dispatch_AllowsCountsImmediatelyBelowEachAxisLimit() =>
+        OpenGLESComputeWorkGroupValidation.ValidateDispatch(65_534, 65_534, 65_534, 65_535, 65_535, 65_535);
 
     [Theory]
     [InlineData(0u, 1u, 1u)]
@@ -490,6 +490,15 @@ public sealed class OpenGLESComputeWorkGroupValidationTests
     [InlineData(1u, 65_536u, 1u)]
     [InlineData(1u, 1u, 65_536u)]
     public void Dispatch_RejectsEachAxisIndependentlyWhenItExceedsTheLimit(uint x, uint y, uint z) =>
+        Assert.Throws<GraphicsValidationException>(() =>
+            OpenGLESComputeWorkGroupValidation.ValidateDispatch(x, y, z, 65_535, 65_535, 65_535));
+
+
+    [Theory]
+    [InlineData(65_535u, 1u, 1u)]
+    [InlineData(1u, 65_535u, 1u)]
+    [InlineData(1u, 1u, 65_535u)]
+    public void Dispatch_RejectsCountsEqualToEachAxisLimit(uint x, uint y, uint z) =>
         Assert.Throws<GraphicsValidationException>(() =>
             OpenGLESComputeWorkGroupValidation.ValidateDispatch(x, y, z, 65_535, 65_535, 65_535));
 
