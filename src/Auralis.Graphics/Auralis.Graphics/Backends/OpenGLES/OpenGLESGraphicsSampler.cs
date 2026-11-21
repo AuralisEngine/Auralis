@@ -54,24 +54,24 @@ internal sealed class OpenGLESGraphicsSampler : OpenGLESNativeDeviceObject, IGra
 
         try
         {
-            gl.SamplerParameteri(handle, TextureParameterName.TextureMinFilter, GetMinFilter(copy));
-            gl.SamplerParameteri(handle, TextureParameterName.TextureMagFilter, GetMagFilter(copy));
-            gl.SamplerParameteri(handle, TextureParameterName.TextureWrapS, GetAddressMode(copy.AddressU));
-            gl.SamplerParameteri(handle, TextureParameterName.TextureWrapT, GetAddressMode(copy.AddressV));
-            gl.SamplerParameteri(handle, TextureParameterName.TextureWrapR, GetAddressMode(copy.AddressW));
-            gl.SamplerParameterf(handle, TextureParameterName.TextureMinLod, copy.MinLod);
-            gl.SamplerParameterf(handle, TextureParameterName.TextureMaxLod, copy.MaxLod);
-            gl.SamplerParameterf(handle, TextureParameterName.TextureLodBias, copy.LodBias);
-            gl.SamplerParameteri(
+            gl.SamplerParameter(handle, SamplerParameterI.MinFilter, GetMinFilter(copy));
+            gl.SamplerParameter(handle, SamplerParameterI.MagFilter, GetMagFilter(copy));
+            gl.SamplerParameter(handle, SamplerParameterI.WrapS, GetAddressMode(copy.AddressU));
+            gl.SamplerParameter(handle, SamplerParameterI.WrapT, GetAddressMode(copy.AddressV));
+            gl.SamplerParameter(handle, SamplerParameterI.WrapR, GetAddressMode(copy.AddressW));
+            gl.SamplerParameter(handle, SamplerParameterF.MinLod, copy.MinLod);
+            gl.SamplerParameter(handle, SamplerParameterF.MaxLod, copy.MaxLod);
+            gl.SamplerParameter(handle, SamplerParameterF.LodBias, copy.LodBias);
+            gl.SamplerParameter(
                 handle,
-                TextureParameterName.TextureCompareMode,
+                SamplerParameterI.CompareMode,
                 copy.ComparisonEnabled ? 0x884E : 0);
 
             if (copy.ComparisonEnabled)
-                gl.SamplerParameteri(handle, TextureParameterName.TextureCompareFunc, GetCompareFunction(copy.CompareOperation));
+                gl.SamplerParameter(handle, SamplerParameterI.CompareFunc, GetCompareFunction(copy.CompareOperation));
 
             if (copy.MaxAnisotropy > 1)
-                gl.SamplerParameterf(handle, (TextureParameterName)0x84FE, copy.MaxAnisotropy);
+                gl.SamplerParameter(handle, SamplerParameterF.MaxAnisotropy, copy.MaxAnisotropy);
 
             OpenGLESGraphicsSampler sampler = new(device, copy, handle);
             device.RegisterUnderContext(sampler);
