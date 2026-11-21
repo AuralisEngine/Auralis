@@ -225,7 +225,7 @@ Resource barriers are translated into GL memory-barrier bits based on destinatio
 - Depth-bounds testing is optional and requires `GL_EXT_depth_bounds_test`.
 - Depth-bias clamping is optional and requires `GL_ARB_polygon_offset_clamp`; non-zero clamps remain rejected without it.
 - SPIR-V ingestion is optional and requires `GL_ARB_gl_spirv`; GLSL source compilation remains available independently.
-- Debug output uses `GL_KHR_debug` (core in modern desktop OpenGL); it is diagnostic output, not GPU-based validation. Callback output, notification filtering, and command debug groups are implemented. Object labels are applied to textures, texture views, samplers, shaders, and graphics-pipeline program/vertex-array objects; buffer and compute-pipeline labeling is not yet covered.
+- Debug output uses `GL_KHR_debug` (core in modern desktop OpenGL); it is diagnostic output, not GPU-based validation. Callback output, notification filtering, and command debug groups are implemented. Object labels are applied to buffers, textures, texture views, samplers, shaders, and graphics/compute pipeline program objects (plus graphics vertex arrays).
 - Sparse resources, timestamp-query reporting, and multi-viewport are not advertised: they require complete resource residency/query-result/common-command contracts, not just extension detection.
 - Shared host GL-state preservation is not implemented; exclusive GL-state ownership is required.
 - Physical adapter IDs, PCI IDs, dedicated memory size, and system-wide adapter enumeration are unknown through the injected-context contract.
