@@ -591,6 +591,19 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
         }
     }
 
+    /// <summary>
+    /// Waits for an already-started device shutdown to finish. This is used only by exceptional
+    /// submission/disposal races after IsDisposed has been published; it never activates GL.
+    /// </summary>
+    internal void WaitForShutdownCompletion()
+    {
+        lock (_contextGate)
+        {
+            // Acquiring the gate after Dispose releases it means the context has been drained,
+            // native resources have been released, and an owned provider has been disposed.
+        }
+    }
+
     internal void OnSubmissionQueued() => Interlocked.Increment(ref _pendingSubmissionCount);
 
     internal void OnSubmissionCompleted()
