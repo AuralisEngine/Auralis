@@ -174,6 +174,8 @@ internal sealed class OpenGLESGraphicsTextureView : GraphicsDeviceObject, IGraph
 
     public GraphicsTextureViewDescription Description { get; }
 
+    public string? DebugName => null;
+
     protected override void DisposeCore()
     {
         if (Interlocked.Exchange(ref _parentReferenceHeld, 0) != 0)
