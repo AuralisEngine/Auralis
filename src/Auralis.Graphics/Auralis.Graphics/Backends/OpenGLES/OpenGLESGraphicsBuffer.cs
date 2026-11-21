@@ -173,7 +173,7 @@ internal sealed unsafe class OpenGLESGraphicsBuffer : OpenGLESNativeDeviceObject
 
                 _mapped = null;
                 _mappedOffset = 0;
-                manager.Invalidate()
+                manager.Invalidate();
             }
         });
     }
