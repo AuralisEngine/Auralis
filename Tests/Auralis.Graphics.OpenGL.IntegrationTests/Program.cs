@@ -1,14 +1,13 @@
 using System.Buffers.Binary;
 using System.Text;
 using Auralis.Graphics.Abstractions;
+using Auralis.Graphics.Backends.OpenGL;
 using Auralis.Graphics.Commands;
 using Auralis.Graphics.Devices;
 using Auralis.Graphics.OpenGL.TestSupport;
 using Auralis.Graphics.Pipelines;
 using Auralis.Graphics.Resources;
 using Auralis.Graphics.Synchronization;
-using Silk.NET.OpenGL;
-using Auralis.Graphics.Backends.OpenGL;
 using Silk.NET.OpenGL;
 
 namespace Auralis.Graphics.OpenGL.IntegrationTests;
@@ -800,9 +799,17 @@ internal static class Program
     private static void AssertUInt(byte[] bytes, uint expected)
     {
         uint actual = BinaryPrimitives.ReadUInt32LittleEndian(bytes);
+        AssertUInt(actual, expected);
+    }
+
+    private static void AssertUInt(uint actual, uint expected)
+    {
         if (actual != expected)
             throw new InvalidOperationException($"GPU output mismatch: expected 0x{expected:X8}, received 0x{actual:X8}.");
     }
+
+    private static uint ReadUInt(IGraphicsBuffer buffer) =>
+        BinaryPrimitives.ReadUInt32LittleEndian(ReadBuffer(buffer, sizeof(uint)));
 
     private static void AssertPattern(byte[] actual, byte seed)
     {
