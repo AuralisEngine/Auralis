@@ -191,16 +191,15 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
                 $"The requested {colorTargets.Length} color attachments exceed the GLES limits " +
                 $"(attachments: {limits.MaxColorAttachments}, draw buffers: {limits.MaxColorDrawBuffers}).");
 
-        uint width = 0, height = 0;
         for (int i = 0; i < colorTargets.Length; i++)
         {
-            ValidateRenderTarget(colorTargets[i], ref width, ref height, depthAttachment: false);
+            ValidateRenderTarget(colorTargets[i], depthAttachment: false);
             EnsureOwned(colorTargets[i]);
         }
 
         if (depthStencilTarget is not null)
         {
-            ValidateRenderTarget(depthStencilTarget, ref width, ref height, depthAttachment: true);
+            ValidateRenderTarget(depthStencilTarget, depthAttachment: true);
             EnsureOwned(depthStencilTarget);
             GraphicsFormat format = GetViewFormat(depthStencilTarget);
             if (format is not (GraphicsFormat.D16UNorm or GraphicsFormat.D24UNormS8UInt or
@@ -1459,8 +1458,6 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
 
     private void ValidateRenderTarget(
         IGraphicsTextureView view,
-        ref uint width,
-        ref uint height,
         bool depthAttachment)
     {
         ArgumentNullException.ThrowIfNull(view);
@@ -1489,9 +1486,6 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
                     $"Color target format {format} lacks ColorAttachment usage or GLES color-renderable support.");
         }
 
-        if (width == 0) { width = texture.Description.Width; height = texture.Description.Height; }
-        else if (width != texture.Description.Width || height != texture.Description.Height)
-            throw new GraphicsValidationException("All framebuffer attachments must have matching dimensions.");
     }
 
     private void EnsureColorAttachmentIndex(uint attachmentIndex)
