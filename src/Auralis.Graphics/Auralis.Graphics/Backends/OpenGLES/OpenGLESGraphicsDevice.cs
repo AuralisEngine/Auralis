@@ -33,7 +33,8 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
         string vendor,
         string renderer,
         OpenGLESCapabilityProfile profile,
-        GraphicsDeviceCapabilities capabilities)
+        GraphicsDeviceCapabilities capabilities,
+        in OpenGLESQueriedLimits limits)
     {
         _contextProvider = contextProvider;
         _gl = gl;
@@ -43,6 +44,12 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
         Renderer = renderer;
         Profile = profile;
         Capabilities = capabilities;
+        MaxUniformBufferBindings = limits.MaxUniformBufferBindings;
+        MaxStorageBufferBindings = limits.MaxStorageBufferBindings;
+        MaxTextureUnits = limits.MaxTextureUnits;
+        MaxImageUnits = limits.MaxImageUnits;
+        UniformBufferOffsetAlignment = limits.UniformBufferOffsetAlignment;
+        StorageBufferOffsetAlignment = limits.StorageBufferOffsetAlignment;
         _ownsContextProvider = contextProvider.Ownership == OpenGLESContextOwnership.Owned;
 
         Backend = GraphicsBackend.OpenGLES;
@@ -86,6 +93,13 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
 
     internal GL Api => _gl;
 
+    internal uint MaxUniformBufferBindings { get; }
+    internal uint MaxStorageBufferBindings { get; }
+    internal uint MaxTextureUnits { get; }
+    internal uint MaxImageUnits { get; }
+    internal uint UniformBufferOffsetAlignment { get; }
+    internal uint StorageBufferOffsetAlignment { get; }
+
     internal static OpenGLESGraphicsDevice Create(
         IOpenGLESContextProvider contextProvider,
         GraphicsDeviceOptions options,
@@ -110,12 +124,13 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
 
             string vendor = gl.GetStringS(StringName.Vendor);
             string renderer = gl.GetStringS(StringName.Renderer);
-            GraphicsDeviceCapabilities capabilities = QueryCapabilities(gl, profile);
+            OpenGLESQueriedLimits queriedLimits = QueryLimits(gl, profile);
+            GraphicsDeviceCapabilities capabilities = QueryCapabilities(profile, queriedLimits);
 
             cancellationToken.ThrowIfCancellationRequested();
 
             OpenGLESGraphicsDevice device = new(
-                contextProvider, gl, version, versionString, vendor, renderer, profile, capabilities);
+                contextProvider, gl, version, versionString, vendor, renderer, profile, capabilities, queriedLimits);
             gl = null;
             return device;
         }
@@ -143,40 +158,65 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
         return OpenGLESCapabilityProfile.Create(version, extensions, supportsPresentation);
     }
 
-    private static GraphicsDeviceCapabilities QueryCapabilities(GL gl, OpenGLESCapabilityProfile profile)
+    private static OpenGLESQueriedLimits QueryLimits(GL gl, OpenGLESCapabilityProfile profile)
     {
-        int maxTextureSize = Math.Max(0, gl.GetInteger(GLEnum.MaxTextureSize));
-        int max3DTextureSize = Math.Max(0, gl.GetInteger(GLEnum.Max3DTextureSize));
-        int maxArrayLayers = Math.Max(0, gl.GetInteger(GLEnum.MaxArrayTextureLayers));
-        int maxVertexAttributes = Math.Max(0, gl.GetInteger(GLEnum.MaxVertexAttribs));
-        int maxCombinedTextureUnits = Math.Max(0, gl.GetInteger(GLEnum.MaxCombinedTextureImageUnits));
-        int maxUniformBindings = Math.Max(0, gl.GetInteger(GLEnum.MaxUniformBufferBindings));
-        int maxStorageBindings = profile.Version.IsAtLeast(3, 1)
-            ? Math.Max(0, gl.GetInteger(GLEnum.MaxShaderStorageBufferBindings))
+        uint uniformBindings = ToUInt(gl.GetInteger(GLEnum.MaxUniformBufferBindings));
+        uint storageBindings = profile.Version.IsAtLeast(3, 1)
+            ? ToUInt(gl.GetInteger(GLEnum.MaxShaderStorageBufferBindings))
             : 0;
-        int maxComputeInvocations = profile.Version.IsAtLeast(3, 1)
-            ? Math.Max(0, gl.GetInteger(GLEnum.MaxComputeWorkGroupInvocations))
+        uint imageUnits = profile.Version.IsAtLeast(3, 1)
+            ? ToUInt(gl.GetInteger(GLEnum.MaxImageUnits))
             : 0;
-        int maxComputeX = profile.Version.IsAtLeast(3, 1)
-            ? Math.Max(0, gl.GetInteger(GLEnum.MaxComputeWorkGroupSize))
+        uint textureUnits = ToUInt(gl.GetInteger(GLEnum.MaxCombinedTextureImageUnits));
+        uint uniformAlignment = ToUInt(gl.GetInteger(GLEnum.UniformBufferOffsetAlignment));
+        uint storageAlignment = profile.Version.IsAtLeast(3, 1)
+            ? ToUInt(gl.GetInteger(GLEnum.ShaderStorageBufferOffsetAlignment))
+            : 1;
+        uint maxTextureSize = ToUInt(gl.GetInteger(GLEnum.MaxTextureSize));
+        uint max3DTextureSize = ToUInt(gl.GetInteger(GLEnum.Max3DTextureSize));
+        uint maxArrayLayers = ToUInt(gl.GetInteger(GLEnum.MaxArrayTextureLayers));
+        uint maxVertexAttributes = ToUInt(gl.GetInteger(GLEnum.MaxVertexAttribs));
+        uint maxComputeInvocations = profile.Version.IsAtLeast(3, 1)
+            ? ToUInt(gl.GetInteger(GLEnum.MaxComputeWorkGroupInvocations))
             : 0;
 
+        float maxAnisotropy = 1;
+        if (profile.Features.Supports(GraphicsFeature.SamplerAnisotropy))
+            maxAnisotropy = Math.Max(1, gl.GetFloat(GLEnum.MaxTextureMaxAnisotropy));
+
+        return new OpenGLESQueriedLimits(
+            maxTextureSize,
+            max3DTextureSize,
+            maxArrayLayers,
+            maxVertexAttributes,
+            uniformBindings,
+            storageBindings,
+            textureUnits,
+            imageUnits,
+            uniformAlignment,
+            storageAlignment,
+            maxComputeInvocations,
+            maxAnisotropy);
+    }
+
+    private static GraphicsDeviceCapabilities QueryCapabilities(
+        OpenGLESCapabilityProfile profile,
+        in OpenGLESQueriedLimits queried)
+    {
         GraphicsDeviceLimits limits = new(
             MaxBufferSizeInBytes: 0,
             MaxTextureDimension1D: 0,
-            MaxTextureDimension2D: (uint)maxTextureSize,
-            MaxTextureDimension3D: (uint)max3DTextureSize,
-            MaxTextureArrayLayers: (uint)maxArrayLayers,
-            MaxVertexInputAttributes: (uint)maxVertexAttributes,
-            MaxVertexInputBindings: (uint)maxVertexAttributes,
-            MaxBoundDescriptorSets: (uint)Math.Min(maxUniformBindings, maxStorageBindings),
-            MaxComputeWorkGroupInvocations: (uint)maxComputeInvocations,
-            MaxComputeWorkGroupSizeX: (uint)maxComputeX,
+            MaxTextureDimension2D: queried.MaxTextureSize,
+            MaxTextureDimension3D: queried.MaxTexture3DSize,
+            MaxTextureArrayLayers: queried.MaxArrayLayers,
+            MaxVertexInputAttributes: queried.MaxVertexAttributes,
+            MaxVertexInputBindings: queried.MaxVertexAttributes,
+            MaxBoundDescriptorSets: uint.MaxValue,
+            MaxComputeWorkGroupInvocations: queried.MaxComputeInvocations,
+            MaxComputeWorkGroupSizeX: 0,
             MaxComputeWorkGroupSizeY: 0,
             MaxComputeWorkGroupSizeZ: 0,
-            MaxSamplerAnisotropy: profile.Features.Supports(GraphicsFeature.SamplerAnisotropy)
-                ? Math.Max(1, gl.GetFloat(GLEnum.MaxTextureMaxAnisotropy))
-                : 1);
+            MaxSamplerAnisotropy: queried.MaxAnisotropy);
 
         GraphicsFormatSupport colorSupport =
             GraphicsFormatSupport.Sampled |
@@ -200,11 +240,15 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
             GraphicsFormatSupport.CopySource |
             GraphicsFormatSupport.CopyDestination;
 
+        GraphicsFormatSupport rgba8Support = colorSupport;
+        if (profile.Version.IsAtLeast(3, 1))
+            rgba8Support |= GraphicsFormatSupport.Storage;
+
         GraphicsFormatCapabilities[] formats =
         [
             new(GraphicsFormat.R8UNorm, normalizedSingleSupport, GraphicsSampleCountFlags.One),
             new(GraphicsFormat.RG8UNorm, normalizedSingleSupport, GraphicsSampleCountFlags.One),
-            new(GraphicsFormat.RGBA8UNorm, colorSupport | GraphicsFormatSupport.Storage, GraphicsSampleCountFlags.One),
+            new(GraphicsFormat.RGBA8UNorm, rgba8Support, GraphicsSampleCountFlags.One),
             new(GraphicsFormat.RGBA8UNormSrgb,
                 GraphicsFormatSupport.Sampled | GraphicsFormatSupport.ColorAttachment |
                 GraphicsFormatSupport.Blend | GraphicsFormatSupport.CopySource |
@@ -214,14 +258,28 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
             new(GraphicsFormat.D24UNormS8UInt, depthSupport, GraphicsSampleCountFlags.One)
         ];
 
-        // GLES has one ordered command stream. Logical roles share that stream rather than claiming
-        // independent hardware queues.
         return new GraphicsDeviceCapabilities(
             profile.Features,
             profile.QueueCapabilities,
             limits,
             formats);
     }
+
+    private static uint ToUInt(int value) => value <= 0 ? 0u : (uint)value;
+
+    private readonly record struct OpenGLESQueriedLimits(
+        uint MaxTextureSize,
+        uint MaxTexture3DSize,
+        uint MaxArrayLayers,
+        uint MaxVertexAttributes,
+        uint MaxUniformBufferBindings,
+        uint MaxStorageBufferBindings,
+        uint MaxTextureUnits,
+        uint MaxImageUnits,
+        uint UniformBufferOffsetAlignment,
+        uint StorageBufferOffsetAlignment,
+        uint MaxComputeInvocations,
+        float MaxAnisotropy);
 
     public IGraphicsCommandQueue GetQueue(GraphicsQueueType queueType, uint index = 0)
     {
@@ -423,6 +481,10 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
                 _contextProvider.MakeCurrent();
                 try
                 {
+                    _gl.Finish();
+                    foreach (OpenGLESGraphicsCommandQueue? queue in _queues)
+                        queue?.DrainUnderContext(_gl);
+
                     IOpenGLESNativeResource[] resources;
                     lock (_resourceGate)
                     {
