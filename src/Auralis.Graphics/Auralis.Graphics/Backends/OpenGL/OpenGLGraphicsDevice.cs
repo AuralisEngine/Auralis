@@ -431,8 +431,10 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
         bool hasAnisotropy = gl.IsExtensionPresent("GL_EXT_texture_filter_anisotropic");
 
         GraphicsFeature features = GraphicsFeature.None;
-        // Desktop OpenGL 4.5 has core base-vertex drawing and the promoted base-instance API.
-        features |= GraphicsFeature.BaseVertexDrawing | GraphicsFeature.BaseInstanceDrawing;
+        // The backend's required OpenGL baseline has core texture views and base-instance drawing.
+        features |= GraphicsFeature.TextureViews |
+                    GraphicsFeature.BaseVertexDrawing |
+                    GraphicsFeature.BaseInstanceDrawing;
         if (hasCompute) features |= GraphicsFeature.ComputeShaders;
         if (AtLeast(major, minor, 4, 0)) features |= GraphicsFeature.IndirectDrawing;
         if (AtLeast(major, minor, 4, 3)) features |= GraphicsFeature.MultiDrawIndirect;
