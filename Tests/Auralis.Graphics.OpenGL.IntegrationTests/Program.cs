@@ -882,6 +882,8 @@ internal static class Program
         commandList.Begin();
         commandList.SetRenderTargets(targets);
         commandList.SetViewport(new GraphicsViewport(0, 0, 32, 32));
+        commandList.SetScissor(new GraphicsScissorRect(0, 0, 32, 32));
+        commandList.ClearColor(0, new GraphicsClearColor(0, 0, 0, 1));
         commandList.SetRenderPipeline(pipeline);
         commandList.DrawMeshTasks(1, 1, 1);
         commandList.DrawMeshTasksIndirect(indirectArguments, 0);
@@ -889,6 +891,8 @@ internal static class Program
 
         queue.Submit([commandList], fence, 1);
         WaitForGpu(fence, commandList, 1);
+        byte[] pixels = ReadTexturePixels(session, colorTarget, 32, 32);
+        AssertPixelNear(pixels, 32, 16, 16, 204, 51, 26, 255);
     }
 
     private static void TaskAndMeshShaderDraw(GlfwOpenGLHardwareSession session)
@@ -938,12 +942,16 @@ internal static class Program
         commandList.Begin();
         commandList.SetRenderTargets(targets);
         commandList.SetViewport(new GraphicsViewport(0, 0, 32, 32));
+        commandList.SetScissor(new GraphicsScissorRect(0, 0, 32, 32));
+        commandList.ClearColor(0, new GraphicsClearColor(0, 0, 0, 1));
         commandList.SetRenderPipeline(pipeline);
         commandList.DrawMeshTasks(1, 1, 1);
         commandList.End();
 
         queue.Submit([commandList], fence, 1);
         WaitForGpu(fence, commandList, 1);
+        byte[] pixels = ReadTexturePixels(session, colorTarget, 32, 32);
+        AssertPixelNear(pixels, 32, 16, 16, 26, 77, 230, 255);
     }
 
     private static void NvMeshShaderDirectDraw(GlfwOpenGLHardwareSession session)
