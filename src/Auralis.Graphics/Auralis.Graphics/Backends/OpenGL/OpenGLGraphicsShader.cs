@@ -59,7 +59,9 @@ internal sealed unsafe class OpenGLGraphicsShader : GraphicsDeviceObject, IGraph
         GraphicsShaderStage.Compute => ShaderType.ComputeShader,
         GraphicsShaderStage.TessellationControl => ShaderType.TessControlShader,
         GraphicsShaderStage.TessellationEvaluation => ShaderType.TessEvaluationShader,
-        _ => throw new GraphicsValidationException($"OpenGL 4.5 does not support the requested shader stage: {stage}.")
+        GraphicsShaderStage.Mesh => (ShaderType)Silk.NET.OpenGL.Extensions.EXT.EXT.MeshShaderExt,
+        GraphicsShaderStage.Task => (ShaderType)Silk.NET.OpenGL.Extensions.EXT.EXT.TaskShaderExt,
+        _ => throw new GraphicsValidationException($"OpenGL does not support the requested shader stage: {stage}.")
     };
 
     internal static OpenGLGraphicsShader Create(OpenGLGraphicsDevice device, in GraphicsShaderDescription description)
@@ -77,6 +79,14 @@ internal sealed unsafe class OpenGLGraphicsShader : GraphicsDeviceObject, IGraph
             throw new GraphicsValidationException("GLSL shader source does not accept SPIR-V specialization constants.");
         if (isSpirV)
             OpenGLSpirVValidation.Validate(description, device.SpirVApi is not null);
+        if (description.Stage is GraphicsShaderStage.Mesh or GraphicsShaderStage.Task &&
+            device.MeshShaderApi is null)
+        {
+            GraphicsFeature required = description.Stage == GraphicsShaderStage.Mesh
+                ? GraphicsFeature.MeshShaders
+                : GraphicsFeature.TaskShaders;
+            throw new GraphicsFeatureNotSupportedException(required, required);
+        }
 
         string? source = null;
         if (isGlsl)
