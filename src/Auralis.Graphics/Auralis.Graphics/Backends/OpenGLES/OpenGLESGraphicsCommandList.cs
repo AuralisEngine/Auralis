@@ -314,7 +314,7 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
             throw new ArgumentException("At least one depth/stencil aspect must be cleared.");
         if (clearStencil && _depthFormat is not (GraphicsFormat.D24UNormS8UInt or GraphicsFormat.D32FloatS8UInt))
             throw new GraphicsValidationException(
-                "A stencil clear requires the GLES D24UNormS8UInt depth/stencil attachment format.");
+                "A stencil clear requires a packed depth/stencil attachment format (D24UNormS8UInt or D32FloatS8UInt).");
         if (clearDepth && (!float.IsFinite(depth) || depth < 0 || depth > 1))
             throw new ArgumentOutOfRangeException(nameof(depth));
 
@@ -1476,7 +1476,8 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
         if (depthAttachment)
         {
             if ((texture.Description.Usage & GraphicsTextureUsage.DepthStencilAttachment) == 0 ||
-                format is not (GraphicsFormat.D16UNorm or GraphicsFormat.D24UNormS8UInt))
+                format is not (GraphicsFormat.D16UNorm or GraphicsFormat.D24UNormS8UInt or
+                    GraphicsFormat.D32Float or GraphicsFormat.D32FloatS8UInt))
                 throw new GraphicsValidationException(
                     "Depth targets require DepthStencilAttachment usage and a supported depth format.");
         }
