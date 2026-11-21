@@ -1,5 +1,6 @@
 using Auralis.Graphics.Abstractions;
 using Auralis.Graphics.Backends.OpenGLES;
+using Auralis.Graphics.Devices;
 
 namespace Auralis.Graphics.Tests;
 
@@ -115,6 +116,19 @@ public sealed class OpenGLESCapabilityProfileTests
         Assert.False(profile.MeetsRequiredBaseline);
         Assert.Throws<NotSupportedException>(profile.EnsureRequiredBaseline);
         Assert.False(profile.QueueCapabilities.HasFlag(GraphicsQueueCapabilities.Compute));
+    }
+
+    [Fact]
+    public void ExistingDeviceOptions_AcceptOpenGlesBackendSelection()
+    {
+        GraphicsDeviceOptions options = new()
+        {
+            Backend = GraphicsBackend.OpenGLES,
+            RequiredQueues = GraphicsQueueCapabilities.Graphics | GraphicsQueueCapabilities.Compute
+        };
+
+        options.Validate();
+        Assert.Equal(GraphicsBackend.OpenGLES, options.Backend);
     }
 
     [Fact]
