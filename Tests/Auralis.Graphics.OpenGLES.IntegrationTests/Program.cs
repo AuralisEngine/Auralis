@@ -68,7 +68,7 @@ internal static class Program
         finally
         {
             if (device is not null)
-                await device.DisposeAsync();
+                device.Dispose();
             else
                 context.Dispose();
         }
@@ -86,13 +86,11 @@ internal static class Program
             GraphicsBufferUsage.CopySource | GraphicsBufferUsage.CopyDestination,
             GraphicsMemoryAccess.CpuReadWrite));
 
-        using (Memory<byte> memory = source.Map(GraphicsMapMode.Write))
-        {
-            Span<byte> bytes = memory.Span;
-            for (int i = 0; i < bytes.Length; i++)
-                bytes[i] = (byte)((i * 37 + 11) & 0xFF);
-            source.Unmap();
-        }
+        Memory<byte> writeMapping = source.Map(GraphicsMapMode.Write);
+        Span<byte> bytes = writeMapping.Span;
+        for (int i = 0; i < bytes.Length; i++)
+            bytes[i] = (byte)((i * 37 + 11) & 0xFF);
+        source.Unmap();
 
         IGraphicsCommandQueue queue = device.GetQueue(GraphicsQueueType.Copy);
         using IGraphicsCommandList commandList = queue.CreateCommandList();
@@ -106,7 +104,7 @@ internal static class Program
         if (!fence.Wait(1, TimeSpan.FromSeconds(10)))
             throw new TimeoutException("The GLES buffer-copy fence did not complete within 10 seconds.");
 
-        using Memory<byte> readback = destination.Map(GraphicsMapMode.Read);
+        Memory<byte> readback = destination.Map(GraphicsMapMode.Read);
         for (int i = 0; i < size; i++)
         {
             byte expected = (byte)((i * 37 + 11) & 0xFF);
@@ -171,7 +169,7 @@ internal static class Program
         if (!fence.Wait(1, TimeSpan.FromSeconds(10)))
             throw new TimeoutException("The GLES compute fence did not complete within 10 seconds.");
 
-        using Memory<byte> readback = output.Map(GraphicsMapMode.Read);
+        Memory<byte> readback = output.Map(GraphicsMapMode.Read);
         uint actual = BitConverter.ToUInt32(readback.Span);
         output.Unmap();
         if (actual != 0xA17E51u)
