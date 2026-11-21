@@ -88,14 +88,18 @@ internal sealed class OpenGLGraphicsCommandQueue : IGraphicsCommandQueue
         bool submissionQueued = false;
         try
         {
-            for (int i = 0; i < commandLists.Length; i++)
-            {
-                lists[i].MarkSubmitted();
-                submittedCount++;
-            }
-
             _device.WithContext(gl =>
             {
+                // Serialize the Executable -> Pending transition with command-list disposal.
+                // If disposal wins the context gate, it marks the list disposed and this
+                // transition fails before any GL command is issued. If submission wins, disposal
+                // observes a genuinely in-flight list and waits for its completion.
+                for (int i = 0; i < commandLists.Length; i++)
+                {
+                    lists[i].MarkSubmitted();
+                    submittedCount++;
+                }
+
                 bool pushedDebugGroup = false;
                 try
                 {
