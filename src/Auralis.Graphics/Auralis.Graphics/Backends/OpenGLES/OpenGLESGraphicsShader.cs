@@ -96,7 +96,7 @@ internal sealed class OpenGLESGraphicsShader : OpenGLESNativeDeviceObject, IGrap
     }
 
     internal static ShaderType GetShaderType(OpenGLESGraphicsDevice device, GraphicsShaderStage stage) =>
-        OpenGLESShaderCompatibility.GetNativeStage(device.Version, stage);
+        OpenGLESShaderCompatibility.GetNativeStage(device, stage);
 
     private static void ValidateGlslEsVersion(
         OpenGLESGraphicsDevice device,
