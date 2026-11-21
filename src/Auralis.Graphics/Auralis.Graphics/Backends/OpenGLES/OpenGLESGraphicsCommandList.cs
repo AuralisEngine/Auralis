@@ -453,8 +453,10 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
     {
         EnsureRecording();
         EnsureGraphicsReady();
-        if (firstInstance != 0)
-            throw new GraphicsValidationException("OpenGL ES core DrawArraysInstanced does not expose a base-instance parameter.");
+        if (firstInstance != 0 &&
+            !Device.Capabilities.Features.Supports(GraphicsFeature.BaseInstanceDrawing))
+            throw new GraphicsFeatureNotSupportedException(
+                GraphicsFeature.BaseInstanceDrawing, GraphicsFeature.BaseInstanceDrawing);
         if (firstVertex > int.MaxValue)
             throw new GraphicsValidationException("The first vertex exceeds the GLES integer range.");
         if (instanceCount == 0 || vertexCount == 0)
@@ -465,7 +467,8 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
             Kind = OpenGLESCmdKind.Draw,
             VertexCount = vertexCount,
             InstanceCount = instanceCount,
-            FirstVertex = firstVertex
+            FirstVertex = firstVertex,
+            FirstInstance = firstInstance
         });
     }
 
@@ -480,10 +483,14 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
         EnsureGraphicsReady();
         if (_indexBuffer is null)
             throw new GraphicsValidationException("Set an index buffer before issuing an indexed draw.");
-        if (baseVertex != 0)
-            throw new GraphicsValidationException("Base-vertex indexed drawing is not implemented in this GLES backend.");
-        if (firstInstance != 0)
-            throw new GraphicsValidationException("OpenGL ES core DrawElementsInstanced does not expose a base-instance parameter.");
+        if (baseVertex != 0 &&
+            !Device.Capabilities.Features.Supports(GraphicsFeature.BaseVertexDrawing))
+            throw new GraphicsFeatureNotSupportedException(
+                GraphicsFeature.BaseVertexDrawing, GraphicsFeature.BaseVertexDrawing);
+        if (firstInstance != 0 &&
+            !Device.Capabilities.Features.Supports(GraphicsFeature.BaseInstanceDrawing))
+            throw new GraphicsFeatureNotSupportedException(
+                GraphicsFeature.BaseInstanceDrawing, GraphicsFeature.BaseInstanceDrawing);
 
         uint indexSize = _indexFormat == GraphicsIndexFormat.UInt16 ? 2u : 4u;
         ulong byteOffset = checked(_indexOffset + (ulong)firstIndex * indexSize);
@@ -501,7 +508,9 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
             IndexFormat = (uint)_indexFormat,
             Offset0 = byteOffset,
             IndexCount = indexCount,
-            InstanceCount = instanceCount
+            InstanceCount = instanceCount,
+            BaseVertex = baseVertex,
+            FirstInstance = firstInstance
         });
     }
 
@@ -862,26 +871,72 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
                         break;
 
                     case OpenGLESCmdKind.Draw:
-                        gl.DrawArraysInstanced(
-                            GetPrimitive((activeRenderPipeline ?? throw new GraphicsValidationException(
-                                "A render pipeline must be bound before drawing.")).Description.Topology),
-                            checked((int)command.FirstVertex),
-                            command.VertexCount,
-                            command.InstanceCount);
+                    {
+                        PrimitiveType primitive = GetPrimitive((activeRenderPipeline ?? throw new GraphicsValidationException(
+                            "A render pipeline must be bound before drawing.")).Description.Topology);
+                        if (command.FirstInstance != 0)
+                        {
+                            (_queue.GlesDevice.BaseInstanceApi ?? throw new GraphicsFeatureNotSupportedException(
+                                GraphicsFeature.BaseInstanceDrawing, GraphicsFeature.BaseInstanceDrawing))
+                                .DrawArraysInstancedBaseInstance(
+                                    primitive,
+                                    checked((int)command.FirstVertex),
+                                    command.VertexCount,
+                                    command.InstanceCount,
+                                    command.FirstInstance);
+                        }
+                        else
+                        {
+                            gl.DrawArraysInstanced(
+                                primitive,
+                                checked((int)command.FirstVertex),
+                                command.VertexCount,
+                                command.InstanceCount);
+                        }
                         break;
+                    }
 
                     case OpenGLESCmdKind.DrawIndexed:
+                    {
                         gl.BindBuffer(BufferTargetARB.ElementArrayBuffer, ((OpenGLESGraphicsBuffer)command.Buffer0!).Handle);
-                        gl.DrawElementsInstanced(
-                            GetPrimitive((activeRenderPipeline ?? throw new GraphicsValidationException(
-                                "A render pipeline must be bound before drawing.")).Description.Topology),
-                            command.IndexCount,
-                            command.IndexFormat == (uint)GraphicsIndexFormat.UInt16
-                                ? DrawElementsType.UnsignedShort
-                                : DrawElementsType.UnsignedInt,
-                            (void*)checked((nint)command.Offset0),
-                            command.InstanceCount);
+                        PrimitiveType primitive = GetPrimitive((activeRenderPipeline ?? throw new GraphicsValidationException(
+                            "A render pipeline must be bound before drawing.")).Description.Topology);
+                        DrawElementsType indexType = command.IndexFormat == (uint)GraphicsIndexFormat.UInt16
+                            ? DrawElementsType.UnsignedShort
+                            : DrawElementsType.UnsignedInt;
+                        void* indices = (void*)checked((nint)command.Offset0);
+
+                        if (command.BaseVertex != 0 && command.FirstInstance != 0)
+                        {
+                            (_queue.GlesDevice.BaseInstanceApi ?? throw new GraphicsFeatureNotSupportedException(
+                                GraphicsFeature.BaseInstanceDrawing, GraphicsFeature.BaseInstanceDrawing))
+                                .DrawElementsInstancedBaseVertexBaseInstance(
+                                    primitive, command.IndexCount, indexType, indices,
+                                    command.InstanceCount, command.BaseVertex, command.FirstInstance);
+                        }
+                        else if (command.BaseVertex != 0)
+                        {
+                            (_queue.GlesDevice.DrawElementsBaseVertexApi ?? throw new GraphicsFeatureNotSupportedException(
+                                GraphicsFeature.BaseVertexDrawing, GraphicsFeature.BaseVertexDrawing))
+                                .DrawElementsInstancedBaseVertex(
+                                    primitive, command.IndexCount, indexType, indices,
+                                    command.InstanceCount, command.BaseVertex);
+                        }
+                        else if (command.FirstInstance != 0)
+                        {
+                            (_queue.GlesDevice.BaseInstanceApi ?? throw new GraphicsFeatureNotSupportedException(
+                                GraphicsFeature.BaseInstanceDrawing, GraphicsFeature.BaseInstanceDrawing))
+                                .DrawElementsInstancedBaseInstance(
+                                    primitive, command.IndexCount, indexType, indices,
+                                    command.InstanceCount, command.FirstInstance);
+                        }
+                        else
+                        {
+                            gl.DrawElementsInstanced(
+                                primitive, command.IndexCount, indexType, indices, command.InstanceCount);
+                        }
                         break;
+                    }
 
                     case OpenGLESCmdKind.DrawIndirect:
                         gl.BindBuffer(BufferTargetARB.DrawIndirectBuffer, ((OpenGLESGraphicsBuffer)command.Buffer0!).Handle);
