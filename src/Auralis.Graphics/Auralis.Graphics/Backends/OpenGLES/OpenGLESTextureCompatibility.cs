@@ -26,44 +26,54 @@ internal static class OpenGLESTextureCompatibility
 
     internal static void ValidateCopy(
         in GraphicsTextureDescription source,
-        in GraphicsTextureDescription destination)
+        in GraphicsTextureDescription destination,
+        bool supportsImageCopy)
     {
         source.Validate();
         destination.Validate();
 
-        if ((source.Usage & (GraphicsTextureUsage.CopySource | GraphicsTextureUsage.ColorAttachment)) !=
-                (GraphicsTextureUsage.CopySource | GraphicsTextureUsage.ColorAttachment) ||
-            (destination.Usage & (GraphicsTextureUsage.CopyDestination | GraphicsTextureUsage.ColorAttachment)) !=
-                (GraphicsTextureUsage.CopyDestination | GraphicsTextureUsage.ColorAttachment))
+        if ((source.Usage & GraphicsTextureUsage.CopySource) == 0 ||
+            (destination.Usage & GraphicsTextureUsage.CopyDestination) == 0)
         {
             throw new GraphicsValidationException(
-                "The GLES framebuffer-blit copy requires CopySource and ColorAttachment on the source, " +
-                "and CopyDestination and ColorAttachment on the destination.");
+                "Texture copies require CopySource usage on the source and CopyDestination usage on the destination.");
         }
 
-        if (source.Dimension != GraphicsTextureDimension.Texture2D ||
-            destination.Dimension != GraphicsTextureDimension.Texture2D ||
-            source.SampleCount != 1 ||
-            destination.SampleCount != 1 ||
-            source.ArrayLayers != 1 ||
-            destination.ArrayLayers != 1 ||
-            source.MipLevels != 1 ||
-            destination.MipLevels != 1)
-        {
-            throw new GraphicsValidationException(
-                "The GLES framebuffer-blit copy supports only single-sample, single-layer, single-mip 2D textures.");
-        }
-
-        if (source.Width != destination.Width ||
+        if (source.Dimension != destination.Dimension ||
+            source.Width != destination.Width ||
             source.Height != destination.Height ||
+            source.Depth != destination.Depth ||
+            source.ArrayLayers != destination.ArrayLayers ||
+            source.MipLevels != destination.MipLevels ||
+            source.SampleCount != destination.SampleCount ||
             source.Format != destination.Format)
         {
             throw new GraphicsValidationException(
-                "The GLES framebuffer-blit source and destination must have identical extents and formats.");
+                "A full-resource GLES texture copy requires matching dimensions, extents, depth/layers, mip counts, sample counts and formats.");
+        }
+
+        if (supportsImageCopy)
+            return;
+
+        // The blit fallback has its own stricter requirements. In particular, it really does
+        // require framebuffer attachment usage and cannot copy arbitrary subresources.
+        if ((source.Usage & GraphicsTextureUsage.ColorAttachment) == 0 ||
+            (destination.Usage & GraphicsTextureUsage.ColorAttachment) == 0)
+        {
+            throw new GraphicsValidationException(
+                "The GLES framebuffer-blit copy fallback requires ColorAttachment usage on both textures.");
+        }
+
+        if (source.Dimension != GraphicsTextureDimension.Texture2D ||
+            source.SampleCount != 1 ||
+            source.ArrayLayers != 1 ||
+            source.MipLevels != 1)
+        {
+            throw new GraphicsValidationException(
+                "The GLES framebuffer-blit copy fallback supports only single-sample, single-layer, single-mip 2D textures.");
         }
 
         if (source.Format is not (GraphicsFormat.RGBA8UNorm or GraphicsFormat.RGBA8UNormSrgb))
             throw new GraphicsValidationException(
-                $"The GLES color framebuffer-blit copy path does not support format {source.Format}.");
-    }
-}
+                $"The GLES framebuffer-blit copy fallback does not support format {source.Format}.");
+    }}
