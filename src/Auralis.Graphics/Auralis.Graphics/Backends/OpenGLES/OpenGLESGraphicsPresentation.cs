@@ -301,12 +301,25 @@ internal sealed class OpenGLESGraphicsSwapChain : OpenGLESNativeDeviceObject, IG
             throw new GraphicsValidationException("The replacement swapchain extent must match a non-suspended host drawable.");
 
         _device.ContextProvider.SetPresentMode(copy.PresentMode);
+        // Allocate the replacement set first so a failed resize leaves the existing swapchain usable.
+        OpenGLESSwapChainImage[] replacement = CreateImages(copy);
         OpenGLESSwapChainImage[] old = _images;
-        _device.WithContext(gl =>
+        try
         {
-            gl.Finish();
-            ReleaseImageNative(gl, old);
-        });
+            _device.WithContext(gl =>
+            {
+                gl.Finish();
+                ReleaseImageNative(gl, old);
+            });
+        }
+        catch
+        {
+            _device.WithContext(gl => ReleaseImageNative(gl, replacement));
+            for (int i = 0; i < replacement.Length; i++)
+                replacement[i].Texture.Dispose();
+            throw;
+        }
+
         for (int i = 0; i < old.Length; i++)
             old[i].Texture.Dispose();
 
@@ -314,7 +327,7 @@ internal sealed class OpenGLESGraphicsSwapChain : OpenGLESNativeDeviceObject, IG
         _surfaceRevision = snapshot.Revision;
         _nextImage = 0;
         _generation = checked(_generation + 1);
-        _images = CreateImages(copy);
+        _images = replacement;
     }
 
     private OpenGLESSwapChainImage[] CreateImages(in GraphicsSwapChainDescription description)
@@ -410,9 +423,30 @@ internal sealed class OpenGLESGraphicsSwapChain : OpenGLESNativeDeviceObject, IG
 
     protected override void DisposeCore()
     {
-        ReleaseOwnerReference();
+        Exception? failure = null;
+        try
+        {
+            ReleaseOwnerReference();
+        }
+        catch (Exception exception)
+        {
+            failure = exception;
+        }
+
         for (int i = 0; i < _images.Length; i++)
-            _images[i].Texture.Dispose();
+        {
+            try
+            {
+                _images[i].Texture.Dispose();
+            }
+            catch (Exception exception)
+            {
+                failure ??= exception;
+            }
+        }
+
+        if (failure is not null)
+            throw new GraphicsException("GLES swapchain disposal encountered a native cleanup failure.", failure);
     }
 
     public override void ReleaseNative(GL gl) => ReleaseImageNative(gl, _images);
