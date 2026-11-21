@@ -232,7 +232,8 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
                 multiDrawArraysIndirectExt is not null && multiDrawElementsIndirectExt is not null,
                 drawBuffersIndexedApi is not null,
                 drawElementsBaseVertexApi is not null,
-                baseInstanceApi is not null);
+                baseInstanceApi is not null,
+                textureViewExt is not null);
             profile.EnsureRequiredBaseline();
 
             string vendor = gl.GetStringS(StringName.Vendor);
@@ -280,7 +281,8 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
         bool multiDrawIndirectEntryPointsAvailable,
         bool indexedBlendEntryPointsAvailable,
         bool baseVertexEntryPointsAvailable,
-        bool baseInstanceEntryPointsAvailable)
+        bool baseInstanceEntryPointsAvailable,
+        bool textureViewEntryPointAvailable)
     {
         int extensionCount = Math.Max(0, gl.GetInteger(GLEnum.NumExtensions));
         string[] extensions = new string[extensionCount];
@@ -292,7 +294,8 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
             multiDrawIndirectEntryPointsAvailable,
             indexedBlendEntryPointsAvailable,
             baseVertexEntryPointsAvailable,
-            baseInstanceEntryPointsAvailable);
+            baseInstanceEntryPointsAvailable,
+            textureViewEntryPointAvailable);
     }
 
     private static OpenGLESQueriedLimits QueryLimits(GL gl, OpenGLESCapabilityProfile profile)
