@@ -166,16 +166,21 @@ internal sealed unsafe class OpenGLESGraphicsRenderPipeline : OpenGLESGraphicsPi
     {
         bool hasMeshShader = false;
         bool hasTaskShader = false;
+        bool hasFragmentShader = false;
         ReadOnlySpan<IGraphicsShader> pipelineShaders = description.Shaders;
         for (int i = 0; i < pipelineShaders.Length; i++)
         {
             hasMeshShader |= pipelineShaders[i].Description.Stage == GraphicsShaderStage.Mesh;
             hasTaskShader |= pipelineShaders[i].Description.Stage == GraphicsShaderStage.Task;
+            hasFragmentShader |= pipelineShaders[i].Description.Stage == GraphicsShaderStage.Fragment;
         }
         if (hasMeshShader && !device.Capabilities.Features.Supports(GraphicsFeature.MeshShaders))
             throw new GraphicsFeatureNotSupportedException(GraphicsFeature.MeshShaders, GraphicsFeature.MeshShaders);
         if (hasTaskShader && !device.Capabilities.Features.Supports(GraphicsFeature.TaskShaders))
             throw new GraphicsFeatureNotSupportedException(GraphicsFeature.TaskShaders, GraphicsFeature.TaskShaders);
+        if (hasMeshShader && !hasFragmentShader)
+            throw new GraphicsValidationException(
+                "OpenGL ES EXT mesh/task pipelines require a fragment shader stage.");
 
         GraphicsRasterizationState raster = description.Rasterization;
         if (raster.PolygonMode != GraphicsPolygonMode.Fill)
