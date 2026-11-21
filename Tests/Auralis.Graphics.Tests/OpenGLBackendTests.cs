@@ -117,6 +117,29 @@ public sealed class OpenGLBackendTests
     }
 
     [Fact]
+    public void NvMeshShaderDirectDispatchIsRestrictedToItsOneDimensionalContract()
+    {
+        // GL_NV_mesh_shader exposes DrawMeshTasksNV(first, count). Auralis maps
+        // the first argument to zero and X to count; the native Y/Z dimensions are
+        // fixed to one and therefore cannot be emulated as a 3D EXT dispatch.
+        OpenGLMeshTaskValidation.Validate(
+            groupCountX: 64,
+            groupCountY: 1,
+            groupCountZ: 1,
+            maximumX: 64,
+            maximumY: 1,
+            maximumZ: 1,
+            maximumTotalCount: 64);
+
+        Assert.Throws<GraphicsValidationException>(() =>
+            OpenGLMeshTaskValidation.Validate(64, 2, 1, 64, 1, 1, 64));
+        Assert.Throws<GraphicsValidationException>(() =>
+            OpenGLMeshTaskValidation.Validate(64, 1, 2, 64, 1, 1, 64));
+        Assert.Throws<GraphicsValidationException>(() =>
+            OpenGLMeshTaskValidation.Validate(65, 1, 1, 64, 1, 1, 64));
+    }
+
+    [Fact]
     public void MeshAndTaskShaderStagesMapToOfficialSilkNetExtTokens()
     {
         Assert.Equal(
