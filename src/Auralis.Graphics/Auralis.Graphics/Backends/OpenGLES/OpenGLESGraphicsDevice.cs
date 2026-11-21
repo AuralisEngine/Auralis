@@ -664,6 +664,8 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
         GraphicsFormatSupport integerColorSupport =
             GraphicsFormatSupport.Sampled |
             GraphicsFormatSupport.ColorAttachment;
+        if (profile.Version.IsAtLeast(3, 1))
+            integerColorSupport |= GraphicsFormatSupport.Storage;
 
         if (supportsImageCopy)
             integerColorSupport |= GraphicsFormatSupport.CopySource | GraphicsFormatSupport.CopyDestination;
