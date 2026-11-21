@@ -612,7 +612,10 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
         if (remaining < 0)
             throw new InvalidOperationException("OpenGL submission lifetime accounting became unbalanced.");
 
-        if (remaining != 0)
+        // Device.Dispose owns the context gate, performs glFinish, drains every registered
+        // object, and releases deferred resources itself. A late completion must never issue GL
+        // deletion after that shutdown sequence has destroyed the dispatch/context.
+        if (IsDisposed || remaining != 0)
             return;
 
         Exception? failure = null;
