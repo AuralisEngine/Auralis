@@ -180,11 +180,13 @@ internal sealed unsafe class OpenGLESGraphicsBuffer : OpenGLESNativeDeviceObject
 
     protected override void DisposeCore()
     {
+        OpenGLESMappedStagingMemoryManager? mapped;
         lock (_mapGate)
         {
-            _mapped?.Invalidate();
+            mapped = _mapped;
             _mapped = null;
         }
+        mapped?.Invalidate();
         ReleaseOwnerReference();
     }
 
