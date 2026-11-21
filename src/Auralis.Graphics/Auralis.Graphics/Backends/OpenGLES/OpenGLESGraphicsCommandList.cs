@@ -1374,7 +1374,7 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
     {
         ArgumentNullException.ThrowIfNull(view);
         EnsureOwned(view);
-        if (view.Texture is not OpenGLESGraphicsTexture ||
+        if (view.Texture is not OpenGLESGraphicsTexture texture ||
             view is not OpenGLESGraphicsTextureView textureView)
             throw new GraphicsValidationException("The render attachment is not an OpenGL ES texture view.");
         if (textureView.Target is not (TextureTarget.Texture2D or TextureTarget.Texture2DMultisample))
