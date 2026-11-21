@@ -495,6 +495,7 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
         EnsureGraphicsReady();
         if (_indexBuffer is null)
             throw new GraphicsValidationException("Set an index buffer before issuing indexed indirect drawing.");
+        GraphicsCommandValidation.ValidateIndexedIndirectIndexBufferOffset(_indexOffset);
         ValidateIndirect(arguments, offset, drawCount, 20);
         if (drawCount > 1)
             throw new GraphicsFeatureNotSupportedException(GraphicsFeature.MultiDrawIndirect, GraphicsFeature.MultiDrawIndirect);
@@ -612,8 +613,7 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
         ArgumentNullException.ThrowIfNull(destination);
         EnsureOwned(source);
         EnsureOwned(destination);
-        if (ReferenceEquals(source, destination))
-            throw new GraphicsValidationException("A GLES texture cannot be copied onto itself.");
+        GraphicsCommandValidation.ValidateTextureCopyNotAliased(source, destination);
         OpenGLESTextureCompatibility.ValidateCopy(source.Description, destination.Description);
 
         _commands.Add(new OpenGLESCmd
