@@ -106,6 +106,16 @@ public sealed class OpenGLBackendTests
     }
 
     [Fact]
+    public void MeshShaderCapabilityRequiresTheExtensionAndAllDriverLimits()
+    {
+        Assert.True(OpenGLMeshTaskValidation.IsSupported(true, 64, 64, 64));
+        Assert.False(OpenGLMeshTaskValidation.IsSupported(false, 64, 64, 64));
+        Assert.False(OpenGLMeshTaskValidation.IsSupported(true, 0, 64, 64));
+        Assert.False(OpenGLMeshTaskValidation.IsSupported(true, 64, 0, 64));
+        Assert.False(OpenGLMeshTaskValidation.IsSupported(true, 64, 64, 0));
+    }
+
+    [Fact]
     public void MeshAndTaskShaderStagesMapToOfficialSilkNetExtTokens()
     {
         Assert.Equal(
