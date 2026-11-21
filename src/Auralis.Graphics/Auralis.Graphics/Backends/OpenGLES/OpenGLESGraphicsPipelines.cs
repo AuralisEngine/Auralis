@@ -115,8 +115,7 @@ internal sealed class OpenGLESGraphicsRenderPipeline : OpenGLESGraphicsPipeline,
             !ReferenceEquals(description.Layout.Device, device))
             throw new GraphicsValidationException("The render pipeline layout must belong to this GLES device.");
 
-        if (description.Rasterization.DepthBiasClamp != 0)
-            throw new GraphicsValidationException("OpenGL ES core does not provide depth-bias clamping.");
+        ValidateSupportedPipelineState(device, description);
 
         uint program = 0;
         uint vertexArray = 0;
@@ -145,6 +144,52 @@ internal sealed class OpenGLESGraphicsRenderPipeline : OpenGLESGraphicsPipeline,
         });
     }
 
+    private static void ValidateSupportedPipelineState(
+        OpenGLESGraphicsDevice device,
+        GraphicsRenderPipelineDescription description)
+    {
+        GraphicsRasterizationState raster = description.Rasterization;
+        if (raster.PolygonMode != GraphicsPolygonMode.Fill)
+            throw new GraphicsValidationException("OpenGL ES does not expose desktop polygon mode; only filled polygons are supported.");
+        if (raster.DepthClampEnabled)
+            throw new GraphicsFeatureNotSupportedException(GraphicsFeature.DepthClamp, GraphicsFeature.DepthClamp);
+        if (raster.DepthBiasClamp != 0)
+            throw new GraphicsValidationException("OpenGL ES core does not provide depth-bias clamping.");
+        if (raster.LineWidth != 1)
+            throw new GraphicsFeatureNotSupportedException(GraphicsFeature.WideLines, GraphicsFeature.WideLines);
+
+        GraphicsDepthStencilState depth = description.DepthStencil;
+        if (depth.DepthBoundsTestEnabled)
+            throw new GraphicsFeatureNotSupportedException(
+                GraphicsFeature.DepthBoundsTest, GraphicsFeature.DepthBoundsTest);
+
+        if (description.ColorFormats.Length > 1)
+            throw new GraphicsValidationException(
+                "Multiple color attachments are not implemented by this GLES render-pipeline backend.");
+
+        if (description.Topology is GraphicsPrimitiveTopology.LineListAdjacency or
+            GraphicsPrimitiveTopology.LineStripAdjacency or
+            GraphicsPrimitiveTopology.TriangleListAdjacency or
+            GraphicsPrimitiveTopology.TriangleStripAdjacency)
+            throw new GraphicsValidationException("Adjacency primitive topologies are not available in OpenGL ES.");
+
+        if (description.Topology == GraphicsPrimitiveTopology.PatchList)
+        {
+            if (!device.Version.IsAtLeast(3, 2))
+                throw new GraphicsFeatureNotSupportedException(
+                    GraphicsFeature.TessellationShaders, GraphicsFeature.TessellationShaders);
+            if (description.Tessellation is not { } tessellation)
+                throw new GraphicsValidationException("Patch topology requires a tessellation patch-control-point description.");
+            if (tessellation.PatchControlPoints > device.Capabilities.Limits.MaxTessellationPatchSize)
+                throw new GraphicsValidationException(
+                    $"Patch control point count {tessellation.PatchControlPoints} exceeds the GLES device limit {device.Capabilities.Limits.MaxTessellationPatchSize}.");
+        }
+        else if (description.Tessellation is not null)
+        {
+            throw new GraphicsValidationException("Tessellation state is only valid with PatchList topology.");
+        }
+    }
+
     internal void BindPipelineState(GL gl)
     {
         gl.UseProgram(Program);
@@ -169,6 +214,14 @@ internal sealed class OpenGLESGraphicsRenderPipeline : OpenGLESGraphicsPipeline,
         gl.FrontFace(raster.FrontFace == GraphicsFrontFace.Clockwise
             ? GLEnum.Cw
             : GLEnum.Ccw);
+
+        SetEnabled(gl, GLEnum.PolygonOffsetFill, raster.DepthBiasEnabled);
+        if (raster.DepthBiasEnabled)
+            gl.PolygonOffset(raster.DepthBiasSlopeFactor, raster.DepthBiasConstantFactor);
+
+        if (Description.Topology == GraphicsPrimitiveTopology.PatchList &&
+            Description.Tessellation is { } tessellation)
+            gl.PatchParameteri(GLEnum.PatchVertices, checked((int)tessellation.PatchControlPoints));
 
         GraphicsDepthStencilState depth = Description.DepthStencil;
         SetEnabled(gl, GLEnum.DepthTest, depth.DepthTestEnabled);
