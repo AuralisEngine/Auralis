@@ -256,9 +256,9 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
         EnsureRecording();
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(destination);
+        GraphicsCommandValidation.ValidateTextureCopyNotAliased(source, destination);
         EnsureOwned(source);
         EnsureOwned(destination);
-        GraphicsCommandValidation.ValidateTextureCopyNotAliased(source, destination);
 
         GraphicsTextureDescription sourceDescription = source.Description;
         GraphicsTextureDescription destinationDescription = destination.Description;
