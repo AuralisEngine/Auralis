@@ -1357,7 +1357,11 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
         ReleaseCompletedResourcesIfDisposed();
     }
 
-    internal void MarkSubmitted() => _lifecycle.MarkSubmitted();
+    internal void MarkSubmitted()
+    {
+        ThrowIfDisposed();
+        _lifecycle.MarkSubmitted();
+    }
 
     private void EnsureRecording()
     {
