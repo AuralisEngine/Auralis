@@ -74,6 +74,15 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
         uint width, uint height, uint depth);
 
     [UnmanagedFunctionPointer(CallingConvention.Winapi)]
+    internal delegate void DrawMeshTasksExtDelegate(uint numGroupsX, uint numGroupsY, uint numGroupsZ);
+
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)]
+    internal delegate void DrawMeshTasksIndirectExtDelegate(nint indirect);
+
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)]
+    internal delegate void MultiDrawMeshTasksIndirectExtDelegate(nint indirect, uint drawCount, uint stride);
+
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)]
     internal delegate void TextureViewExtDelegate(
         uint texture, TextureTarget target, uint originalTexture, SizedInternalFormat internalFormat,
         uint minimumLevel, uint levelCount, uint minimumLayer, uint layerCount);
@@ -88,7 +97,9 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
     private readonly TextureViewExtDelegate? _textureViewExt;
     private readonly ExtDrawElementsBaseVertex? _drawElementsBaseVertexApi;
     private readonly ExtBaseInstance? _baseInstanceApi;
-    private readonly ExtMeshShader? _meshShaderApi;
+    private readonly DrawMeshTasksExtDelegate? _drawMeshTasksExt;
+    private readonly DrawMeshTasksIndirectExtDelegate? _drawMeshTasksIndirectExt;
+    private readonly MultiDrawMeshTasksIndirectExtDelegate? _multiDrawMeshTasksIndirectExt;
     private readonly object _contextGate = new();
     private readonly object _resourceGate = new();
     private readonly HashSet<IOpenGLESNativeResource> _resources = new(ReferenceEqualityComparer.Instance);
@@ -108,7 +119,9 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
         TextureViewExtDelegate? textureViewExt,
         ExtDrawElementsBaseVertex? drawElementsBaseVertexApi,
         ExtBaseInstance? baseInstanceApi,
-        ExtMeshShader? meshShaderApi,
+        DrawMeshTasksExtDelegate? drawMeshTasksExt,
+        DrawMeshTasksIndirectExtDelegate? drawMeshTasksIndirectExt,
+        MultiDrawMeshTasksIndirectExtDelegate? multiDrawMeshTasksIndirectExt,
         OpenGLESVersion version,
         string versionString,
         string vendor,
@@ -127,7 +140,9 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
         _textureViewExt = textureViewExt;
         _drawElementsBaseVertexApi = drawElementsBaseVertexApi;
         _baseInstanceApi = baseInstanceApi;
-        _meshShaderApi = meshShaderApi;
+        _drawMeshTasksExt = drawMeshTasksExt;
+        _drawMeshTasksIndirectExt = drawMeshTasksIndirectExt;
+        _multiDrawMeshTasksIndirectExt = multiDrawMeshTasksIndirectExt;
         Version = version;
         VersionString = versionString;
         Vendor = vendor;
@@ -204,7 +219,9 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
     internal TextureViewExtDelegate? TextureViewExt => _textureViewExt;
     internal ExtDrawElementsBaseVertex? DrawElementsBaseVertexApi => _drawElementsBaseVertexApi;
     internal ExtBaseInstance? BaseInstanceApi => _baseInstanceApi;
-    internal ExtMeshShader? MeshShaderApi => _meshShaderApi;
+    internal DrawMeshTasksExtDelegate? DrawMeshTasksExt => _drawMeshTasksExt;
+    internal DrawMeshTasksIndirectExtDelegate? DrawMeshTasksIndirectExt => _drawMeshTasksIndirectExt;
+    internal MultiDrawMeshTasksIndirectExtDelegate? MultiDrawMeshTasksIndirectExt => _multiDrawMeshTasksIndirectExt;
 
     internal uint MaxUniformBufferBindings { get; }
     internal uint MaxStorageBufferBindings { get; }
@@ -241,7 +258,9 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
         TextureViewExtDelegate? textureViewExt = null;
         ExtDrawElementsBaseVertex? drawElementsBaseVertexApi = null;
         ExtBaseInstance? baseInstanceApi = null;
-        ExtMeshShader? meshShaderApi = null;
+        DrawMeshTasksExtDelegate? drawMeshTasksExt = null;
+        DrawMeshTasksIndirectExtDelegate? drawMeshTasksIndirectExt = null;
+        MultiDrawMeshTasksIndirectExtDelegate? multiDrawMeshTasksIndirectExt = null;
         contextProvider.MakeCurrent();
         try
         {
@@ -317,14 +336,27 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
                 baseInstanceApi = new ExtBaseInstance(gl.Context);
             }
 
-            if (gl.IsExtensionPresent(ExtMeshShader.ExtensionName) &&
-                HasEntryPoints(
-                    contextProvider,
-                    "glDrawMeshTasksEXT",
-                    "glDrawMeshTasksIndirectEXT",
-                    "glMultiDrawMeshTasksIndirectEXT"))
+            bool hasMeshShaderExtension = gl.IsExtensionPresent("GL_EXT_mesh_shader");
+            if (hasMeshShaderExtension)
             {
-                meshShaderApi = new ExtMeshShader(gl.Context);
+                nint meshAddress = contextProvider.GetProcAddress("glDrawMeshTasksEXT");
+                nint meshIndirectAddress = contextProvider.GetProcAddress("glDrawMeshTasksIndirectEXT");
+                nint multiMeshIndirectAddress = contextProvider.GetProcAddress("glMultiDrawMeshTasksIndirectEXT");
+
+                if (meshAddress != 0 && meshIndirectAddress != 0)
+                {
+                    drawMeshTasksExt =
+                        Marshal.GetDelegateForFunctionPointer<DrawMeshTasksExtDelegate>(meshAddress);
+                    drawMeshTasksIndirectExt =
+                        Marshal.GetDelegateForFunctionPointer<DrawMeshTasksIndirectExtDelegate>(meshIndirectAddress);
+                }
+
+                if (multiMeshIndirectAddress != 0)
+                {
+                    multiDrawMeshTasksIndirectExt =
+                        Marshal.GetDelegateForFunctionPointer<MultiDrawMeshTasksIndirectExtDelegate>(
+                            multiMeshIndirectAddress);
+                }
             }
 
             OpenGLESCapabilityProfile profile = QueryProfile(
@@ -336,7 +368,7 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
                 drawElementsBaseVertexApi is not null,
                 baseInstanceApi is not null,
                 textureViewExt is not null,
-                meshShaderApi is not null);
+                drawMeshTasksExt is not null && drawMeshTasksIndirectExt is not null);
             profile.EnsureRequiredBaseline();
 
             string vendor = gl.GetStringS(StringName.Vendor);
@@ -351,7 +383,8 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
             OpenGLESGraphicsDevice device = new(
                 contextProvider, gl, multiDrawArraysIndirectExt, multiDrawElementsIndirectExt,
                 drawBuffersIndexedApi, copyImageApi, copyImageSubDataOes, textureViewExt,
-                drawElementsBaseVertexApi, baseInstanceApi, meshShaderApi,
+                drawElementsBaseVertexApi, baseInstanceApi,
+                drawMeshTasksExt, drawMeshTasksIndirectExt, multiDrawMeshTasksIndirectExt,
                 version, versionString, vendor, renderer, profile, capabilities, queriedLimits);
             gl = null;
             multiDrawArraysIndirectExt = null;
@@ -362,12 +395,13 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
             textureViewExt = null;
             drawElementsBaseVertexApi = null;
             baseInstanceApi = null;
-            meshShaderApi = null;
+            drawMeshTasksExt = null;
+            drawMeshTasksIndirectExt = null;
+            multiDrawMeshTasksIndirectExt = null;
             return device;
         }
         catch
         {
-            meshShaderApi?.Dispose();
             baseInstanceApi?.Dispose();
             drawElementsBaseVertexApi?.Dispose();
             copyImageApi?.Dispose();
@@ -1087,15 +1121,6 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
             }
             finally
             {
-                try
-                {
-                    _meshShaderApi?.Dispose();
-                }
-                catch (Exception exception)
-                {
-                    RecordFailure(ref failures, exception);
-                }
-
                 try
                 {
                     _baseInstanceApi?.Dispose();
