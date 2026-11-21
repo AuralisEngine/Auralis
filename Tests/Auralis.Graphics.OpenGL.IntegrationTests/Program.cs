@@ -594,6 +594,20 @@ internal static class Program
             GraphicsMemoryAccess.CpuToGpu);
         WriteUInts(indirectArguments, 3, 1, 0, 0);
 
+        using IGraphicsBuffer indexBuffer = CreateBuffer(
+            device,
+            3 * sizeof(uint),
+            GraphicsBufferUsage.Index,
+            GraphicsMemoryAccess.CpuToGpu);
+        WriteUInts(indexBuffer, 0, 1, 2);
+
+        using IGraphicsBuffer indexedIndirectArguments = CreateBuffer(
+            device,
+            5 * sizeof(uint),
+            GraphicsBufferUsage.IndirectArguments,
+            GraphicsMemoryAccess.CpuToGpu);
+        WriteUInts(indexedIndirectArguments, 3, 2, 0, 0, 0);
+
         IGraphicsCommandQueue queue = device.GetQueue(GraphicsQueueType.Graphics);
         using IGraphicsCommandList commandList = queue.CreateCommandList();
         using IGraphicsFence fence = device.CreateFence();
@@ -604,6 +618,11 @@ internal static class Program
         commandList.SetViewport(new GraphicsViewport(0, 0, 32, 32));
         commandList.SetRenderPipeline(pipeline);
         commandList.Draw(3);
+        commandList.Draw(3, instanceCount: 2);
+        commandList.SetIndexBuffer(indexBuffer, GraphicsIndexFormat.UInt32);
+        commandList.DrawIndexed(3);
+        commandList.DrawIndexed(3, instanceCount: 2);
+        commandList.DrawIndexedIndirect(indexedIndirectArguments, 0);
         commandList.DrawIndirect(indirectArguments, 0);
         commandList.End();
 
