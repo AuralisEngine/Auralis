@@ -131,7 +131,7 @@ Provider registration is a startup operation and the registry is not intended fo
 
 ## Implementation status
 
-This project currently provides common descriptors, validation, provider/device contracts, command/pipeline/synchronization interfaces, and presentation interop contracts. It does **not** create native devices, allocate GPU memory, record native commands, compile shaders, create native windows/surfaces, or implement a Direct3D 12, Vulkan, or Metal backend. Those responsibilities belong to future backend and platform integration work.
+This project provides backend-neutral graphics descriptors, validation, device/command/pipeline/synchronization contracts, presentation interop, and a desktop OpenGL implementation in the same `Auralis.Graphics` assembly. The OpenGL backend creates and manages OpenGL resources and executes recorded commands through an injected, host-owned context provider. It does not create native windows or contexts. Direct3D 12, Vulkan, and Metal implementations are outside the scope of this project state.
 
 
 ## OpenGL backend
@@ -179,7 +179,7 @@ The context provider owns the meaning of its context identity and must guarantee
 | Buffers | Immutable DSA storage, direct `MapNamedBufferRange`/`UnmapNamedBuffer` views over driver memory, explicit per-access storage permissions, invalidated views after unmap/disposal, and buffer copy |
 | Textures | Immutable 1D/2D/3D/cube storage, arrays and multisample 2D storage; texture views via `ARB_texture_view` |
 | Samplers | Sampler objects with filtering, addressing, compare, LOD, border color, and extension-gated anisotropy |
-| Shaders | GLSL source compile through Silk.NET; compile log surfaced; `main` entry point |
+| Shaders | GLSL source compilation and extension-gated SPIR-V ingestion/specialization through Silk.NET; driver compile/specialization logs surfaced; requested SPIR-V entry point and specialization constants are passed to the driver |
 | Descriptors | Uniform/storage buffers, sampled/storage textures, samplers, and combined texture/sampler sets; explicit deterministic binding-point mapping |
 | Graphics/compute pipelines | Linked monolithic graphics or compute program; DSA vertex-array object for conventional graphics pipelines; supported geometry/tessellation stages; fixed raster/depth/stencil/blend state |
 | Rendering/compute commands | Deferred render-target binding, viewport/scissor, typed clears, vertex/index binding, direct/indexed/indirect draws, direct/indirect compute dispatch |
@@ -198,7 +198,7 @@ OpenGL has no Vulkan-style descriptor-set object. Auralis maps common sets and b
 3. Maintain independent slot sequences for uniform-buffer bindings, storage-buffer bindings, texture units (sampled textures, samplers, and combined texture/sampler entries), and image units (storage textures).
 4. A descriptor array consumes consecutive slots in its namespace.
 
-GLSL must use the resulting numeric binding in its `layout(binding = N)` declaration. This backend does not rewrite GLSL source to translate a `set` qualifier. For example, UBO binding points are assigned independently from texture units; the same integer may therefore occur in two different namespaces. Unsupported descriptor flags (partially bound, update-after-bind, variable count) are rejected. A binding set must be fully populated before it is captured into a command list.
+GLSL must use the resulting numeric binding in its `layout(binding = N)` declaration. This backend does not rewrite GLSL source to translate a `set` qualifier. For example, UBO binding points are assigned independently from texture units; the same integer may therefore occur in two different namespaces. Partially-bound, update-after-bind, and variable-count descriptor flags remain unsupported and are rejected. A binding set must be fully populated before it is captured into a command list; missing resource slots are not implicitly cleared or treated as partially bound.
 
 ### Command execution and queue model
 
@@ -217,17 +217,30 @@ Resource barriers are translated into GL memory-barrier bits based on destinatio
 - The backend does not expose the native default framebuffer as an `IGraphicsTexture`. Swapchain images are Auralis-owned offscreen textures; presentation blits one to framebuffer 0 and then calls the provider's swap operation.
 - The injected provider/platform integration must correctly identify the exact drawable, support and apply the requested present mode, and implement buffer swapping. No WGL/GLX/EGL/native Apple context or window creation code is included.
 - The current swapchain presents a color-only offscreen image ring; it does not expose default framebuffer depth/stencil attachments or native swapchain image handles.
-- No mesh/task shader pipeline support.
+- No mesh/task shader pipeline support: optional mesh-shader extensions are not sufficient without the complete stage, pipeline, validation, and draw path.
 - No separate native compute/transfer queue. Compute work is serialized on the same context stream as graphics and copies.
-- Descriptor indexing and partially-bound/update-after-bind/variable-count descriptors are unsupported.
-- The current blend implementation supports per-color-attachment blend factors/equations, but blend enable and color-write mask must be identical for all color attachments in a pipeline; differing values are rejected.
-- Wide lines, depth bounds, sparse resources, timestamp queries, multi-viewport, and mesh/task features are not advertised until their execution paths are implemented.
-- The GLSL source is compiled directly by the driver; SPIR-V ingestion is not implemented.
+- Descriptor indexing, partially-bound, update-after-bind, and variable-count descriptors are unsupported. Partially-bound descriptors require deterministic zero-unbinding and descriptor snapshot semantics that are not implemented.
+- Independent blend enable and color-write masks use optional `GL_EXT_draw_buffers2` entry points; per-attachment blend factors/equations use the official Silk.NET ARB draw-buffers-blend wrapper. Independent state is reported only when indexed-state entry points are available.
+- Wide lines are reported only when the driver-reported `GL_ALIASED_LINE_WIDTH_RANGE` includes a non-unit width; pipeline widths outside that range are rejected.
+- Depth-bounds testing is optional and requires `GL_EXT_depth_bounds_test`.
+- Depth-bias clamping is optional and requires `GL_ARB_polygon_offset_clamp`; non-zero clamps remain rejected without it.
+- SPIR-V ingestion is optional and requires `GL_ARB_gl_spirv`; GLSL source compilation remains available independently.
+- Debug output uses `GL_KHR_debug` (core in modern desktop OpenGL); it is diagnostic output, not GPU-based validation.
+- Sparse resources, timestamp-query reporting, and multi-viewport are not advertised: they require complete resource residency/query-result/common-command contracts, not just extension detection.
 - Shared host GL-state preservation is not implemented; exclusive GL-state ownership is required.
 - Physical adapter IDs, PCI IDs, dedicated memory size, and system-wide adapter enumeration are unknown through the injected-context contract.
 
 ### Tests and verification
 
-The ordinary graphics test suite includes hardware-independent tests for provider registration/availability, presentation drawable/present-mode validation, texture targets, sampler translations, descriptor slot allocation, pipeline enum/vertex-format mappings, compute dispatch limit validation, resource barriers, render-target validation, and mapped-memory lifetime. CI builds the graphics project and runs this test suite without requiring a GPU or display.
+The ordinary graphics test suite includes hardware-independent tests for provider registration/availability, presentation drawable/present-mode validation, texture targets, sampler translations, descriptor slot allocation, pipeline enum/vertex-format mappings, compute dispatch limit validation, resource barriers, render-target validation, mapped-memory lifetime, SPIR-V validation, debug-option validation, line-width validation, blend-state validation, and optional pipeline-feature validation. GitHub Actions **Graphics validation run #141** completed successfully for the current PR head (`3eaaa7839329deec9e5a2d6cd854c963fc8d55d5`). This is a CI result; it is not an actual-driver run.
 
-No real-context hardware smoke test has been run in this environment. A host/platform integration should gate such a test on an available desktop OpenGL 4.5 Core context and exercise device creation, shader compilation, resource allocation, an offscreen draw/copy, fence completion, and disposal. The backend currently has no mandatory windowing package; a test host may supply any suitable context provider.
+**Actual-driver baseline (maintainer-verified before this optimization pass):** the OpenGL smoke test, device creation, shader compilation, GPU resource allocation, offscreen drawing, GPU resource copying, fence completion, presentation, swapchain resizing, and graphics-resource/device disposal have all successfully passed against an actual OpenGL driver. These are established results and are not described as untested. This documentation update does not claim that the current editing environment reran those tests. The backend has no mandatory windowing package; the host supplies the OpenGL 4.5 Core context provider.
+
+### Allocation and performance notes
+
+- Buffer mappings use `glMapNamedBufferRange`/`glUnmapNamedBuffer` and an invalidatable `MemoryManager<byte>` over the native mapping; the normal path no longer uses a per-map staging array and DSA readback/writeback copies.
+- Command recording reuses command-list-owned `List<T>` storage for commands, barrier resource references, render-target views, and binding snapshots. Snapshot values are copied into command-list storage so later descriptor-set mutation does not rewrite recorded values.
+- Submission rents command-list reference arrays from `ArrayPool<T>` and retains them until the completion sync is observed. Pending entries are value types held in a reusable list.
+- Fence sync points use a FIFO `Queue<T>` because values are monotonic; completed syncs are deleted from the head without a temporary cleanup collection.
+- Context activation no longer allocates an `OpenGLContextLease` per `WithContext` call, and the `Action<GL>` overload no longer routes through an intermediate `Func<GL, T>`. Callback-based call sites can still allocate delegates/closures; zero-allocation context execution has not been established.
+- No before/after allocation benchmark results are currently recorded in the repository. Do not infer allocation numbers from the structural changes above. Warmed allocation measurements for command recording, submission, fences, mapping, and context acquisition remain follow-up work.
