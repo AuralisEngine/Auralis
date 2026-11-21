@@ -24,13 +24,15 @@ internal sealed class OpenGLGraphicsRenderPipeline : OpenGLNativeDeviceObject, I
         OpenGLGraphicsDevice device,
         GraphicsRenderPipelineDescription description,
         uint program,
-        uint vertexArray) : base(device)
+        uint vertexArray,
+        OpenGLMeshShaderDialect meshShaderDialect) : base(device)
     {
         _device = device;
         Description = description;
         Layout = description.Layout;
         _program = program;
         _vertexArray = vertexArray;
+        MeshShaderDialect = meshShaderDialect;
         foreach (IGraphicsShader shader in description.Shaders)
         {
             if (shader.Description.Stage == GraphicsShaderStage.Mesh)
@@ -65,6 +67,7 @@ internal sealed class OpenGLGraphicsRenderPipeline : OpenGLNativeDeviceObject, I
     internal PrimitiveType Topology => OpenGLPipelineMapping.ToPrimitiveType(Description.Topology);
     internal bool IsMeshPipeline => _isMeshPipeline;
     internal bool IsTaskPipeline => _isTaskPipeline;
+    internal OpenGLMeshShaderDialect MeshShaderDialect { get; }
 
     internal static OpenGLGraphicsRenderPipeline Create(
         OpenGLGraphicsDevice device,
@@ -77,9 +80,14 @@ internal sealed class OpenGLGraphicsRenderPipeline : OpenGLNativeDeviceObject, I
             !ReferenceEquals(layout.Device, device))
             throw new GraphicsValidationException("The pipeline layout must be created by this OpenGL device.");
 
+        OpenGLMeshShaderDialect meshShaderDialect = OpenGLMeshShaderDialect.None;
         for (int i = 0; i < description.Shaders.Length; i++)
         {
-            GraphicsShaderStage stage = description.Shaders[i].Description.Stage;
+            IGraphicsShader shader = description.Shaders[i];
+            GraphicsShaderStage stage = shader.Description.Stage;
+            if (shader is not OpenGLGraphicsShader openGlShader)
+                throw new GraphicsValidationException("All pipeline shaders must belong to this OpenGL backend.");
+
             if (stage == GraphicsShaderStage.Mesh &&
                 !device.Capabilities.Features.Supports(GraphicsFeature.MeshShaders))
                 throw new GraphicsFeatureNotSupportedException(
@@ -90,8 +98,21 @@ internal sealed class OpenGLGraphicsRenderPipeline : OpenGLNativeDeviceObject, I
                 throw new GraphicsFeatureNotSupportedException(
                     GraphicsFeature.TaskShaders,
                     GraphicsFeature.TaskShaders);
-            if (description.Shaders[i] is not OpenGLGraphicsShader)
-                throw new GraphicsValidationException("All pipeline shaders must belong to this OpenGL backend.");
+
+            if (stage is GraphicsShaderStage.Mesh or GraphicsShaderStage.Task)
+            {
+                if (openGlShader.MeshShaderDialect == OpenGLMeshShaderDialect.None)
+                    throw new GraphicsValidationException(
+                        "Mesh/task shaders must declare a validated EXT or NV mesh-shader dialect.");
+                if (meshShaderDialect != OpenGLMeshShaderDialect.None &&
+                    meshShaderDialect != openGlShader.MeshShaderDialect)
+                {
+                    throw new GraphicsValidationException(
+                        "A mesh/task pipeline cannot mix GL_EXT_mesh_shader and GL_NV_mesh_shader stages.");
+                }
+
+                meshShaderDialect = openGlShader.MeshShaderDialect;
+            }
         }
 
         OpenGLPipelineFeatureValidation.ValidateDepthBiasClamp(
@@ -178,7 +199,7 @@ internal sealed class OpenGLGraphicsRenderPipeline : OpenGLNativeDeviceObject, I
                 ConfigureVertexArray(device.DirectStateAccess, vertexArray, description.VertexInput);
                 device.LabelObject(ObjectIdentifier.Program, program, "Auralis Graphics Pipeline Program");
                 device.LabelObject(ObjectIdentifier.VertexArray, vertexArray, "Auralis Graphics Pipeline Vertex Array");
-                OpenGLGraphicsRenderPipeline pipeline = new(device, description, program, vertexArray);
+                OpenGLGraphicsRenderPipeline pipeline = new(device, description, program, vertexArray, meshShaderDialect);
                 device.RegisterUnderContext(pipeline);
                 return pipeline;
             }
