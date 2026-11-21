@@ -209,12 +209,13 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
                 drawBuffersIndexedApi = new ExtDrawBuffersIndexed(gl.Context);
             if (gl.IsExtensionPresent(ExtCopyImage.ExtensionName))
                 copyImageApi = new ExtCopyImage(gl.Context);
+            nint textureViewAddress = 0;
             if (gl.IsExtensionPresent("GL_EXT_texture_view"))
-            {
-                nint textureViewAddress = contextProvider.GetProcAddress("glTextureViewEXT");
-                if (textureViewAddress != 0)
-                    textureViewExt = Marshal.GetDelegateForFunctionPointer<TextureViewExtDelegate>(textureViewAddress);
-            }
+                textureViewAddress = contextProvider.GetProcAddress("glTextureViewEXT");
+            if (textureViewAddress == 0 && gl.IsExtensionPresent("GL_OES_texture_view"))
+                textureViewAddress = contextProvider.GetProcAddress("glTextureViewOES");
+            if (textureViewAddress != 0)
+                textureViewExt = Marshal.GetDelegateForFunctionPointer<TextureViewExtDelegate>(textureViewAddress);
 
             bool hasBaseVertexExtension = gl.IsExtensionPresent(ExtDrawElementsBaseVertex.ExtensionName);
             if (hasBaseVertexExtension)
