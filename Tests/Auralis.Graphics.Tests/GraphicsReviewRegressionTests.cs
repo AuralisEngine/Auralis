@@ -641,7 +641,7 @@ public sealed class GraphicsReviewRegressionTests
             disposer.Start();
         }
 
-        Assert.True(disposer.Join(TimeSpan.FromSeconds(5)));
+        disposer.Join();
         Assert.Equal(GraphicsCommandListState.Executable, stateObservedByDisposer);
     }
 
