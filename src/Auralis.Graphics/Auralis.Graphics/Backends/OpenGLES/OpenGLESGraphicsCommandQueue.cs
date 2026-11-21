@@ -94,7 +94,7 @@ internal sealed class OpenGLESGraphicsCommandQueue : IGraphicsCommandQueue
                     for (int i = 0; i < lists.Length; i++)
                         lists[i].Execute(gl);
 
-                    completionSync = gl.FenceSync(SyncCondition.SyncGpuCommandsComplete, 0);
+                    completionSync = gl.FenceSync(SyncCondition.SyncGpuCommandsComplete, (uint)0);
                     if (completionSync == 0)
                         throw new GraphicsException("OpenGL ES failed to create a command-submission sync object.");
 
@@ -166,7 +166,7 @@ internal sealed class OpenGLESGraphicsCommandQueue : IGraphicsCommandQueue
                 for (int i = _pending.Count - 1; i >= 0; i--)
                 {
                     PendingSubmission submission = _pending[i];
-                    GLEnum status = gl.ClientWaitSync(submission.Sync, 0, 0);
+                    GLEnum status = gl.ClientWaitSync(submission.Sync, (uint)0, 0);
                     if (status == GLEnum.TimeoutExpired)
                         continue;
                     if (status == GLEnum.WaitFailed)
