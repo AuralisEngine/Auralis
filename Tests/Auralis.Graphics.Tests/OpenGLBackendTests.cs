@@ -108,11 +108,12 @@ public sealed class OpenGLBackendTests
     [Fact]
     public void MeshShaderCapabilityRequiresTheExtensionAndAllDriverLimits()
     {
-        Assert.True(OpenGLMeshTaskValidation.IsSupported(true, 64, 64, 64));
-        Assert.False(OpenGLMeshTaskValidation.IsSupported(false, 64, 64, 64));
-        Assert.False(OpenGLMeshTaskValidation.IsSupported(true, 0, 64, 64));
-        Assert.False(OpenGLMeshTaskValidation.IsSupported(true, 64, 0, 64));
-        Assert.False(OpenGLMeshTaskValidation.IsSupported(true, 64, 64, 0));
+        Assert.True(OpenGLMeshTaskValidation.IsSupported(true, 64, 64, 64, 256));
+        Assert.False(OpenGLMeshTaskValidation.IsSupported(false, 64, 64, 64, 256));
+        Assert.False(OpenGLMeshTaskValidation.IsSupported(true, 0, 64, 64, 256));
+        Assert.False(OpenGLMeshTaskValidation.IsSupported(true, 64, 0, 64, 256));
+        Assert.False(OpenGLMeshTaskValidation.IsSupported(true, 64, 64, 0, 256));
+        Assert.False(OpenGLMeshTaskValidation.IsSupported(true, 64, 64, 64, 0));
     }
 
     [Fact]
@@ -135,22 +136,25 @@ public sealed class OpenGLBackendTests
             groupCountZ: 2,
             maximumX: 8,
             maximumY: 4,
-            maximumZ: 2);
+            maximumZ: 2,
+            maximumTotalCount: 64);
 
         Assert.Throws<GraphicsValidationException>(() =>
-            OpenGLMeshTaskValidation.Validate(0, 1, 1, 8, 4, 2));
+            OpenGLMeshTaskValidation.Validate(0, 1, 1, 8, 4, 2, 64));
         Assert.Throws<GraphicsValidationException>(() =>
-            OpenGLMeshTaskValidation.Validate(1, 0, 1, 8, 4, 2));
+            OpenGLMeshTaskValidation.Validate(1, 0, 1, 8, 4, 2, 64));
         Assert.Throws<GraphicsValidationException>(() =>
-            OpenGLMeshTaskValidation.Validate(1, 1, 0, 8, 4, 2));
+            OpenGLMeshTaskValidation.Validate(1, 1, 0, 8, 4, 2, 64));
         Assert.Throws<GraphicsValidationException>(() =>
-            OpenGLMeshTaskValidation.Validate(9, 1, 1, 8, 4, 2));
+            OpenGLMeshTaskValidation.Validate(9, 1, 1, 8, 4, 2, 64));
         Assert.Throws<GraphicsValidationException>(() =>
-            OpenGLMeshTaskValidation.Validate(1, 5, 1, 8, 4, 2));
+            OpenGLMeshTaskValidation.Validate(1, 5, 1, 8, 4, 2, 64));
         Assert.Throws<GraphicsValidationException>(() =>
-            OpenGLMeshTaskValidation.Validate(1, 1, 3, 8, 4, 2));
+            OpenGLMeshTaskValidation.Validate(1, 1, 3, 8, 4, 2, 64));
         Assert.Throws<GraphicsFeatureNotSupportedException>(() =>
-            OpenGLMeshTaskValidation.Validate(1, 1, 1, 0, 4, 2));
+            OpenGLMeshTaskValidation.Validate(1, 1, 1, 8, 4, 2, 0));
+        Assert.Throws<GraphicsValidationException>(() =>
+            OpenGLMeshTaskValidation.Validate(8, 4, 2, 8, 4, 2, 63));
     }
 
     [Fact]
