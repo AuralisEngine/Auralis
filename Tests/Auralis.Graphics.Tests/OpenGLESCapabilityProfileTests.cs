@@ -473,39 +473,53 @@ public sealed class OpenGLESComputeWorkGroupValidationTests
         MaxComputeWorkGroupSizeZ: 64,
         MaxSamplerAnisotropy: 1);
 
-    [Fact]
-    public void Dispatch_AllowsCountsImmediatelyBelowEachAxisLimit() =>
-        OpenGLESComputeWorkGroupValidation.ValidateDispatch(65_534, 65_534, 65_534, 65_535, 65_535, 65_535);
-
     [Theory]
     [InlineData(0u, 1u, 1u)]
     [InlineData(1u, 0u, 1u)]
     [InlineData(1u, 1u, 0u)]
-    public void Dispatch_RejectsZeroCountOnEveryAxis(uint x, uint y, uint z) =>
-        Assert.Throws<GraphicsValidationException>(() =>
-            OpenGLESComputeWorkGroupValidation.ValidateDispatch(x, y, z, 65_535, 65_535, 65_535));
-
-    [Theory]
-    [InlineData(65_536u, 1u, 1u)]
-    [InlineData(1u, 65_536u, 1u)]
-    [InlineData(1u, 1u, 65_536u)]
-    public void Dispatch_RejectsEachAxisIndependentlyWhenItExceedsTheLimit(uint x, uint y, uint z) =>
-        Assert.Throws<GraphicsValidationException>(() =>
-            OpenGLESComputeWorkGroupValidation.ValidateDispatch(x, y, z, 65_535, 65_535, 65_535));
-
+    public void Dispatch_ZeroCountOnAnyAxisRecordsNoGpuCommand(uint x, uint y, uint z)
+    {
+        // Exercise the same command factory used by OpenGLESGraphicsCommandList.Dispatch.
+        Assert.False(OpenGLESGraphicsCommandList.TryCreateDispatchCommand(
+            x, y, z, 0, 0, 0, out _));
+    }
 
     [Theory]
     [InlineData(65_535u, 1u, 1u)]
     [InlineData(1u, 65_535u, 1u)]
     [InlineData(1u, 1u, 65_535u)]
-    public void Dispatch_RejectsCountsEqualToEachAxisLimit(uint x, uint y, uint z) =>
-        Assert.Throws<GraphicsValidationException>(() =>
-            OpenGLESComputeWorkGroupValidation.ValidateDispatch(x, y, z, 65_535, 65_535, 65_535));
+    public void Dispatch_CountEqualToEachAxisMaximumIsAccepted(uint x, uint y, uint z)
+    {
+        Assert.True(OpenGLESGraphicsCommandList.TryCreateDispatchCommand(
+            x, y, z, 65_535, 65_535, 65_535, out OpenGLESCmd command));
+        Assert.Equal(OpenGLESCmdKind.Dispatch, command.Kind);
+        Assert.Equal(x, command.GroupsX);
+        Assert.Equal(y, command.GroupsY);
+        Assert.Equal(z, command.GroupsZ);
+    }
 
-    [Fact]
-    public void Dispatch_RejectsMissingNativeLimits() =>
+    [Theory]
+    [InlineData(65_536u, 1u, 1u)]
+    [InlineData(1u, 65_536u, 1u)]
+    [InlineData(1u, 1u, 65_536u)]
+    public void Dispatch_CountOneAboveEachAxisMaximumIsRejected(uint x, uint y, uint z)
+    {
         Assert.Throws<GraphicsValidationException>(() =>
-            OpenGLESComputeWorkGroupValidation.ValidateDispatch(1, 1, 1, 65_535, 0, 65_535));
+            OpenGLESGraphicsCommandList.TryCreateDispatchCommand(
+                x, y, z, 65_535, 65_535, 65_535, out _));
+    }
+
+    [Theory]
+    [InlineData(0u, 65_535u, 65_535u)]
+    [InlineData(65_535u, 0u, 65_535u)]
+    [InlineData(65_535u, 65_535u, 0u)]
+    public void Dispatch_NonZeroCountsRequireEveryQueriedAxisLimit(uint maxX, uint maxY, uint maxZ)
+    {
+        Assert.Throws<GraphicsValidationException>(() =>
+            OpenGLESGraphicsCommandList.TryCreateDispatchCommand(
+                1, 1, 1, maxX, maxY, maxZ, out _));
+    }
+
 
     [Fact]
     public void LocalSize_AllowsAxisAndInvocationValuesAtLimits() =>
