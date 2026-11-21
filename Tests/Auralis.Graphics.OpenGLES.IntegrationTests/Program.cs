@@ -50,17 +50,53 @@ internal static class Program
 
             Console.WriteLine($"OpenGL ES driver: {device.Info.Name}; API: {device.Info.ApiVersion}; driver: {device.Info.DriverVersion}");
 
-            RunBufferCopyAndFence(device);
-            RunComputeDispatch(device);
-            RunComputeDescriptorTypesAndSnapshots(device, context);
-            RunComputePipelineLayoutSwitch(device);
-            RunTextureAndSamplerResources(device);
-            RunResourceRetentionAfterRecording(device);
-            RunReusableCommandListAfterOwnerDisposal(device);
-            RunOffscreenGraphicsPipeline(device, context);
+            int passed = 0;
+            int skipped = 0;
+            int failed = 0;
 
-            Console.WriteLine("PASS: all opted-in OpenGL ES hardware integration tests completed.");
-            return 0;
+            void RunTest(string name, string requirements, Action test)
+            {
+                try
+                {
+                    test();
+                    passed++;
+                    Console.WriteLine($"PASS: {name} (requires {requirements}).");
+                }
+                catch (Exception exception)
+                {
+                    failed++;
+                    Console.Error.WriteLine($"FAIL: {name} (requires {requirements}): {exception}");
+                }
+            }
+
+            void SkipTest(string name, string requirements, string reason)
+            {
+                skipped++;
+                Console.WriteLine($"SKIP: {name} (requires {requirements}): {reason}");
+            }
+
+            RunTest("buffer copy, mapping, and fence", "OpenGL ES 3.1", () => RunBufferCopyAndFence(device));
+            RunTest("compute dispatch and SSBO readback", "OpenGL ES 3.1", () => RunComputeDispatch(device));
+            RunTest("descriptor types, recording snapshots, and GPU output", "OpenGL ES 3.1", () => RunComputeDescriptorTypesAndSnapshots(device, context));
+            RunTest("compute pipeline-layout switching", "OpenGL ES 3.1", () => RunComputePipelineLayoutSwitch(device));
+            RunTest("texture and sampler allocation", "OpenGL ES 3.1", () => RunTextureAndSamplerResources(device));
+            RunTest("resource retention after recording", "OpenGL ES 3.1", () => RunResourceRetentionAfterRecording(device));
+            RunTest("reusable command-list resubmission", "OpenGL ES 3.1", () => RunReusableCommandListAfterOwnerDisposal(device));
+            RunTest("offscreen graphics pipeline", "OpenGL ES 3.1", () => RunOffscreenGraphicsPipeline(device, context));
+            RunTest("MRT rendering and attachment ordering", "OpenGL ES 3.1, at least two color attachments", () => RunMrtRendering(device, context));
+            RunTest("typed signed/unsigned integer color clears", "OpenGL ES 3.1 integer color attachments", () => RunIntegerColorClears(device, context));
+            RunTest("multi-command array and indexed indirect drawing", "OpenGL ES 3.1 indirect drawing", () => RunMultiDrawIndirect(device, context));
+
+            uint multisampleCount =
+                device.Capabilities.SupportsSampleCount(GraphicsFormat.RGBA8UNorm, 4) ? 4u :
+                device.Capabilities.SupportsSampleCount(GraphicsFormat.RGBA8UNorm, 2) ? 2u : 1u;
+            if (multisampleCount > 1)
+                RunTest("multisample framebuffer clear and shader sample readback", $"RGBA8 {multisampleCount}x sample support", () => RunMultisampleFramebuffer(device, context, multisampleCount));
+            else
+                SkipTest("multisample framebuffer clear and shader sample readback", "RGBA8 multisample sample-count support", "the driver reports only single-sample RGBA8 storage");
+
+            Console.WriteLine($"SUMMARY: {passed} passed, {skipped} skipped, {failed} failed.");
+            return failed == 0 ? 0 : 1;
         }
         catch (GraphicsBackendUnavailableException exception)
         {
@@ -79,6 +115,480 @@ internal static class Program
             else
                 context.Dispose();
         }
+    }
+
+    private static void RunMrtRendering(IGraphicsDevice device, GlfwOpenGLESContextProvider context)
+    {
+        if (device.Capabilities.Limits.MaxColorAttachments < 2 ||
+            device.Capabilities.Limits.MaxColorDrawBuffers < 2)
+            throw new GraphicsValidationException("The GLES driver does not expose at least two color attachments and draw buffers.");
+
+        using IGraphicsTexture first = device.CreateTexture(new GraphicsTextureDescription(
+            GraphicsTextureDimension.Texture2D, GraphicsFormat.RGBA8UNorm,
+            64, 64, 1, 1, 1, 1, GraphicsTextureUsage.ColorAttachment | GraphicsTextureUsage.Sampled));
+        using IGraphicsTexture second = device.CreateTexture(new GraphicsTextureDescription(
+            GraphicsTextureDimension.Texture2D, GraphicsFormat.RGBA8UNorm,
+            64, 64, 1, 1, 1, 1, GraphicsTextureUsage.ColorAttachment | GraphicsTextureUsage.Sampled));
+        using IGraphicsTextureView firstView = first.CreateView(new GraphicsTextureViewDescription(
+            GraphicsFormat.Unknown, GraphicsTextureViewType.Texture2D, 0, 1, 0, 1));
+        using IGraphicsTextureView secondView = second.CreateView(new GraphicsTextureViewDescription(
+            GraphicsFormat.Unknown, GraphicsTextureViewType.Texture2D, 0, 1, 0, 1));
+
+        IGraphicsTextureView[] attachments = [firstView, secondView];
+        IGraphicsCommandQueue queue = device.GetQueue(GraphicsQueueType.Graphics);
+        using (IGraphicsCommandList clear = queue.CreateCommandList())
+        using (IGraphicsFence fence = device.CreateFence())
+        {
+            clear.Begin();
+            clear.SetRenderTargets(attachments);
+            clear.SetViewport(new GraphicsViewport(0, 0, 64, 64));
+            clear.SetScissor(new GraphicsScissorRect(0, 0, 64, 64));
+            clear.ClearColor(0, new GraphicsClearColor(1, 0, 0, 1));
+            clear.ClearColor(1, new GraphicsClearColor(0, 1, 0, 1));
+            clear.End();
+            queue.Submit([clear], fence, 1);
+            if (!fence.Wait(1, TimeSpan.FromSeconds(10)))
+                throw new TimeoutException("The GLES MRT clear fence did not complete.");
+        }
+
+        AssertPixelNear(ReadRgba8Pixel(device, context, firstView), 255, 0, 0, 255);
+        AssertPixelNear(ReadRgba8Pixel(device, context, secondView), 0, 255, 0, 255);
+
+        using IGraphicsPipelineLayout layout = device.CreatePipelineLayout(Array.Empty<IGraphicsBindingLayout>());
+        using IGraphicsShader vertex = device.CreateShader(new GraphicsShaderDescription
+        {
+            Stage = GraphicsShaderStage.Vertex,
+            Format = GraphicsShaderFormat.GlslSource,
+            Code = Encoding.UTF8.GetBytes(
+                """
+                #version 310 es
+                const vec2 positions[3] = vec2[3](
+                    vec2(-1.0, -1.0),
+                    vec2( 3.0, -1.0),
+                    vec2(-1.0,  3.0));
+                void main() { gl_Position = vec4(positions[gl_VertexID], 0.0, 1.0); }
+                """)
+        });
+        using IGraphicsShader fragment = device.CreateShader(new GraphicsShaderDescription
+        {
+            Stage = GraphicsShaderStage.Fragment,
+            Format = GraphicsShaderFormat.GlslSource,
+            Code = Encoding.UTF8.GetBytes(
+                """
+                #version 310 es
+                precision highp float;
+                layout(location = 0) out vec4 firstOutput;
+                layout(location = 1) out vec4 secondOutput;
+                void main()
+                {
+                    firstOutput = vec4(0.25, 0.5, 0.75, 1.0);
+                    secondOutput = vec4(0.75, 0.25, 0.125, 1.0);
+                }
+                """)
+        });
+        IGraphicsShader[] shaders = [vertex, fragment];
+        GraphicsFormat[] formats = [GraphicsFormat.RGBA8UNorm, GraphicsFormat.RGBA8UNorm];
+        using IGraphicsRenderPipeline pipeline = device.CreateRenderPipeline(
+            new GraphicsRenderPipelineDescription(
+                layout, shaders, GraphicsPrimitiveTopology.TriangleList, formats));
+
+        using (IGraphicsCommandList draw = queue.CreateCommandList())
+        using (IGraphicsFence fence = device.CreateFence())
+        {
+            draw.Begin();
+            draw.SetRenderTargets(attachments);
+            draw.SetViewport(new GraphicsViewport(0, 0, 64, 64));
+            draw.SetScissor(new GraphicsScissorRect(0, 0, 64, 64));
+            draw.SetRenderPipeline(pipeline);
+            draw.Draw(3);
+            draw.End();
+            queue.Submit([draw], fence, 1);
+            if (!fence.Wait(1, TimeSpan.FromSeconds(10)))
+                throw new TimeoutException("The GLES MRT rendering fence did not complete.");
+        }
+
+        AssertPixelNear(ReadRgba8Pixel(device, context, firstView), 64, 128, 191, 255);
+        AssertPixelNear(ReadRgba8Pixel(device, context, secondView), 191, 64, 32, 255);
+
+        uint rejectedCount = Math.Max(
+            device.Capabilities.Limits.MaxColorAttachments,
+            device.Capabilities.Limits.MaxColorDrawBuffers) + 1;
+        IGraphicsTextureView[] tooMany = new IGraphicsTextureView[checked((int)rejectedCount)];
+        Array.Fill(tooMany, firstView);
+        using IGraphicsCommandList invalid = queue.CreateCommandList();
+        invalid.Begin();
+        ExpectThrows<GraphicsValidationException>(
+            () => invalid.SetRenderTargets(tooMany),
+            "MRT attachment count must respect both queried limits");
+        invalid.End();
+
+        Console.WriteLine("Validated MRT attachment-indexed clears, fragment output locations, attachment ordering, GPU pixel readback, and attachment-count rejection.");
+    }
+
+    private static void RunIntegerColorClears(IGraphicsDevice device, GlfwOpenGLESContextProvider context)
+    {
+        using IGraphicsTexture unsignedTexture = device.CreateTexture(new GraphicsTextureDescription(
+            GraphicsTextureDimension.Texture2D, GraphicsFormat.RGBA8UInt,
+            32, 32, 1, 1, 1, 1, GraphicsTextureUsage.ColorAttachment));
+        using IGraphicsTexture signedTexture = device.CreateTexture(new GraphicsTextureDescription(
+            GraphicsTextureDimension.Texture2D, GraphicsFormat.RGBA8SInt,
+            32, 32, 1, 1, 1, 1, GraphicsTextureUsage.ColorAttachment));
+        using IGraphicsTexture normalizedTexture = device.CreateTexture(new GraphicsTextureDescription(
+            GraphicsTextureDimension.Texture2D, GraphicsFormat.RGBA8UNorm,
+            32, 32, 1, 1, 1, 1, GraphicsTextureUsage.ColorAttachment));
+        using IGraphicsTextureView unsignedView = unsignedTexture.CreateView(new GraphicsTextureViewDescription(
+            GraphicsFormat.Unknown, GraphicsTextureViewType.Texture2D, 0, 1, 0, 1));
+        using IGraphicsTextureView signedView = signedTexture.CreateView(new GraphicsTextureViewDescription(
+            GraphicsFormat.Unknown, GraphicsTextureViewType.Texture2D, 0, 1, 0, 1));
+        using IGraphicsTextureView normalizedView = normalizedTexture.CreateView(new GraphicsTextureViewDescription(
+            GraphicsFormat.Unknown, GraphicsTextureViewType.Texture2D, 0, 1, 0, 1));
+
+        IGraphicsTextureView[] attachments = [unsignedView, signedView, normalizedView];
+        IGraphicsCommandQueue queue = device.GetQueue(GraphicsQueueType.Graphics);
+        using IGraphicsCommandList commandList = queue.CreateCommandList();
+        using IGraphicsFence fence = device.CreateFence();
+        commandList.Begin();
+        commandList.SetRenderTargets(attachments);
+        commandList.SetViewport(new GraphicsViewport(0, 0, 32, 32));
+        commandList.SetScissor(new GraphicsScissorRect(0, 0, 32, 32));
+
+        ExpectThrows<GraphicsValidationException>(
+            () => commandList.ClearColorUInt(1, new GraphicsClearColorUInt(1, 2, 3, 4)),
+            "unsigned clear must reject a signed integer attachment");
+        ExpectThrows<GraphicsValidationException>(
+            () => commandList.ClearColorSInt(0, new GraphicsClearColorSInt(1, 2, 3, 4)),
+            "signed clear must reject an unsigned integer attachment");
+        ExpectThrows<GraphicsValidationException>(
+            () => commandList.ClearColorUInt(2, new GraphicsClearColorUInt(1, 2, 3, 4)),
+            "integer clear must reject a normalized attachment");
+        ExpectThrows<GraphicsValidationException>(
+            () => commandList.ClearColorSInt(2, new GraphicsClearColorSInt(1, 2, 3, 4)),
+            "signed integer clear must reject a normalized attachment");
+        ExpectThrows<GraphicsValidationException>(
+            () => commandList.ClearColor(0, new GraphicsClearColor(1, 1, 1, 1)),
+            "floating-point clear must reject an integer attachment");
+
+        commandList.ClearColorUInt(0, new GraphicsClearColorUInt(17, 33, 65, 129));
+        commandList.ClearColorSInt(1, new GraphicsClearColorSInt(-11, 22, -33, 44));
+        commandList.ClearColor(2, new GraphicsClearColor(0.25f, 0.5f, 0.75f, 1));
+        commandList.End();
+        queue.Submit([commandList], fence, 1);
+        if (!fence.Wait(1, TimeSpan.FromSeconds(10)))
+            throw new TimeoutException("The GLES integer color-clear fence did not complete.");
+
+        uint[] unsigned = ReadIntegerPixel<uint>(device, context, unsignedView, (PixelType)0x1405);
+        int[] signed = ReadIntegerPixel<int>(device, context, signedView, (PixelType)0x1404);
+        if (!unsigned.AsSpan().SequenceEqual(new uint[] { 17, 33, 65, 129 }))
+            throw new InvalidOperationException($"Unsigned integer clear readback was [{string.Join(", ", unsigned)}].");
+        if (!signed.AsSpan().SequenceEqual(new int[] { -11, 22, -33, 44 }))
+            throw new InvalidOperationException($"Signed integer clear readback was [{string.Join(", ", signed)}].");
+
+        AssertPixelNear(ReadRgba8Pixel(device, context, normalizedView), 64, 128, 191, 255);
+        Console.WriteLine("Validated signed and unsigned attachment-indexed integer clears and exact typed GPU readback.");
+    }
+
+    private static void RunMultiDrawIndirect(IGraphicsDevice device, GlfwOpenGLESContextProvider context)
+    {
+        using IGraphicsTexture color = device.CreateTexture(new GraphicsTextureDescription(
+            GraphicsTextureDimension.Texture2D, GraphicsFormat.RGBA8UNorm,
+            64, 64, 1, 1, 1, 1, GraphicsTextureUsage.ColorAttachment));
+        using IGraphicsTextureView colorView = color.CreateView(new GraphicsTextureViewDescription(
+            GraphicsFormat.Unknown, GraphicsTextureViewType.Texture2D, 0, 1, 0, 1));
+        using IGraphicsPipelineLayout layout = device.CreatePipelineLayout(Array.Empty<IGraphicsBindingLayout>());
+        using IGraphicsShader vertex = device.CreateShader(new GraphicsShaderDescription
+        {
+            Stage = GraphicsShaderStage.Vertex,
+            Format = GraphicsShaderFormat.GlslSource,
+            Code = Encoding.UTF8.GetBytes(
+                """
+                #version 310 es
+                const vec2 positions[6] = vec2[6](
+                    vec2(-1.0, -1.0), vec2( 0.0, -1.0), vec2(-0.5, 1.0),
+                    vec2( 0.0, -1.0), vec2( 1.0, -1.0), vec2( 0.5, 1.0));
+                flat out vec3 vertexColor;
+                void main()
+                {
+                    gl_Position = vec4(positions[gl_VertexID], 0.0, 1.0);
+                    vertexColor = gl_VertexID < 3 ? vec3(1.0, 0.0, 0.0) : vec3(0.0, 1.0, 0.0);
+                }
+                """)
+        });
+        using IGraphicsShader fragment = device.CreateShader(new GraphicsShaderDescription
+        {
+            Stage = GraphicsShaderStage.Fragment,
+            Format = GraphicsShaderFormat.GlslSource,
+            Code = Encoding.UTF8.GetBytes(
+                """
+                #version 310 es
+                precision highp float;
+                flat in vec3 vertexColor;
+                layout(location = 0) out vec4 outputColor;
+                void main() { outputColor = vec4(vertexColor, 1.0); }
+                """)
+        });
+        IGraphicsShader[] shaders = [vertex, fragment];
+        GraphicsFormat[] formats = [GraphicsFormat.RGBA8UNorm];
+        using IGraphicsRenderPipeline pipeline = device.CreateRenderPipeline(
+            new GraphicsRenderPipelineDescription(layout, shaders, GraphicsPrimitiveTopology.TriangleList, formats));
+
+        using IGraphicsBuffer arguments = device.CreateBuffer(new GraphicsBufferDescription(
+            188,
+            GraphicsBufferUsage.IndirectArguments,
+            GraphicsMemoryAccess.CpuToGpu));
+        uint[] words = new uint[47];
+        // DrawArraysIndirect: two tightly packed 16-byte commands at offset 0.
+        words[0] = 3; words[1] = 1; words[2] = 0; words[3] = 0;
+        words[4] = 3; words[5] = 1; words[6] = 3; words[7] = 0;
+        // DrawArraysIndirect: two 16-byte commands separated by an 8-byte stride gap.
+        words[8] = 3; words[9] = 1; words[10] = 0; words[11] = 0;
+        words[14] = 3; words[15] = 1; words[16] = 3; words[17] = 0;
+        // DrawElementsIndirect: tightly packed 20-byte commands.
+        words[20] = 3; words[21] = 1; words[22] = 0; words[23] = 0; words[24] = 0;
+        words[25] = 3; words[26] = 1; words[27] = 3; words[28] = 0; words[29] = 0;
+        // DrawElementsIndirect: two 20-byte commands with a 4-byte stride gap.
+        words[36] = 3; words[37] = 1; words[38] = 0; words[39] = 0; words[40] = 0;
+        words[42] = 3; words[43] = 1; words[44] = 3; words[45] = 0; words[46] = 0;
+        WriteUInts(arguments, words);
+
+        using IGraphicsBuffer indices = device.CreateBuffer(new GraphicsBufferDescription(
+            6 * sizeof(uint),
+            GraphicsBufferUsage.Index,
+            GraphicsMemoryAccess.CpuToGpu));
+        WriteUInts(indices, 0, 1, 2, 3, 4, 5);
+
+        IGraphicsCommandQueue queue = device.GetQueue(GraphicsQueueType.Graphics);
+        using IGraphicsCommandList commandList = queue.CreateCommandList();
+        using IGraphicsFence fence = device.CreateFence();
+        IGraphicsTextureView[] targets = [colorView];
+        commandList.Begin();
+        commandList.SetRenderTargets(targets);
+        commandList.SetViewport(new GraphicsViewport(0, 0, 64, 64));
+        commandList.SetScissor(new GraphicsScissorRect(0, 0, 64, 64));
+        commandList.ClearColor(0, new GraphicsClearColor(0, 0, 0, 1));
+        commandList.SetRenderPipeline(pipeline);
+        commandList.DrawIndirect(arguments, 0, drawCount: 2, stride: 0);
+        commandList.DrawIndirect(arguments, 32, drawCount: 2, stride: 24);
+        commandList.SetIndexBuffer(indices, GraphicsIndexFormat.UInt32);
+        commandList.DrawIndexedIndirect(arguments, 80, drawCount: 2, stride: 0);
+        commandList.DrawIndexedIndirect(arguments, 144, drawCount: 2, stride: 24);
+        ExpectThrows<GraphicsValidationException>(
+            () => commandList.DrawIndirect(arguments, 184, drawCount: 2, stride: 0),
+            "array indirect arguments must be range checked");
+        ExpectThrows<GraphicsValidationException>(
+            () => commandList.DrawIndexedIndirect(arguments, 184, drawCount: 2, stride: 0),
+            "indexed indirect arguments must be range checked");
+        commandList.End();
+        queue.Submit([commandList], fence, 1);
+        if (!fence.Wait(1, TimeSpan.FromSeconds(10)))
+            throw new TimeoutException("The GLES multi-draw-indirect fence did not complete.");
+
+        AssertPixelNear(ReadRgba8Pixel(device, context, colorView, 16, 32), 255, 0, 0, 255);
+        AssertPixelNear(ReadRgba8Pixel(device, context, colorView, 48, 32), 0, 255, 0, 255);
+        Console.WriteLine("Validated multiple DrawIndirect and DrawIndexedIndirect commands, default and explicit strides, nonzero argument offsets, range rejection, and GPU-visible output from each draw.");
+    }
+
+    private static void RunMultisampleFramebuffer(
+        IGraphicsDevice device,
+        GlfwOpenGLESContextProvider context,
+        uint sampleCount)
+    {
+        using IGraphicsTexture multisample = device.CreateTexture(new GraphicsTextureDescription(
+            GraphicsTextureDimension.Texture2D,
+            GraphicsFormat.RGBA8UNorm,
+            32, 32, 1, 1, 1, sampleCount,
+            GraphicsTextureUsage.Sampled | GraphicsTextureUsage.ColorAttachment));
+        using IGraphicsTextureView multisampleView = multisample.CreateView(new GraphicsTextureViewDescription(
+            GraphicsFormat.Unknown, GraphicsTextureViewType.Texture2DMultisample, 0, 1, 0, 1));
+
+        IGraphicsCommandQueue graphicsQueue = device.GetQueue(GraphicsQueueType.Graphics);
+        using (IGraphicsCommandList clear = graphicsQueue.CreateCommandList())
+        using (IGraphicsFence fence = device.CreateFence())
+        {
+            IGraphicsTextureView[] targets = [multisampleView];
+            clear.Begin();
+            clear.SetRenderTargets(targets);
+            clear.SetViewport(new GraphicsViewport(0, 0, 32, 32));
+            clear.SetScissor(new GraphicsScissorRect(0, 0, 32, 32));
+            clear.ClearColor(0, new GraphicsClearColor(0.25f, 0.5f, 0.75f, 1));
+            clear.End();
+            graphicsQueue.Submit([clear], fence, 1);
+            if (!fence.Wait(1, TimeSpan.FromSeconds(10)))
+                throw new TimeoutException("The GLES multisample framebuffer-clear fence did not complete.");
+        }
+
+        using IGraphicsBuffer output = device.CreateBuffer(new GraphicsBufferDescription(
+            4 * sizeof(uint), GraphicsBufferUsage.Storage, GraphicsMemoryAccess.GpuToCpu));
+        using IGraphicsShader computeShader = device.CreateShader(new GraphicsShaderDescription
+        {
+            Stage = GraphicsShaderStage.Compute,
+            Format = GraphicsShaderFormat.GlslSource,
+            Code = Encoding.UTF8.GetBytes(
+                """
+                #version 310 es
+                layout(local_size_x = 1) in;
+                layout(binding = 0) uniform highp sampler2DMS sourceTexture;
+                layout(std430, binding = 0) buffer Result { uvec4 value; } resultBuffer;
+                void main()
+                {
+                    vec4 sampleValue = texelFetch(sourceTexture, ivec2(0, 0), 0);
+                    resultBuffer.value = uvec4(round(sampleValue * 255.0));
+                }
+                """)
+        });
+        using IGraphicsBindingLayout layout = device.CreateBindingLayout(new GraphicsBindingLayoutDescription(
+        [
+            new GraphicsBindingLayoutEntry(0, GraphicsDescriptorType.SampledTexture, 1, GraphicsShaderStages.Compute),
+            new GraphicsBindingLayoutEntry(1, GraphicsDescriptorType.StorageBuffer, 1, GraphicsShaderStages.Compute)
+        ]));
+        using IGraphicsBindingSet set = device.CreateBindingSet(layout);
+        set.SetTexture(0, 0, multisampleView);
+        set.SetBuffer(1, 0, output, 0, 4 * sizeof(uint));
+        IGraphicsBindingLayout[] layouts = [layout];
+        using IGraphicsPipelineLayout pipelineLayout = device.CreatePipelineLayout(layouts);
+        using IGraphicsComputePipeline pipeline = device.CreateComputePipeline(
+            new GraphicsComputePipelineDescription(pipelineLayout, computeShader));
+
+        IGraphicsCommandQueue computeQueue = device.GetQueue(GraphicsQueueType.Compute);
+        using IGraphicsCommandList compute = computeQueue.CreateCommandList();
+        using IGraphicsFence computeFence = device.CreateFence();
+        compute.Begin();
+        compute.SetComputePipeline(pipeline);
+        compute.SetBindingSet(0, set);
+        compute.Dispatch(1);
+        compute.MemoryBarrier(
+        [
+            new GraphicsResourceBarrier(
+                output,
+                GraphicsPipelineStage.ComputeShader,
+                GraphicsPipelineStage.Host,
+                GraphicsResourceAccess.ShaderWrite,
+                GraphicsResourceAccess.HostRead)
+        ]);
+        compute.End();
+        computeQueue.Submit([compute], computeFence, 1);
+        if (!computeFence.Wait(1, TimeSpan.FromSeconds(10)))
+            throw new TimeoutException("The GLES multisample shader-readback fence did not complete.");
+
+        Memory<byte> readback = output.Map(GraphicsMapMode.Read, 0, 4 * sizeof(uint));
+        uint[] actual = new uint[4];
+        for (int i = 0; i < actual.Length; i++)
+            actual[i] = BitConverter.ToUInt32(readback.Span.Slice(i * sizeof(uint), sizeof(uint)));
+        output.Unmap();
+        if (!actual.AsSpan().SequenceEqual(new uint[] { 64, 128, 191, 255 }))
+            throw new InvalidOperationException($"The multisample texture sample readback was [{string.Join(", ", actual)}].");
+
+        Console.WriteLine($"Validated {sampleCount}x framebuffer attachment, clear, and shader sampling through sampler2DMS; no resolve operation is implied.");
+    }
+
+    private static unsafe byte[] ReadRgba8Pixel(
+        IGraphicsDevice device,
+        GlfwOpenGLESContextProvider context,
+        IGraphicsTextureView view,
+        int x = 32,
+        int y = 32)
+    {
+        OpenGLESGraphicsDevice gles = (OpenGLESGraphicsDevice)device;
+        OpenGLESGraphicsTextureView nativeView = (OpenGLESGraphicsTextureView)view;
+        byte[] pixel = new byte[4];
+        context.MakeCurrent();
+        uint framebuffer = 0;
+        try
+        {
+            GL gl = gles.Api;
+            framebuffer = gl.GenFramebuffer();
+            gl.BindFramebuffer(FramebufferTarget.Framebuffer, framebuffer);
+            gl.FramebufferTexture2D(
+                FramebufferTarget.Framebuffer,
+                GLEnum.ColorAttachment0,
+                nativeView.Target,
+                nativeView.Handle,
+                0);
+            if (gl.CheckFramebufferStatus(FramebufferTarget.Framebuffer) != GLEnum.FramebufferComplete)
+                throw new GraphicsException("The GLES pixel-readback framebuffer is incomplete.");
+            gl.ReadBuffer(GLEnum.ColorAttachment0);
+            fixed (byte* destination = pixel)
+                gl.ReadPixels(x, y, 1, 1, (PixelFormat)0x1908, (PixelType)0x1401, destination);
+            GLEnum error = gl.GetError();
+            if (error != GLEnum.NoError)
+                throw new GraphicsException($"GLES RGBA8 pixel readback failed with {error}.");
+        }
+        finally
+        {
+            gles.Api.BindFramebuffer(FramebufferTarget.Framebuffer, 0);
+            if (framebuffer != 0)
+                gles.Api.DeleteFramebuffer(framebuffer);
+            context.ReleaseCurrent();
+        }
+
+        return pixel;
+    }
+
+    private static unsafe T[] ReadIntegerPixel<T>(
+        IGraphicsDevice device,
+        GlfwOpenGLESContextProvider context,
+        IGraphicsTextureView view,
+        PixelType pixelType) where T : unmanaged
+    {
+        OpenGLESGraphicsDevice gles = (OpenGLESGraphicsDevice)device;
+        OpenGLESGraphicsTextureView nativeView = (OpenGLESGraphicsTextureView)view;
+        T[] pixel = new T[4];
+        context.MakeCurrent();
+        uint framebuffer = 0;
+        try
+        {
+            GL gl = gles.Api;
+            framebuffer = gl.GenFramebuffer();
+            gl.BindFramebuffer(FramebufferTarget.Framebuffer, framebuffer);
+            gl.FramebufferTexture2D(
+                FramebufferTarget.Framebuffer,
+                GLEnum.ColorAttachment0,
+                nativeView.Target,
+                nativeView.Handle,
+                0);
+            if (gl.CheckFramebufferStatus(FramebufferTarget.Framebuffer) != GLEnum.FramebufferComplete)
+                throw new GraphicsException("The GLES integer pixel-readback framebuffer is incomplete.");
+            gl.ReadBuffer(GLEnum.ColorAttachment0);
+            fixed (T* destination = pixel)
+                gl.ReadPixels(0, 0, 1, 1, (PixelFormat)0x8D99, pixelType, destination);
+            GLEnum error = gl.GetError();
+            if (error != GLEnum.NoError)
+                throw new GraphicsException($"GLES integer pixel readback failed with {error}.");
+        }
+        finally
+        {
+            gles.Api.BindFramebuffer(FramebufferTarget.Framebuffer, 0);
+            if (framebuffer != 0)
+                gles.Api.DeleteFramebuffer(framebuffer);
+            context.ReleaseCurrent();
+        }
+
+        return pixel;
+    }
+
+    private static void AssertPixelNear(byte[] actual, byte red, byte green, byte blue, byte alpha)
+    {
+        if (actual.Length < 4 ||
+            Math.Abs(actual[0] - red) > 1 ||
+            Math.Abs(actual[1] - green) > 1 ||
+            Math.Abs(actual[2] - blue) > 1 ||
+            Math.Abs(actual[3] - alpha) > 1)
+            throw new InvalidOperationException(
+                $"Pixel readback [{string.Join(", ", actual)}] did not match [{red}, {green}, {blue}, {alpha}].");
+    }
+
+    private static void ExpectThrows<TException>(Action action, string description)
+        where TException : Exception
+    {
+        try
+        {
+            action();
+        }
+        catch (TException)
+        {
+            return;
+        }
+
+        throw new InvalidOperationException($"Expected {typeof(TException).Name}: {description}.");
     }
 
     private static void RunBufferCopyAndFence(IGraphicsDevice device)
