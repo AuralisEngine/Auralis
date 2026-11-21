@@ -612,10 +612,12 @@ public sealed class OpenGLESFormatCapabilityTests
 
         Assert.True(capabilities.SupportsFormat(
             GraphicsFormat.R8UNorm,
-            GraphicsFormatSupport.Sampled | GraphicsFormatSupport.VertexBuffer | GraphicsFormatSupport.LinearFiltering));
+            GraphicsFormatSupport.Sampled | GraphicsFormatSupport.ColorAttachment |
+            GraphicsFormatSupport.VertexBuffer | GraphicsFormatSupport.LinearFiltering));
         Assert.True(capabilities.SupportsFormat(
             GraphicsFormat.RG8UNorm,
-            GraphicsFormatSupport.Sampled | GraphicsFormatSupport.VertexBuffer | GraphicsFormatSupport.LinearFiltering));
+            GraphicsFormatSupport.Sampled | GraphicsFormatSupport.ColorAttachment |
+            GraphicsFormatSupport.VertexBuffer | GraphicsFormatSupport.LinearFiltering));
         Assert.True(capabilities.SupportsFormat(
             GraphicsFormat.D16UNorm,
             GraphicsFormatSupport.Sampled | GraphicsFormatSupport.DepthStencilAttachment));
