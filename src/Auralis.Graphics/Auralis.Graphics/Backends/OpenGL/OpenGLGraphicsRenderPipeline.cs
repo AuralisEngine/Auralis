@@ -12,7 +12,7 @@ namespace Auralis.Graphics.Backends.OpenGL;
 /// Descriptor layouts are retained for later binding validation; descriptor binding is implemented
 /// independently from the program object and uses the common pipeline-layout contract.
 /// </summary>
-internal sealed class OpenGLGraphicsRenderPipeline : GraphicsDeviceObject, IGraphicsRenderPipeline, IOpenGLNativeResource
+internal sealed class OpenGLGraphicsRenderPipeline : OpenGLNativeDeviceObject, IGraphicsRenderPipeline
 {
     private readonly OpenGLGraphicsDevice _device;
     private readonly bool _isMeshPipeline;
@@ -48,8 +48,8 @@ internal sealed class OpenGLGraphicsRenderPipeline : GraphicsDeviceObject, IGrap
     {
         get
         {
-            ThrowIfDisposed();
-            return _program;
+            uint handle = Volatile.Read(ref _program);
+            return handle != 0 ? handle : throw new ObjectDisposedException(nameof(OpenGLGraphicsRenderPipeline));
         }
     }
 
@@ -57,8 +57,8 @@ internal sealed class OpenGLGraphicsRenderPipeline : GraphicsDeviceObject, IGrap
     {
         get
         {
-            ThrowIfDisposed();
-            return _vertexArray;
+            uint handle = Volatile.Read(ref _vertexArray);
+            return handle != 0 ? handle : throw new ObjectDisposedException(nameof(OpenGLGraphicsRenderPipeline));
         }
     }
 
@@ -426,9 +426,9 @@ internal sealed class OpenGLGraphicsRenderPipeline : GraphicsDeviceObject, IGrap
             gl.Disable(cap);
     }
 
-    protected override void DisposeCore() => _device.ReleaseResource(this);
+    protected override void DisposeCore() => ReleaseOwnerReference();
 
-    public void ReleaseNative(GL gl)
+    public override void ReleaseNative(GL gl)
     {
         uint vertexArray = Interlocked.Exchange(ref _vertexArray, 0);
         uint program = Interlocked.Exchange(ref _program, 0);
