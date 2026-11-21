@@ -7,6 +7,7 @@ using Auralis.Graphics.Resources;
 using Auralis.Graphics.Synchronization;
 using Silk.NET.OpenGL;
 using Silk.NET.OpenGL.Extensions.ARB;
+using Silk.NET.OpenGL.Extensions.EXT;
 
 namespace Auralis.Graphics.Backends.OpenGL;
 
