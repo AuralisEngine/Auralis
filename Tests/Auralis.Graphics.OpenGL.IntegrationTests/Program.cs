@@ -54,6 +54,8 @@ internal static class Program
                 ref passed, ref skipped, ref failed);
             Run("texture copy after dispose-before-submit", session, CopyTextureAfterRecordDispose,
                 ref passed, ref skipped, ref failed);
+            Run("completion polling without a user-provided fence", session, CompletionPollingWithoutUserFence,
+                ref passed, ref skipped, ref failed);
             Run("buffer dispose after submission while GPU work is pending", session, CopyBufferAfterSubmitDispose,
                 ref passed, ref skipped, ref failed);
             Run("reusable command-list submissions after source-owner disposal", session, ReusableCommandListAfterOwnerDisposal,
@@ -133,6 +135,32 @@ internal static class Program
         queue.Submit([commandList], fence, 1);
         WaitForGpu(fence, commandList, 1);
         AssertPattern(ReadBuffer(destination, 256), seed: 17);
+    }
+
+    private static void CompletionPollingWithoutUserFence(GlfwOpenGLHardwareSession session)
+    {
+        IGraphicsDevice device = session.Device;
+        using IGraphicsBuffer source = CreateBuffer(
+            device, 256, GraphicsBufferUsage.CopySource, GraphicsMemoryAccess.CpuReadWrite);
+        using IGraphicsBuffer destination = CreateBuffer(
+            device, 256, GraphicsBufferUsage.CopyDestination, GraphicsMemoryAccess.GpuToCpu);
+        WritePattern(source, 256, seed: 53);
+
+        IGraphicsCommandQueue queue = device.GetQueue(GraphicsQueueType.Copy);
+        using IGraphicsCommandList commandList = queue.CreateCommandList();
+        commandList.Begin();
+        commandList.CopyBuffer(source, 0, destination, 0, 256);
+        commandList.End();
+
+        // Intentionally omit a user fence. Reading State polls the queue's internal completion
+        // sync and must make progress solely because Submit flushed the GL command stream.
+        queue.Submit([commandList]);
+        if (!SpinWait.SpinUntil(
+                () => commandList.State == GraphicsCommandListState.Executable,
+                s_gpuTimeout))
+            throw new TimeoutException("The command list did not complete through state polling without a user fence.");
+
+        AssertPattern(ReadBuffer(destination, 256), seed: 53);
     }
 
     private static void CopyTextureAfterRecordDispose(GlfwOpenGLHardwareSession session)
