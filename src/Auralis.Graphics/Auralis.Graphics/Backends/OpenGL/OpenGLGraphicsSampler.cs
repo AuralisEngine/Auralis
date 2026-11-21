@@ -6,7 +6,7 @@ using Silk.NET.OpenGL.Extensions.ARB;
 namespace Auralis.Graphics.Backends.OpenGL;
 
 /// <summary>Immutable sampler object implemented with OpenGL sampler-object state.</summary>
-internal sealed class OpenGLGraphicsSampler : GraphicsDeviceObject, IGraphicsSampler, IOpenGLNativeResource
+internal sealed class OpenGLGraphicsSampler : OpenGLNativeDeviceObject, IGraphicsSampler
 {
     private readonly OpenGLGraphicsDevice _device;
     private uint _handle;
@@ -28,8 +28,8 @@ internal sealed class OpenGLGraphicsSampler : GraphicsDeviceObject, IGraphicsSam
     {
         get
         {
-            ThrowIfDisposed();
-            return _handle;
+            uint handle = Volatile.Read(ref _handle);
+            return handle != 0 ? handle : throw new ObjectDisposedException(nameof(OpenGLGraphicsSampler));
         }
     }
 
@@ -141,9 +141,9 @@ internal sealed class OpenGLGraphicsSampler : GraphicsDeviceObject, IGraphicsSam
         }
     }
 
-    protected override void DisposeCore() => _device.ReleaseResource(this);
+    protected override void DisposeCore() => ReleaseOwnerReference();
 
-    public void ReleaseNative(GL gl)
+    public override void ReleaseNative(GL gl)
     {
         uint handle = Interlocked.Exchange(ref _handle, 0);
         if (handle == 0)
