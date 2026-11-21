@@ -16,65 +16,90 @@ internal interface IOpenGLNativeResource
 /// Device object whose native handle is retained independently from public Dispose state.
 /// The high bit closes the owner reference; the remaining bits count the owner and recorded uses.
 /// </summary>
-internal abstract class OpenGLNativeDeviceObject : GraphicsDeviceObject, IOpenGLNativeResource
+internal struct OpenGLNativeResourceReferenceState
 {
     private const int ClosingMask = int.MinValue;
     private const int ReferenceMask = int.MaxValue;
-    private readonly OpenGLGraphicsDevice _device;
-    private int _referenceState = 1;
+    private int _state;
 
-    protected OpenGLNativeDeviceObject(OpenGLGraphicsDevice device) : base(device) =>
-        _device = device;
+    internal OpenGLNativeResourceReferenceState(int initialReferences)
+    {
+        if (initialReferences <= 0)
+            throw new ArgumentOutOfRangeException(nameof(initialReferences));
+        _state = initialReferences;
+    }
 
-    public bool TryRetain()
+    internal bool TryRetain()
     {
         while (true)
         {
-            int state = Volatile.Read(ref _referenceState);
+            int state = Volatile.Read(ref _state);
             int references = state & ReferenceMask;
             if ((state & ClosingMask) != 0 || references == 0)
                 return false;
             if (references == ReferenceMask)
                 throw new InvalidOperationException("The OpenGL native resource reference count overflowed.");
 
-            if (Interlocked.CompareExchange(ref _referenceState, state + 1, state) == state)
+            if (Interlocked.CompareExchange(ref _state, state + 1, state) == state)
                 return true;
         }
     }
 
-    public void ReleaseReference()
+    /// <returns>True when this release removed the final reference.</returns>
+    internal bool ReleaseReference()
     {
         while (true)
         {
-            int state = Volatile.Read(ref _referenceState);
+            int state = Volatile.Read(ref _state);
             int references = state & ReferenceMask;
             if (references == 0)
                 throw new InvalidOperationException("An OpenGL native resource reference was released more than once.");
 
             int nextState = (state & ClosingMask) | (references - 1);
-            if (Interlocked.CompareExchange(ref _referenceState, nextState, state) != state)
-                continue;
-
-            if (references == 1)
-                _device.ReleaseResource(this);
-            return;
+            if (Interlocked.CompareExchange(ref _state, nextState, state) == state)
+                return references == 1;
         }
+    }
+
+    /// <summary>Closes future acquisitions and releases the initial owner reference.</summary>
+    internal bool ReleaseOwnerReference()
+    {
+        while (true)
+        {
+            int state = Volatile.Read(ref _state);
+            if ((state & ClosingMask) != 0)
+                throw new InvalidOperationException("The OpenGL native resource owner reference was already released.");
+
+            if (Interlocked.CompareExchange(ref _state, state | ClosingMask, state) == state)
+                return ReleaseReference();
+        }
+    }
+}
+
+/// <summary>
+/// Device object whose native handle is retained independently from public Dispose state.
+/// The reference state closes its owner reference on disposal and counts recorded command uses.
+/// </summary>
+internal abstract class OpenGLNativeDeviceObject : GraphicsDeviceObject, IOpenGLNativeResource
+{
+    private readonly OpenGLGraphicsDevice _device;
+    private OpenGLNativeResourceReferenceState _referenceState = new(1);
+
+    protected OpenGLNativeDeviceObject(OpenGLGraphicsDevice device) : base(device) =>
+        _device = device;
+
+    public bool TryRetain() => _referenceState.TryRetain();
+
+    public void ReleaseReference()
+    {
+        if (_referenceState.ReleaseReference())
+            _device.ReleaseResource(this);
     }
 
     protected void ReleaseOwnerReference()
     {
-        while (true)
-        {
-            int state = Volatile.Read(ref _referenceState);
-            if ((state & ClosingMask) != 0)
-                throw new InvalidOperationException("The OpenGL native resource owner reference was already released.");
-
-            if (Interlocked.CompareExchange(
-                    ref _referenceState, state | ClosingMask, state) == state)
-                break;
-        }
-
-        ReleaseReference();
+        if (_referenceState.ReleaseOwnerReference())
+            _device.ReleaseResource(this);
     }
 
     public abstract void ReleaseNative(GL gl);
