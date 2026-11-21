@@ -90,6 +90,7 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
     private readonly List<IGraphicsTextureView> _renderTargetViews = new(4);
     private readonly List<OpenGLESBindingValue> _bindingValues = new(24);
     private readonly HashSet<IOpenGLESNativeResource> _retained = new(ReferenceEqualityComparer.Instance);
+    private int _disposedCleanup;
     private OpenGLESGraphicsRenderPipeline? _renderPipeline;
     private OpenGLESGraphicsComputePipeline? _computePipeline;
     private OpenGLESGraphicsPipelineLayout? _pipelineLayout;
@@ -626,15 +627,23 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
 
     internal void MarkSubmitted() => _lifecycle.MarkSubmitted();
 
+    internal void MarkCompletedAfterGpu() => _lifecycle.MarkCompleted();
+
+    internal void ReleaseCompletedResourcesIfDisposed()
+    {
+        if (!IsDisposed || Interlocked.Exchange(ref _disposedCleanup, 1) != 0)
+            return;
+
+        if (_lifecycle.State != GraphicsCommandListState.Disposed)
+            _lifecycle.MarkDisposed();
+        ClearRecordedState();
+    }
+
     internal void Complete()
     {
-        _lifecycle.MarkCompleted();
-        if (IsDisposed)
-        {
-            try { _lifecycle.MarkDisposed(); }
-            catch (InvalidOperationException) { }
-            ClearRecordedState();
-        }
+        if (_lifecycle.State == GraphicsCommandListState.Pending)
+            _lifecycle.MarkCompleted();
+        ReleaseCompletedResourcesIfDisposed();
     }
 
     internal void Execute(GL gl)
@@ -1317,10 +1326,9 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
         if (_lifecycle.State == GraphicsCommandListState.Pending)
             _queue.WaitForCompletion(this);
 
-        if (_lifecycle.State is GraphicsCommandListState.Executable or GraphicsCommandListState.Initial)
-        {
-            _lifecycle.MarkDisposed();
-        }
-        ClearRecordedState();
+        if (_lifecycle.State == GraphicsCommandListState.Recording)
+            _lifecycle.End();
+        _recordingThreadId = 0;
+        ReleaseCompletedResourcesIfDisposed();
     }
 }
