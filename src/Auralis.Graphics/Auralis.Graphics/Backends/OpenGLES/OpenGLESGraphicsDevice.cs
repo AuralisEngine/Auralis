@@ -17,6 +17,22 @@ namespace Auralis.Graphics.Backends.OpenGLES;
 /// </summary>
 internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
 {
+    private static readonly GraphicsFormat[] s_multisampleFormats =
+    [
+        GraphicsFormat.R8UNorm,
+        GraphicsFormat.RG8UNorm,
+        GraphicsFormat.RGBA8UNorm,
+        GraphicsFormat.RGBA8UNormSrgb,
+        GraphicsFormat.R8UInt,
+        GraphicsFormat.R8SInt,
+        GraphicsFormat.RG8UInt,
+        GraphicsFormat.RG8SInt,
+        GraphicsFormat.RGBA8UInt,
+        GraphicsFormat.RGBA8SInt,
+        GraphicsFormat.D16UNorm,
+        GraphicsFormat.D24UNormS8UInt
+    ];
+
     [UnmanagedFunctionPointer(CallingConvention.Winapi)]
     internal unsafe delegate void MultiDrawArraysIndirectExtDelegate(
         PrimitiveType mode, void* indirect, uint drawCount, uint stride);
@@ -281,6 +297,17 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
         uint maxVertexAttributes = ToUInt(gl.GetInteger(GLEnum.MaxVertexAttribs));
         uint maxColorAttachments = ToUInt(gl.GetInteger(GLEnum.MaxColorAttachments));
         uint maxColorDrawBuffers = ToUInt(gl.GetInteger(GLEnum.MaxDrawBuffers));
+        GraphicsSampleCountFlags[] formatSampleCounts =
+            new GraphicsSampleCountFlags[Enum.GetValues<GraphicsFormat>().Length];
+        Array.Fill(formatSampleCounts, GraphicsSampleCountFlags.One);
+        if (profile.Version.IsAtLeast(3, 1))
+        {
+            for (int i = 0; i < s_multisampleFormats.Length; i++)
+            {
+                GraphicsFormat format = s_multisampleFormats[i];
+                formatSampleCounts[(int)format] = QueryTextureSampleCounts(gl, format);
+            }
+        }
         if (maxColorAttachments == 0 || maxColorDrawBuffers == 0)
             throw new GraphicsBackendUnavailableException(GraphicsBackend.OpenGLES,
                 "The GLES context did not report valid color-attachment and draw-buffer limits.");
@@ -355,7 +382,8 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
             maxTessellationPatchSize,
             maxAnisotropy,
             maxColorAttachments,
-            maxColorDrawBuffers);
+            maxColorDrawBuffers,
+            formatSampleCounts);
     }
 
     internal static GraphicsDeviceCapabilities QueryCapabilities(
@@ -415,28 +443,38 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
         if (supportsImageCopy)
             depthSupport |= GraphicsFormatSupport.CopySource | GraphicsFormatSupport.CopyDestination;
 
+        GraphicsSampleCountFlags SampleCounts(GraphicsFormat format)
+        {
+            GraphicsSampleCountFlags[]? values = queried.FormatSampleCounts;
+            int index = (int)format;
+            return values is not null && (uint)index < (uint)values.Length &&
+                values[index] != GraphicsSampleCountFlags.None
+                ? values[index]
+                : GraphicsSampleCountFlags.One;
+        }
+
         GraphicsFormatSupport rgba8Support = colorSupport;
         if (profile.Version.IsAtLeast(3, 1))
             rgba8Support |= GraphicsFormatSupport.Storage;
 
         GraphicsFormatCapabilities[] formats =
         [
-            new(GraphicsFormat.R8UNorm, normalizedSingleSupport, GraphicsSampleCountFlags.One),
-            new(GraphicsFormat.RG8UNorm, normalizedSingleSupport, GraphicsSampleCountFlags.One),
-            new(GraphicsFormat.RGBA8UNorm, rgba8Support, GraphicsSampleCountFlags.One),
-            new(GraphicsFormat.R8UInt, integerColorSupport, GraphicsSampleCountFlags.One),
-            new(GraphicsFormat.R8SInt, integerColorSupport, GraphicsSampleCountFlags.One),
-            new(GraphicsFormat.RG8UInt, integerColorSupport, GraphicsSampleCountFlags.One),
-            new(GraphicsFormat.RG8SInt, integerColorSupport, GraphicsSampleCountFlags.One),
-            new(GraphicsFormat.RGBA8UInt, integerColorSupport, GraphicsSampleCountFlags.One),
-            new(GraphicsFormat.RGBA8SInt, integerColorSupport, GraphicsSampleCountFlags.One),
+            new(GraphicsFormat.R8UNorm, normalizedSingleSupport, SampleCounts(GraphicsFormat.R8UNorm)),
+            new(GraphicsFormat.RG8UNorm, normalizedSingleSupport, SampleCounts(GraphicsFormat.RG8UNorm)),
+            new(GraphicsFormat.RGBA8UNorm, rgba8Support, SampleCounts(GraphicsFormat.RGBA8UNorm)),
+            new(GraphicsFormat.R8UInt, integerColorSupport, SampleCounts(GraphicsFormat.R8UInt)),
+            new(GraphicsFormat.R8SInt, integerColorSupport, SampleCounts(GraphicsFormat.R8SInt)),
+            new(GraphicsFormat.RG8UInt, integerColorSupport, SampleCounts(GraphicsFormat.RG8UInt)),
+            new(GraphicsFormat.RG8SInt, integerColorSupport, SampleCounts(GraphicsFormat.RG8SInt)),
+            new(GraphicsFormat.RGBA8UInt, integerColorSupport, SampleCounts(GraphicsFormat.RGBA8UInt)),
+            new(GraphicsFormat.RGBA8SInt, integerColorSupport, SampleCounts(GraphicsFormat.RGBA8SInt)),
             new(GraphicsFormat.RGBA8UNormSrgb,
                 GraphicsFormatSupport.Sampled | GraphicsFormatSupport.ColorAttachment |
                 GraphicsFormatSupport.Blend | GraphicsFormatSupport.CopySource |
                 GraphicsFormatSupport.CopyDestination | GraphicsFormatSupport.LinearFiltering,
-                GraphicsSampleCountFlags.One),
-            new(GraphicsFormat.D16UNorm, depthSupport, GraphicsSampleCountFlags.One),
-            new(GraphicsFormat.D24UNormS8UInt, depthSupport, GraphicsSampleCountFlags.One)
+                SampleCounts(GraphicsFormat.RGBA8UNormSrgb)),
+            new(GraphicsFormat.D16UNorm, depthSupport, SampleCounts(GraphicsFormat.D16UNorm)),
+            new(GraphicsFormat.D24UNormS8UInt, depthSupport, SampleCounts(GraphicsFormat.D24UNormS8UInt))
         ];
 
         return new GraphicsDeviceCapabilities(
@@ -444,6 +482,41 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
             profile.QueueCapabilities,
             limits,
             formats);
+    }
+
+    private static GraphicsSampleCountFlags QueryTextureSampleCounts(GL gl, GraphicsFormat format)
+    {
+        SizedInternalFormat internalFormat = OpenGLESGraphicsTexture.GetInternalFormat(format);
+        int count = gl.GetInternalformat(
+            TextureTarget.Texture2DMultisample,
+            (GLEnum)internalFormat,
+            InternalFormatPName.NumSampleCounts);
+        if (count <= 0)
+            return GraphicsSampleCountFlags.One;
+
+        Span<int> nativeCounts = count <= 64 ? stackalloc int[count] : new int[count];
+        gl.GetInternalformat(
+            TextureTarget.Texture2DMultisample,
+            (GLEnum)internalFormat,
+            InternalFormatPName.Samples,
+            nativeCounts);
+
+        GraphicsSampleCountFlags supported = GraphicsSampleCountFlags.One;
+        for (int i = 0; i < nativeCounts.Length; i++)
+        {
+            supported |= nativeCounts[i] switch
+            {
+                2 => GraphicsSampleCountFlags.Two,
+                4 => GraphicsSampleCountFlags.Four,
+                8 => GraphicsSampleCountFlags.Eight,
+                16 => GraphicsSampleCountFlags.Sixteen,
+                32 => GraphicsSampleCountFlags.ThirtyTwo,
+                64 => GraphicsSampleCountFlags.SixtyFour,
+                _ => GraphicsSampleCountFlags.None
+            };
+        }
+
+        return supported;
     }
 
     private static uint ToUInt(int value) => value <= 0 ? 0u : (uint)value;
@@ -469,7 +542,8 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
         uint MaxTessellationPatchSize,
         float MaxAnisotropy,
         uint MaxColorAttachments,
-        uint MaxColorDrawBuffers);
+        uint MaxColorDrawBuffers,
+        GraphicsSampleCountFlags[]? FormatSampleCounts = null);
 
     public IGraphicsCommandQueue GetQueue(GraphicsQueueType queueType, uint index = 0)
     {
