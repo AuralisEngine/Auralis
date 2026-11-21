@@ -180,11 +180,29 @@ internal static class Program
         using IGraphicsTexture depthStencil = device.CreateTexture(new GraphicsTextureDescription(
             GraphicsTextureDimension.Texture2D, GraphicsFormat.D24UNormS8UInt,
             64, 64, 1, 1, 1, 1, GraphicsTextureUsage.DepthStencilAttachment));
+        using IGraphicsTexture sampledTexture = device.CreateTexture(new GraphicsTextureDescription(
+            GraphicsTextureDimension.Texture2D, GraphicsFormat.RGBA8UNorm,
+            32, 32, 1, 1, 1, 1, GraphicsTextureUsage.Sampled));
+        using IGraphicsSampler sampler = device.CreateSampler(new GraphicsSamplerDescription(
+            GraphicsFilter.Linear, GraphicsFilter.Linear, GraphicsFilter.Linear,
+            GraphicsAddressMode.ClampToEdge, GraphicsAddressMode.ClampToEdge, GraphicsAddressMode.ClampToEdge,
+            0, 8));
 
         using IGraphicsTextureView colorView = color.CreateView(new GraphicsTextureViewDescription(
             GraphicsFormat.Unknown, GraphicsTextureViewType.Texture2D, 0, 1, 0, 1));
         using IGraphicsTextureView depthView = depthStencil.CreateView(new GraphicsTextureViewDescription(
             GraphicsFormat.Unknown, GraphicsTextureViewType.Texture2D, 0, 1, 0, 1));
+        using IGraphicsTextureView sampledView = sampledTexture.CreateView(new GraphicsTextureViewDescription(
+            GraphicsFormat.Unknown, GraphicsTextureViewType.Texture2D, 0, 1, 0, 1));
+        using IGraphicsBindingLayout sampledLayout = device.CreateBindingLayout(new GraphicsBindingLayoutDescription(
+        [
+            new GraphicsBindingLayoutEntry(0, GraphicsDescriptorType.CombinedTextureSampler, 1, GraphicsShaderStages.Fragment)
+        ]));
+        using IGraphicsBindingSet sampledSet = device.CreateBindingSet(sampledLayout);
+        sampledSet.SetTexture(0, 0, sampledView);
+        sampledSet.SetSampler(0, 0, sampler);
+        IGraphicsBindingLayout[] bindingLayouts = [sampledLayout];
+        using IGraphicsPipelineLayout pipelineLayout = device.CreatePipelineLayout(bindingLayouts);
 
         using IGraphicsShader vertexShader = device.CreateShader(new GraphicsShaderDescription
         {
@@ -192,7 +210,7 @@ internal static class Program
             Format = GraphicsShaderFormat.GlslSource,
             Code = Encoding.UTF8.GetBytes(
                 """
-                #version 300 es
+                #version 310 es
                 const vec2 positions[3] = vec2[3](
                     vec2(-0.75, -0.75),
                     vec2( 0.75, -0.75),
@@ -209,18 +227,17 @@ internal static class Program
             Format = GraphicsShaderFormat.GlslSource,
             Code = Encoding.UTF8.GetBytes(
                 """
-                #version 300 es
+                #version 310 es
                 precision highp float;
+                layout(binding = 0) uniform highp sampler2D sourceTexture;
                 layout(location = 0) out vec4 outputColor;
                 void main()
                 {
-                    outputColor = vec4(1.0, 0.0, 0.0, 1.0);
+                    outputColor = texture(sourceTexture, vec2(0.5, 0.5));
                 }
                 """)
         });
 
-        using IGraphicsPipelineLayout pipelineLayout =
-            device.CreatePipelineLayout(ReadOnlySpan<IGraphicsBindingLayout>.Empty);
         IGraphicsShader[] shaders = [vertexShader, fragmentShader];
         GraphicsFormat[] colorFormats = [GraphicsFormat.RGBA8UNorm];
         using IGraphicsRenderPipeline pipeline = device.CreateRenderPipeline(
@@ -240,6 +257,7 @@ internal static class Program
         commandList.ClearColor(0, new GraphicsClearColor(0, 0, 0, 1));
         commandList.ClearDepthStencil(1, 0xFF, clearDepth: true, clearStencil: true);
         commandList.SetRenderPipeline(pipeline);
+        commandList.SetBindingSet(0, sampledSet);
         commandList.Draw(3);
         commandList.End();
 
@@ -260,7 +278,7 @@ internal static class Program
             context.ReleaseCurrent();
         }
 
-        Console.WriteLine("PASS: GLES vertex/fragment compilation, graphics pipeline link, FBO attachments, viewport/scissor, color/depth/stencil clear and draw.");
+        Console.WriteLine("PASS: GLES vertex/fragment compilation, graphics pipeline link, FBO attachments, viewport/scissor, color/depth/stencil clear, combined sampled-texture/sampler binding, and draw.");
     }
 
     private static void RunComputeDispatch(IGraphicsDevice device)
