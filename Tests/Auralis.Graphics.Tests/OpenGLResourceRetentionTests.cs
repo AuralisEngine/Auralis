@@ -148,7 +148,7 @@ public sealed class OpenGLResourceRetentionTests
         resource.DisposeOwner();
 
         // Device disposal releases all registered GL objects only after finishing the context.
-        resource.ReleaseNative(null!);
+        resource.DisposeDevice();
         Assert.Equal(1, resource.NativeReleaseCount);
 
         // Later command-list cleanup must not issue a second native delete.
@@ -175,28 +175,65 @@ public sealed class OpenGLResourceRetentionTests
         Assert.Throws<InvalidOperationException>(resource.ReleaseReference);
     }
 
+    [Fact]
+    public void ClosedResourceRejectsNewRetains()
+    {
+        var resource = new InstrumentedNativeResource();
+        resource.DisposeOwner();
+
+        Assert.False(resource.TryRetain());
+        Assert.Equal(1, resource.NativeReleaseCount);
+    }
+
+    [Fact]
+    public void ConcurrentRetainsRacingOwnerDisposalReleaseExactlyOnce()
+    {
+        var resource = new InstrumentedNativeResource();
+
+        Parallel.For(0, 256, _ =>
+        {
+            if (!resource.TryRetain())
+                return;
+
+            Thread.SpinWait(100);
+            resource.ReleaseReference();
+        });
+
+        resource.DisposeOwner();
+
+        Assert.Equal(1, resource.NativeReleaseCount);
+    }
+
     private sealed class InstrumentedNativeResource : IOpenGLNativeResource
     {
         private OpenGLNativeResourceReferenceState _references = new(1);
         private int _ownerDisposed;
-        private int _nativeReleased;
+        private int _deviceDisposed;
+        private int _nativeReleaseCount;
 
-        internal int NativeReleaseCount => Volatile.Read(ref _nativeReleased);
+        internal int NativeReleaseCount => Volatile.Read(ref _nativeReleaseCount);
         public bool TryRetain() => _references.TryRetain();
 
         public void ReleaseReference()
         {
-            if (_references.ReleaseReference())
+            if (_references.ReleaseReference() && Volatile.Read(ref _deviceDisposed) == 0)
                 ReleaseNative(null!);
         }
 
         internal void DisposeOwner()
         {
             if (Interlocked.Exchange(ref _ownerDisposed, 1) == 0 &&
-                _references.ReleaseOwnerReference())
+                _references.ReleaseOwnerReference() &&
+                Volatile.Read(ref _deviceDisposed) == 0)
                 ReleaseNative(null!);
         }
 
-        public void ReleaseNative(GL gl) => Interlocked.Exchange(ref _nativeReleased, 1);
+        internal void DisposeDevice()
+        {
+            Volatile.Write(ref _deviceDisposed, 1);
+            ReleaseNative(null!);
+        }
+
+        public void ReleaseNative(GL gl) => Interlocked.Increment(ref _nativeReleaseCount);
     }
 }
