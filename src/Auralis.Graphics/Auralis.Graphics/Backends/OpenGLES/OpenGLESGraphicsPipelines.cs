@@ -163,9 +163,12 @@ internal sealed unsafe class OpenGLESGraphicsRenderPipeline : OpenGLESGraphicsPi
             throw new GraphicsFeatureNotSupportedException(
                 GraphicsFeature.DepthBoundsTest, GraphicsFeature.DepthBoundsTest);
 
-        if (description.ColorFormats.Length > 1)
+        GraphicsDeviceLimits limits = device.Capabilities.Limits;
+        if ((limits.MaxColorAttachments != 0 && (uint)description.ColorFormats.Length > limits.MaxColorAttachments) ||
+            (limits.MaxColorDrawBuffers != 0 && (uint)description.ColorFormats.Length > limits.MaxColorDrawBuffers))
             throw new GraphicsValidationException(
-                "Multiple color attachments are not implemented by this GLES render-pipeline backend.");
+                $"The pipeline declares {description.ColorFormats.Length} color format(s), exceeding the GLES " +
+                $"limits (attachments: {limits.MaxColorAttachments}, draw buffers: {limits.MaxColorDrawBuffers}).");
 
         if (description.Topology is GraphicsPrimitiveTopology.LineListAdjacency or
             GraphicsPrimitiveTopology.LineStripAdjacency or
@@ -180,9 +183,8 @@ internal sealed unsafe class OpenGLESGraphicsRenderPipeline : OpenGLESGraphicsPi
                     GraphicsFeature.TessellationShaders, GraphicsFeature.TessellationShaders);
             if (description.Tessellation is not { } tessellation)
                 throw new GraphicsValidationException("Patch topology requires a tessellation patch-control-point description.");
-            if (tessellation.PatchControlPoints != 3)
-                throw new NotSupportedException(
-                    "Silk.NET.OpenGLES 2.23.0 does not expose the GLES core patch-parameter entry point; this implementation currently supports the GLES default of three patch control points only.");
+            if (tessellation.PatchControlPoints > int.MaxValue)
+                throw new GraphicsValidationException("The patch-control-point count exceeds the native GLES integer range.");
             if (tessellation.PatchControlPoints > device.Capabilities.Limits.MaxTessellationPatchSize)
                 throw new GraphicsValidationException(
                     $"Patch control point count {tessellation.PatchControlPoints} exceeds the GLES device limit {device.Capabilities.Limits.MaxTessellationPatchSize}.");
@@ -197,6 +199,10 @@ internal sealed unsafe class OpenGLESGraphicsRenderPipeline : OpenGLESGraphicsPi
     {
         gl.UseProgram(Program);
         gl.BindVertexArray(VertexArray);
+        if (Description.Tessellation is { } tessellation)
+            gl.PatchParameter(
+                PatchParameterName.PatchVertices,
+                checked((int)tessellation.PatchControlPoints));
 
         GraphicsRasterizationState raster = Description.Rasterization;
         if (raster.CullMode == GraphicsCullMode.None)
@@ -236,9 +242,16 @@ internal sealed unsafe class OpenGLESGraphicsRenderPipeline : OpenGLESGraphicsPi
         GraphicsBlendState blend = Description.Blend;
         ReadOnlySpan<GraphicsBlendAttachmentState> blendStates = blend.Attachments;
         if (blendStates.Length > 1)
-            throw new GraphicsValidationException(
-                "Multiple independent blend attachments require GL_EXT_draw_buffers_indexed and are not yet emitted by this backend.");
-        if (blendStates.Length == 1)
+        {
+            for (int i = 1; i < blendStates.Length; i++)
+            {
+                if (blendStates[i] != blendStates[0])
+                    throw new GraphicsValidationException(
+                        "Per-attachment blend differences require GL_EXT_draw_buffers_indexed; " +
+                        "identical states are applied as one common blend configuration.");
+            }
+        }
+        if (!blendStates.IsEmpty)
         {
             GraphicsBlendAttachmentState state = blendStates[0];
             SetEnabled(gl, GLEnum.Blend, state.BlendEnabled);
