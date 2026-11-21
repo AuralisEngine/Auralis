@@ -134,7 +134,7 @@ internal sealed unsafe class OpenGLESGraphicsBuffer : OpenGLESNativeDeviceObject
                     gl.BindBuffer(BufferTargetARB.CopyReadBuffer, 0);
                     if (!valid)
                     {
-                        manager.Dispose();
+                        manager.Invalidate()
                         throw new GraphicsException("OpenGL ES reported corrupted buffer contents while unmapping a read range.");
                     }
                 }
@@ -173,7 +173,7 @@ internal sealed unsafe class OpenGLESGraphicsBuffer : OpenGLESNativeDeviceObject
 
                 _mapped = null;
                 _mappedOffset = 0;
-                manager.Dispose();
+                manager.Invalidate()
             }
         });
     }
@@ -195,7 +195,7 @@ internal sealed unsafe class OpenGLESGraphicsBuffer : OpenGLESNativeDeviceObject
             uint handle = Interlocked.Exchange(ref _handle, 0);
             if (handle == 0)
                 return;
-            _mapped?.Dispose();
+            _mapped?.Invalidate();
             _mapped = null;
             gl.DeleteBuffer(handle);
         }
