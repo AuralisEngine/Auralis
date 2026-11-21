@@ -590,23 +590,7 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
         ArgumentNullException.ThrowIfNull(destination);
         EnsureOwned(source);
         EnsureOwned(destination);
-        GraphicsTextureDescription src = source.Description;
-        GraphicsTextureDescription dst = destination.Description;
-        if ((src.Usage & GraphicsTextureUsage.CopySource) == 0 ||
-            (dst.Usage & GraphicsTextureUsage.CopyDestination) == 0)
-            throw new GraphicsValidationException("Texture copy usage flags are missing.");
-        if (src != dst)
-            throw new GraphicsValidationException("The GLES copy path requires identical whole-texture descriptions.");
-        if (src.Dimension != GraphicsTextureDimension.Texture2D || src.SampleCount != 1)
-            throw new GraphicsValidationException("The GLES framebuffer blit copy path currently supports 2D textures only.");
-        if ((src.Usage & GraphicsTextureUsage.ColorAttachment) == 0 ||
-            (dst.Usage & GraphicsTextureUsage.ColorAttachment) == 0)
-            throw new GraphicsValidationException(
-                "The GLES framebuffer-blit texture copy requires both textures to have ColorAttachment usage.");
-        GraphicsFormat copyFormat = src.Format;
-        if (copyFormat is not (GraphicsFormat.RGBA8UNorm or GraphicsFormat.RGBA8UNormSrgb))
-            throw new GraphicsValidationException(
-                $"The GLES color framebuffer-blit copy path does not support format {copyFormat}.");
+        OpenGLESTextureCompatibility.ValidateCopy(source.Description, destination.Description);
 
         _commands.Add(new OpenGLESCmd
         {
