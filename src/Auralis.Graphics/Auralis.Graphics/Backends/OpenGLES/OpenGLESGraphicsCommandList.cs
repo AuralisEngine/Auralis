@@ -17,6 +17,8 @@ internal enum OpenGLESCmdKind : byte
     Viewport,
     Scissor,
     ClearColor,
+    ClearColorUInt,
+    ClearColorSInt,
     ClearDepthStencil,
     RenderPipeline,
     ComputePipeline,
@@ -47,6 +49,8 @@ internal struct OpenGLESCmd
     internal GraphicsViewport Viewport;
     internal GraphicsScissorRect Scissor;
     internal GraphicsClearColor ClearColor;
+    internal GraphicsClearColorUInt ClearColorUInt;
+    internal GraphicsClearColorSInt ClearColorSInt;
     internal float ClearDepth;
     internal uint ClearStencil;
     internal bool ClearDepthEnabled;
@@ -103,6 +107,7 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
     private bool _hasDepthTarget;
     private GraphicsFormat _depthFormat;
     private uint _colorCount;
+    private uint _targetSampleCount;
     private int _targetOffset;
     private int _recordingThreadId;
 
@@ -170,11 +175,14 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
         EnsureRecording();
         EnsureGraphicsQueue();
 
-        if (colorTargets.Length > 1)
-            throw new GraphicsValidationException("This GLES implementation currently supports one color attachment per framebuffer.");
-        if (colorTargets.IsEmpty)
+        GraphicsRenderTargetExtent extent =
+            GraphicsRenderTargetValidation.Validate(Device, colorTargets, depthStencilTarget);
+        GraphicsDeviceLimits limits = Device.Capabilities.Limits;
+        if ((limits.MaxColorAttachments != 0 && (uint)colorTargets.Length > limits.MaxColorAttachments) ||
+            (limits.MaxColorDrawBuffers != 0 && (uint)colorTargets.Length > limits.MaxColorDrawBuffers))
             throw new GraphicsValidationException(
-                "Depth-only GLES framebuffers are not implemented; provide one supported color attachment.");
+                $"The requested {colorTargets.Length} color attachments exceed the GLES limits " +
+                $"(attachments: {limits.MaxColorAttachments}, draw buffers: {limits.MaxColorDrawBuffers}).");
 
         uint width = 0, height = 0;
         for (int i = 0; i < colorTargets.Length; i++)
@@ -206,6 +214,7 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
 
         _targetOffset = offset;
         _colorCount = (uint)colorTargets.Length;
+        _targetSampleCount = extent.SampleCount;
         _hasTargets = true;
         _hasDepthTarget = depthStencilTarget is not null;
         _depthFormat = depthStencilTarget is null ? GraphicsFormat.Unknown : GetViewFormat(depthStencilTarget);
@@ -236,8 +245,9 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
         EnsureGraphicsQueue();
         if (attachmentIndex >= _colorCount)
             throw new GraphicsValidationException("The requested color attachment is not bound.");
-        if (attachmentIndex != 0)
-            throw new GraphicsValidationException("This GLES implementation supports only color attachment zero.");
+        if (IsIntegerColorFormat(GetBoundColorFormat(attachmentIndex)))
+            throw new GraphicsValidationException(
+                "Floating-point color clears cannot be used with integer color attachments.");
         GraphicsClearColor copy = color;
         copy.Validate();
         _commands.Add(new OpenGLESCmd
@@ -252,16 +262,34 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
     {
         EnsureRecording();
         EnsureGraphicsQueue();
-        throw new GraphicsValidationException(
-            "Unsigned-integer color attachment clears are not implemented by this OpenGL ES backend.");
+        EnsureColorAttachmentIndex(attachmentIndex);
+        if (!IsUnsignedIntegerColorFormat(GetBoundColorFormat(attachmentIndex)))
+            throw new GraphicsValidationException(
+                "Unsigned-integer clears require an unsigned-integer color attachment.");
+
+        _commands.Add(new OpenGLESCmd
+        {
+            Kind = OpenGLESCmdKind.ClearColorUInt,
+            AttachmentIndex = attachmentIndex,
+            ClearColorUInt = color
+        });
     }
 
     public void ClearColorSInt(uint attachmentIndex, in GraphicsClearColorSInt color)
     {
         EnsureRecording();
         EnsureGraphicsQueue();
-        throw new GraphicsValidationException(
-            "Signed-integer color attachment clears are not implemented by this OpenGL ES backend.");
+        EnsureColorAttachmentIndex(attachmentIndex);
+        if (!IsSignedIntegerColorFormat(GetBoundColorFormat(attachmentIndex)))
+            throw new GraphicsValidationException(
+                "Signed-integer clears require a signed-integer color attachment.");
+
+        _commands.Add(new OpenGLESCmd
+        {
+            Kind = OpenGLESCmdKind.ClearColorSInt,
+            AttachmentIndex = attachmentIndex,
+            ClearColorSInt = color
+        });
     }
 
     public void ClearDepthStencil(
@@ -479,14 +507,14 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
     {
         EnsureRecording();
         EnsureGraphicsReady();
-        ValidateIndirect(arguments, offset, drawCount, 16);
-        if (drawCount > 1)
-            throw new GraphicsFeatureNotSupportedException(GraphicsFeature.MultiDrawIndirect, GraphicsFeature.MultiDrawIndirect);
+        ValidateIndirect(arguments, offset, drawCount, 16, stride);
         _commands.Add(new OpenGLESCmd
         {
             Kind = OpenGLESCmdKind.DrawIndirect,
             Buffer0 = arguments,
-            Offset0 = offset
+            Offset0 = offset,
+            DrawCount = drawCount,
+            Stride = stride
         });
     }
 
@@ -497,16 +525,16 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
         if (_indexBuffer is null)
             throw new GraphicsValidationException("Set an index buffer before issuing indexed indirect drawing.");
         GraphicsCommandValidation.ValidateIndexedIndirectIndexBufferOffset(_indexOffset);
-        ValidateIndirect(arguments, offset, drawCount, 20);
-        if (drawCount > 1)
-            throw new GraphicsFeatureNotSupportedException(GraphicsFeature.MultiDrawIndirect, GraphicsFeature.MultiDrawIndirect);
+        ValidateIndirect(arguments, offset, drawCount, 20, stride);
         _commands.Add(new OpenGLESCmd
         {
             Kind = OpenGLESCmdKind.DrawIndexedIndirect,
             Buffer0 = arguments,
             Buffer1 = _indexBuffer,
             Offset0 = offset,
-            IndexFormat = (uint)_indexFormat
+            IndexFormat = (uint)_indexFormat,
+            DrawCount = drawCount,
+            Stride = stride
         });
     }
 
@@ -657,6 +685,8 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
         OpenGLESGraphicsRenderPipeline? activeRenderPipeline = null;
         OpenGLESGraphicsPipelineLayout? activePipelineLayout = null;
         Span<float> clearColorValues = stackalloc float[4];
+        Span<uint> unsignedClearColorValues = stackalloc uint[4];
+        Span<int> signedClearColorValues = stackalloc int[4];
         Span<float> depthClearValue = stackalloc float[1];
         Span<int> stencilClearValue = stackalloc int[1];
         try
@@ -754,7 +784,27 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
                         clearColorValues[1] = command.ClearColor.Green;
                         clearColorValues[2] = command.ClearColor.Blue;
                         clearColorValues[3] = command.ClearColor.Alpha;
-                        gl.ClearBuffer(GLEnum.Color, 0, clearColorValues);
+                        gl.ClearBuffer(GLEnum.Color, checked((int)command.AttachmentIndex), clearColorValues);
+                        RestoreFramebufferWriteMasks(gl, activeRenderPipeline);
+                        break;
+
+                    case OpenGLESCmdKind.ClearColorUInt:
+                        gl.ColorMask(true, true, true, true);
+                        unsignedClearColorValues[0] = command.ClearColorUInt.Red;
+                        unsignedClearColorValues[1] = command.ClearColorUInt.Green;
+                        unsignedClearColorValues[2] = command.ClearColorUInt.Blue;
+                        unsignedClearColorValues[3] = command.ClearColorUInt.Alpha;
+                        gl.ClearBuffer(GLEnum.Color, checked((int)command.AttachmentIndex), unsignedClearColorValues);
+                        RestoreFramebufferWriteMasks(gl, activeRenderPipeline);
+                        break;
+
+                    case OpenGLESCmdKind.ClearColorSInt:
+                        gl.ColorMask(true, true, true, true);
+                        signedClearColorValues[0] = command.ClearColorSInt.Red;
+                        signedClearColorValues[1] = command.ClearColorSInt.Green;
+                        signedClearColorValues[2] = command.ClearColorSInt.Blue;
+                        signedClearColorValues[3] = command.ClearColorSInt.Alpha;
+                        gl.ClearBuffer(GLEnum.Color, checked((int)command.AttachmentIndex), signedClearColorValues);
                         RestoreFramebufferWriteMasks(gl, activeRenderPipeline);
                         break;
 
@@ -1061,17 +1111,32 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
         try
         {
             gl.BindFramebuffer(FramebufferTarget.Framebuffer, framebuffer);
+            Span<GLEnum> drawBuffers = stackalloc GLEnum[Math.Max(1, command.ColorCount)];
             for (int i = 0; i < command.ColorCount; i++)
             {
                 OpenGLESGraphicsTexture texture = (OpenGLESGraphicsTexture)_renderTargetViews[command.ViewOffset + i].Texture;
                 if (texture.Target != TextureTarget.Texture2D)
                     throw new GraphicsValidationException("GLES offscreen color attachments currently require 2D textures.");
+                GLEnum attachment = (GLEnum)((uint)GLEnum.ColorAttachment0 + (uint)i);
                 gl.FramebufferTexture2D(
                     FramebufferTarget.Framebuffer,
-                    GLEnum.ColorAttachment0,
+                    attachment,
                     TextureTarget.Texture2D,
                     texture.Handle,
                     0);
+                drawBuffers[i] = attachment;
+            }
+
+            if (command.ColorCount == 0)
+            {
+                drawBuffers[0] = GLEnum.None;
+                gl.DrawBuffers(drawBuffers[..1]);
+                gl.ReadBuffer(GLEnum.None);
+            }
+            else
+            {
+                gl.DrawBuffers(drawBuffers[..command.ColorCount]);
+                gl.ReadBuffer(GLEnum.ColorAttachment0);
             }
 
             if (command.DepthTarget is not null)
@@ -1148,11 +1213,18 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
         EnsureOwned(arguments);
         if ((arguments.Description.Usage & GraphicsBufferUsage.IndirectArguments) == 0)
             throw new GraphicsValidationException("Indirect commands require IndirectArguments buffer usage.");
-        if ((offset & 3) != 0 || offset > arguments.Description.SizeInBytes ||
-            commandSize > arguments.Description.SizeInBytes - offset)
-            throw new GraphicsValidationException("The indirect command offset is unaligned or outside the buffer.");
         if (drawCount == 0)
             throw new ArgumentOutOfRangeException(nameof(drawCount));
+        if ((offset & 3) != 0)
+            throw new GraphicsValidationException("The indirect command offset must be four-byte aligned.");
+        if (stride != 0 && (stride < commandSize || (stride & 3) != 0))
+            throw new GraphicsValidationException(
+                $"Indirect command stride must be zero or a four-byte-aligned value at least {commandSize} bytes.");
+        uint effectiveStride = stride == 0 ? commandSize : stride;
+        ulong lastCommandOffset = checked(offset + checked((ulong)(drawCount - 1) * effectiveStride));
+        ulong requiredEnd = checked(lastCommandOffset + commandSize);
+        if (requiredEnd > arguments.Description.SizeInBytes || lastCommandOffset > (ulong)nint.MaxValue)
+            throw new GraphicsValidationException("The indirect command sequence reads outside the argument buffer or native offset range.");
     }
 
     private void ValidateRenderTarget(
@@ -1165,8 +1237,8 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
         EnsureOwned(view);
         if (view.Texture is not OpenGLESGraphicsTexture texture)
             throw new GraphicsValidationException("The render attachment is not an OpenGL ES texture.");
-        if (texture.Target != TextureTarget.Texture2D || texture.Description.SampleCount != 1)
-            throw new GraphicsValidationException("GLES framebuffer attachments require a single-sample 2D texture.");
+        if (texture.Target != TextureTarget.Texture2D)
+            throw new GraphicsValidationException("GLES framebuffer attachments currently require 2D textures.");
 
         GraphicsFormat format = GetViewFormat(view);
         if (depthAttachment)
@@ -1179,9 +1251,9 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
         else
         {
             if ((texture.Description.Usage & GraphicsTextureUsage.ColorAttachment) == 0 ||
-                format is not (GraphicsFormat.RGBA8UNorm or GraphicsFormat.RGBA8UNormSrgb))
+                !Device.Capabilities.SupportsFormat(format, GraphicsFormatSupport.ColorAttachment))
                 throw new GraphicsValidationException(
-                    "Color targets require ColorAttachment usage and a supported GLES color-renderable format.");
+                    $"Color target format {format} lacks ColorAttachment usage or GLES color-renderable support.");
         }
 
         if (width == 0) { width = texture.Description.Width; height = texture.Description.Height; }
@@ -1189,11 +1261,52 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
             throw new GraphicsValidationException("All framebuffer attachments must have matching dimensions.");
     }
 
+    private void EnsureColorAttachmentIndex(uint attachmentIndex)
+    {
+        if (attachmentIndex >= _colorCount)
+            throw new GraphicsValidationException("The requested color attachment is not bound.");
+    }
+
+    private GraphicsFormat GetBoundColorFormat(uint attachmentIndex) =>
+        GetViewFormat(_renderTargetViews[checked(_targetOffset + (int)attachmentIndex)]);
+
+    private static bool IsUnsignedIntegerColorFormat(GraphicsFormat format) =>
+        format is GraphicsFormat.R8UInt or GraphicsFormat.RG8UInt or GraphicsFormat.RGBA8UInt;
+
+    private static bool IsSignedIntegerColorFormat(GraphicsFormat format) =>
+        format is GraphicsFormat.R8SInt or GraphicsFormat.RG8SInt or GraphicsFormat.RGBA8SInt;
+
+    private static bool IsIntegerColorFormat(GraphicsFormat format) =>
+        IsUnsignedIntegerColorFormat(format) || IsSignedIntegerColorFormat(format);
+
     private void EnsureGraphicsReady()
     {
         EnsureGraphicsQueue();
         if (_renderPipeline is null || !_hasTargets || !_hasViewport)
             throw new GraphicsValidationException("A render pipeline, target and viewport must be selected before drawing.");
+
+        ReadOnlySpan<GraphicsFormat> pipelineColorFormats = _renderPipeline.Description.ColorFormats;
+        if (pipelineColorFormats.Length != _colorCount)
+            throw new GraphicsValidationException(
+                $"The active render pipeline declares {pipelineColorFormats.Length} color target(s), " +
+                $"but {_colorCount} color attachment(s) are bound.");
+        for (int i = 0; i < pipelineColorFormats.Length; i++)
+        {
+            IGraphicsTextureView target = _renderTargetViews[_targetOffset + i];
+            if (GetViewFormat(target) != pipelineColorFormats[i])
+                throw new GraphicsValidationException(
+                    $"Color attachment {i} format {GetViewFormat(target)} does not match pipeline format {pipelineColorFormats[i]}.");
+        }
+
+        if (_targetSampleCount != _renderPipeline.Description.SampleCount)
+            throw new GraphicsValidationException(
+                $"Bound render targets use {_targetSampleCount} sample(s), but the pipeline uses {_renderPipeline.Description.SampleCount}.");
+
+        if ((_renderPipeline.Description.DepthStencilFormat == GraphicsFormat.Unknown) != !_hasDepthTarget)
+            throw new GraphicsValidationException("The bound depth/stencil attachment does not match the pipeline description.");
+        if (_hasDepthTarget && _depthFormat != _renderPipeline.Description.DepthStencilFormat)
+            throw new GraphicsValidationException(
+                $"Depth/stencil attachment format {_depthFormat} does not match pipeline format {_renderPipeline.Description.DepthStencilFormat}.");
 
         GraphicsDepthStencilState depthState = _renderPipeline.Description.DepthStencil;
         if ((depthState.DepthTestEnabled || depthState.DepthWriteEnabled) && !_hasDepthTarget)
@@ -1303,6 +1416,7 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
         _hasDepthTarget = false;
         _depthFormat = GraphicsFormat.Unknown;
         _colorCount = 0;
+        _targetSampleCount = 0;
         _targetOffset = 0;
         Exception? releaseFailure = null;
         foreach (IOpenGLESNativeResource resource in _retained)
