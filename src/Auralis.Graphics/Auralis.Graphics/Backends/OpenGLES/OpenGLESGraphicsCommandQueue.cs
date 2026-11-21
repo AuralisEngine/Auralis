@@ -109,22 +109,25 @@ internal sealed class OpenGLESGraphicsCommandQueue : IGraphicsCommandQueue
             }
             catch (Exception submissionError)
             {
-                // If a command may have reached the driver, finish it before publishing completion.
-                // If Finish itself fails, keep Pending as an orphan; WaitForCompletion retries Finish
-                // before any retained reference can be released.
+                // This recovery runs before the context gate is released. A disposer waiting on
+                // that gate therefore observes either an owning queue record or a completed list.
                 Exception? cleanupFailure = null;
-                bool gpuWorkFinished = !commandsStarted;
-                if (commandsStarted)
+                try
                 {
-                    try
-                    {
-                        gl.Finish();
-                        gpuWorkFinished = true;
-                    }
-                    catch (Exception exception)
-                    {
-                        cleanupFailure ??= exception;
-                    }
+                    GraphicsCommandListSubmissionRecovery.RecoverFailedSubmission(
+                        lists,
+                        submitted,
+                        commandsStarted,
+                        gl.Finish,
+                        static list =>
+                        {
+                            if (list.Lifecycle.State == GraphicsCommandListState.Pending)
+                                list.MarkCompletedAfterGpu();
+                        });
+                }
+                catch (Exception exception)
+                {
+                    cleanupFailure ??= exception;
                 }
 
                 if (completionSync != 0)
@@ -132,18 +135,6 @@ internal sealed class OpenGLESGraphicsCommandQueue : IGraphicsCommandQueue
                     try { gl.DeleteSync(completionSync); }
                     catch (Exception exception) { cleanupFailure ??= exception; }
                     completionSync = 0;
-                }
-
-                if (gpuWorkFinished)
-                {
-                    for (int i = 0; i < submitted; i++)
-                    {
-                        if (lists[i].Lifecycle.State != GraphicsCommandListState.Pending)
-                            continue;
-
-                        try { lists[i].MarkCompletedAfterGpu(); }
-                        catch (Exception exception) { cleanupFailure ??= exception; }
-                    }
                 }
 
                 if (cleanupFailure is not null)
