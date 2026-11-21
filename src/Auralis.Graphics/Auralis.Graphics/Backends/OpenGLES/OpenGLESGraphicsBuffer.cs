@@ -129,7 +129,7 @@ internal sealed unsafe class OpenGLESGraphicsBuffer : OpenGLESNativeDeviceObject
                         throw new GraphicsException("OpenGL ES failed to map the requested buffer range for reading.");
                     }
 
-                    Buffer.MemoryCopy(pointer, manager.GetSpan().GetPinnableReferenceAddress(), size, size);
+                    new ReadOnlySpan<byte>(pointer, (int)size).CopyTo(manager.GetSpan());
                     bool valid = gl.UnmapBuffer(BufferTargetARB.CopyReadBuffer);
                     gl.BindBuffer(BufferTargetARB.CopyReadBuffer, 0);
                     if (!valid)
