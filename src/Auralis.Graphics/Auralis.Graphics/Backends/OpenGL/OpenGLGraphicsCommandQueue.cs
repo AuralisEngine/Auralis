@@ -289,6 +289,22 @@ internal sealed class OpenGLGraphicsCommandQueue : IGraphicsCommandQueue
 
                     _pending.RemoveAt(i);
                 }
+
+                // A submit callback can mark a list Pending and then fail before it successfully
+                // inserts its completion record. The context gate guarantees its GL work has exited;
+                // glFinish above guarantees that work is complete, so close that unqueued lifecycle
+                // transition here rather than leaving a disposed list permanently Pending.
+                if (commandList.Lifecycle.State == GraphicsCommandListState.Pending)
+                {
+                    try
+                    {
+                        commandList.Complete();
+                    }
+                    catch (Exception exception)
+                    {
+                        failure ??= exception;
+                    }
+                }
             }
 
             if (failure is not null)
