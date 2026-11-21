@@ -16,6 +16,7 @@ internal sealed class OpenGLGraphicsRenderPipeline : GraphicsDeviceObject, IGrap
 {
     private readonly OpenGLGraphicsDevice _device;
     private readonly bool _isMeshPipeline;
+    private readonly bool _isTaskPipeline;
     private uint _program;
     private uint _vertexArray;
 
@@ -33,10 +34,9 @@ internal sealed class OpenGLGraphicsRenderPipeline : GraphicsDeviceObject, IGrap
         foreach (IGraphicsShader shader in description.Shaders)
         {
             if (shader.Description.Stage == GraphicsShaderStage.Mesh)
-            {
                 _isMeshPipeline = true;
-                break;
-            }
+            else if (shader.Description.Stage == GraphicsShaderStage.Task)
+                _isTaskPipeline = true;
         }
     }
 
@@ -64,6 +64,7 @@ internal sealed class OpenGLGraphicsRenderPipeline : GraphicsDeviceObject, IGrap
 
     internal PrimitiveType Topology => OpenGLPipelineMapping.ToPrimitiveType(Description.Topology);
     internal bool IsMeshPipeline => _isMeshPipeline;
+    internal bool IsTaskPipeline => _isTaskPipeline;
 
     internal static OpenGLGraphicsRenderPipeline Create(
         OpenGLGraphicsDevice device,
