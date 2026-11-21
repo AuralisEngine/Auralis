@@ -533,11 +533,6 @@ public sealed class OpenGLESComputeWorkGroupValidationTests
             OpenGLESComputeWorkGroupValidation.ValidateLocalSize(x, y, z, s_limits));
 }
 
-
-using Auralis.Graphics.Abstractions;
-using Auralis.Graphics.Backends.OpenGLES;
-using Auralis.Graphics.Devices;
-
 public sealed class OpenGLESFormatCapabilityTests
 {
     private static GraphicsDeviceCapabilities CreateCapabilities(int major = 3, int minor = 1)
