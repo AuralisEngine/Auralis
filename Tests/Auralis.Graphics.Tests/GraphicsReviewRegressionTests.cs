@@ -614,6 +614,56 @@ public sealed class GraphicsReviewRegressionTests
             GraphicsCommandValidation.ValidateTextureCopyNotAliased(texture, texture));
     }
 
+    [Fact]
+    public void GlesFailedSubmissionRecoveryCompletesListsBeforeContextGateIsReleased()
+    {
+        var lifecycle = new GraphicsCommandListLifecycle(GraphicsQueueType.Graphics);
+        lifecycle.Begin();
+        lifecycle.End();
+        lifecycle.MarkSubmitted();
+
+        object contextGate = new();
+        GraphicsCommandListState stateObservedByDisposer = GraphicsCommandListState.Pending;
+        var disposer = new Thread(() =>
+        {
+            lock (contextGate)
+                stateObservedByDisposer = lifecycle.State;
+        });
+
+        lock (contextGate)
+        {
+            GraphicsCommandListSubmissionRecovery.RecoverFailedSubmission(
+                new[] { lifecycle },
+                submittedCount: 1,
+                commandsStarted: true,
+                finishGpuWork: static () => { },
+                markCompleted: static list => list.MarkCompleted());
+            disposer.Start();
+        }
+
+        Assert.True(disposer.Join(TimeSpan.FromSeconds(5)));
+        Assert.Equal(GraphicsCommandListState.Executable, stateObservedByDisposer);
+    }
+
+    [Fact]
+    public void GlesFailedSubmissionRecoveryLeavesListsPendingWhenFinishFails()
+    {
+        var lifecycle = new GraphicsCommandListLifecycle(GraphicsQueueType.Graphics);
+        lifecycle.Begin();
+        lifecycle.End();
+        lifecycle.MarkSubmitted();
+
+        Assert.Throws<InvalidOperationException>(() =>
+            GraphicsCommandListSubmissionRecovery.RecoverFailedSubmission(
+                new[] { lifecycle },
+                submittedCount: 1,
+                commandsStarted: true,
+                finishGpuWork: static () => throw new InvalidOperationException("Injected finish failure."),
+                markCompleted: static list => list.MarkCompleted()));
+
+        Assert.Equal(GraphicsCommandListState.Pending, lifecycle.State);
+    }
+
     private static GraphicsDeviceFactoryTests.TestDevice CreateDevice(
         GraphicsFeature features = GraphicsFeature.None,
         params GraphicsFormatCapabilities[] formats) =>
