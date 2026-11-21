@@ -179,6 +179,9 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
         uint maxComputeInvocations = profile.Version.IsAtLeast(3, 1)
             ? ToUInt(gl.GetInteger(GLEnum.MaxComputeWorkGroupInvocations))
             : 0;
+        uint maxTessellationPatchSize = profile.Version.IsAtLeast(3, 2)
+            ? ToUInt(gl.GetInteger(GLEnum.MaxPatchVertices))
+            : 0;
 
         float maxAnisotropy = 1;
         if (profile.Features.Supports(GraphicsFeature.SamplerAnisotropy))
@@ -199,6 +202,7 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
             uniformAlignment,
             storageAlignment,
             maxComputeInvocations,
+            maxTessellationPatchSize,
             maxAnisotropy);
     }
 
@@ -219,7 +223,8 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
             MaxComputeWorkGroupSizeX: 0,
             MaxComputeWorkGroupSizeY: 0,
             MaxComputeWorkGroupSizeZ: 0,
-            MaxSamplerAnisotropy: queried.MaxAnisotropy);
+            MaxSamplerAnisotropy: queried.MaxAnisotropy,
+            MaxTessellationPatchSize: queried.MaxTessellationPatchSize);
 
         GraphicsFormatSupport colorSupport =
             GraphicsFormatSupport.Sampled |
@@ -282,6 +287,7 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
         uint UniformBufferOffsetAlignment,
         uint StorageBufferOffsetAlignment,
         uint MaxComputeInvocations,
+        uint MaxTessellationPatchSize,
         float MaxAnisotropy);
 
     public IGraphicsCommandQueue GetQueue(GraphicsQueueType queueType, uint index = 0)
