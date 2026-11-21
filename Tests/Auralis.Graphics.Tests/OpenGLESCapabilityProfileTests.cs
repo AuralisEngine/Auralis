@@ -464,6 +464,28 @@ public sealed class OpenGLESTextureCompatibilityTests
     }
 
     [Fact]
+    public void CubeMapArrayRequiresEs32OrItsOptionalExtension()
+    {
+        GraphicsTextureDescription description = new(
+            GraphicsTextureDimension.Cube,
+            GraphicsFormat.RGBA8UNorm,
+            64, 64, 1, 1, 12, 1,
+            GraphicsTextureUsage.Sampled);
+
+        Assert.Throws<GraphicsValidationException>(() =>
+            OpenGLESTextureCompatibility.ValidateAndGetTarget(
+                description, new OpenGLESVersion(3, 1)));
+        Assert.Equal(
+            Silk.NET.OpenGLES.TextureTarget.TextureCubeMapArray,
+            OpenGLESTextureCompatibility.ValidateAndGetTarget(
+                description, new OpenGLESVersion(3, 1), supportsCubeMapArray: true));
+        Assert.Equal(
+            Silk.NET.OpenGLES.TextureTarget.TextureCubeMapArray,
+            OpenGLESTextureCompatibility.ValidateAndGetTarget(
+                description, new OpenGLESVersion(3, 2)));
+    }
+
+    [Fact]
     public void Es31MultisampleTextureUsesTheNativeMultisampleTarget()
     {
         GraphicsTextureDescription description = new(
