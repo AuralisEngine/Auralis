@@ -128,6 +128,12 @@ internal sealed class OpenGLESGraphicsTexture : OpenGLESNativeDeviceObject, IGra
         GraphicsFormat.RG8UNorm => SizedInternalFormat.RG8,
         GraphicsFormat.RGBA8UNorm => SizedInternalFormat.Rgba8,
         GraphicsFormat.RGBA8UNormSrgb => SizedInternalFormat.Srgb8Alpha8,
+        GraphicsFormat.R8UInt => SizedInternalFormat.R8ui,
+        GraphicsFormat.R8SInt => SizedInternalFormat.R8i,
+        GraphicsFormat.RG8UInt => SizedInternalFormat.RG8ui,
+        GraphicsFormat.RG8SInt => SizedInternalFormat.RG8i,
+        GraphicsFormat.RGBA8UInt => SizedInternalFormat.Rgba8ui,
+        GraphicsFormat.RGBA8SInt => SizedInternalFormat.Rgba8i,
         GraphicsFormat.D16UNorm => SizedInternalFormat.DepthComponent16,
         GraphicsFormat.D24UNormS8UInt => SizedInternalFormat.Depth24Stencil8,
         _ => throw new GraphicsValidationException($"OpenGL ES has no implemented storage mapping for format {format}.")
