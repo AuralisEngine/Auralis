@@ -58,6 +58,7 @@ internal sealed class OpenGLGraphicsComputePipeline : GraphicsDeviceObject, IGra
             uint program = OpenGLProgramLinker.Link(gl, shaders);
             try
             {
+                device.LabelObject(ObjectIdentifier.Program, program, "Auralis Compute Pipeline Program");
                 OpenGLGraphicsComputePipeline pipeline = new(device, description, program);
                 device.RegisterUnderContext(pipeline);
                 return pipeline;
