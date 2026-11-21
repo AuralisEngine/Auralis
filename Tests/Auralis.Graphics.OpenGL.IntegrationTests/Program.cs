@@ -56,6 +56,8 @@ internal static class Program
                 ref passed, ref skipped, ref failed);
             Run("buffer dispose after submission while GPU work is pending", session, CopyBufferAfterSubmitDispose,
                 ref passed, ref skipped, ref failed);
+            Run("reusable command-list submissions after source-owner disposal", session, ReusableCommandListAfterOwnerDisposal,
+                ref passed, ref skipped, ref failed);
             Run("partially-bound descriptor switching and indirect compute", session, PartiallyBoundIndirectCompute,
                 ref passed, ref skipped, ref failed);
             Run("compute descriptor categories, snapshots, and resource retention", session, ComputeDescriptorTypesAndSnapshots,
@@ -187,6 +189,36 @@ internal static class Program
         source.Dispose();
         WaitForGpu(fence, commandList, 1);
         AssertPattern(ReadBuffer(destination, size), seed: 91);
+    }
+
+
+    private static void ReusableCommandListAfterOwnerDisposal(GlfwOpenGLHardwareSession session)
+    {
+        IGraphicsDevice device = session.Device;
+        const int size = 4096;
+        using IGraphicsBuffer source = CreateBuffer(
+            device, size, GraphicsBufferUsage.CopySource, GraphicsMemoryAccess.CpuReadWrite);
+        using IGraphicsBuffer destination = CreateBuffer(
+            device, size, GraphicsBufferUsage.CopyDestination, GraphicsMemoryAccess.CpuReadWrite);
+
+        WritePattern(source, size, seed: 53);
+        IGraphicsCommandQueue queue = device.GetQueue(GraphicsQueueType.Copy);
+        using IGraphicsCommandList commandList = queue.CreateCommandList(GraphicsCommandListUsage.Reusable);
+        using IGraphicsFence fence = device.CreateFence();
+
+        commandList.Begin();
+        commandList.CopyBuffer(source, 0, destination, 0, size);
+        commandList.End();
+
+        queue.Submit([commandList], fence, 1);
+        WaitForGpu(fence, commandList, 1);
+
+        // An executable reusable list retains the source's native resource between submissions.
+        source.Dispose();
+        queue.Submit([commandList], fence, 2);
+        WaitForGpu(fence, commandList, 2);
+
+        AssertPattern(ReadBuffer(destination, size), seed: 53);
     }
 
     private static void PartiallyBoundIndirectCompute(GlfwOpenGLHardwareSession session)
