@@ -88,7 +88,7 @@ public sealed class OpenGLESCapabilityProfileTests
         Assert.True(profile.Features.Supports(GraphicsFeature.SamplerAnisotropy));
         Assert.False(profile.Features.Supports(GraphicsFeature.IndependentBlend));
         Assert.False(profile.Features.Supports(GraphicsFeature.MultiDrawIndirect));
-        Assert.False(profile.Features.Supports(GraphicsFeature.TimelineSynchronization));
+        Assert.True(profile.Features.Supports(GraphicsFeature.TimelineSynchronization));
     }
 
     [Fact]
@@ -135,5 +135,61 @@ public sealed class OpenGLESCapabilityProfileTests
     public void BackendIdentifier_IsPartOfExistingGraphicsBackendEnum()
     {
         Assert.True(Enum.IsDefined(GraphicsBackend.OpenGLES));
+    }
+}
+
+public sealed class OpenGLESResourceReferenceStateTests
+{
+    [Fact]
+    public void OwnerClose_PreventsNewRetains_ButAllowsExistingDependentsToRetain()
+    {
+        OpenGLESResourceReferenceState state = new();
+
+        Assert.True(state.TryRetain()); // command or texture-view owner
+        Assert.False(state.CloseOwner());
+        Assert.True(state.IsClosed);
+        Assert.False(state.TryRetain());
+        Assert.True(state.TryRetainDependency());
+        Assert.Equal(2, state.ReferenceCount);
+
+        Assert.False(state.ReleaseReference());
+        Assert.True(state.ReleaseReference());
+        Assert.Equal(0, state.ReferenceCount);
+    }
+
+    [Fact]
+    public void CloseOwner_IsIdempotent_AndReleasesOnlyTheOwnerReference()
+    {
+        OpenGLESResourceReferenceState state = new();
+
+        Assert.True(state.CloseOwner());
+        Assert.False(state.CloseOwner());
+        Assert.Equal(0, state.ReferenceCount);
+        Assert.False(state.TryRetainDependency());
+        Assert.Throws<InvalidOperationException>(() => state.ReleaseReference());
+    }
+
+    [Fact]
+    public void ConcurrentCommandRetains_ReleaseExactlyOneFinalReference()
+    {
+        OpenGLESResourceReferenceState state = new();
+        const int workers = 16;
+        const int iterations = 2_000;
+        int finalReleases = 0;
+
+        Parallel.For(0, workers, _ =>
+        {
+            for (int i = 0; i < iterations; i++)
+            {
+                Assert.True(state.TryRetain());
+                if (state.ReleaseReference())
+                    Interlocked.Increment(ref finalReleases);
+            }
+        });
+
+        Assert.Equal(1, state.ReferenceCount);
+        Assert.Equal(0, finalReleases);
+        Assert.True(state.CloseOwner());
+        Assert.Equal(0, state.ReferenceCount);
     }
 }
