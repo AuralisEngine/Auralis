@@ -141,7 +141,9 @@ public sealed class OpenGLESCapabilityProfile
     public static OpenGLESCapabilityProfile Create(
         OpenGLESVersion version,
         ReadOnlySpan<string> extensions,
-        bool supportsPresentation)
+        bool supportsPresentation,
+        bool multiDrawIndirectEntryPointsAvailable = true,
+        bool indexedBlendEntryPointsAvailable = true)
     {
         if (version.Major < 1 || version.Minor < 0)
             throw new ArgumentOutOfRangeException(nameof(version));
@@ -180,9 +182,11 @@ public sealed class OpenGLESCapabilityProfile
             features |= GraphicsFeature.SamplerAnisotropy;
 
         // These features are exposed only when the exact GLES extension is advertised.
-        if (Contains(extensionCopy, "GL_EXT_multi_draw_indirect"))
+        if (multiDrawIndirectEntryPointsAvailable &&
+            Contains(extensionCopy, "GL_EXT_multi_draw_indirect"))
             features |= GraphicsFeature.MultiDrawIndirect;
-        if (Contains(extensionCopy, "GL_EXT_draw_buffers_indexed"))
+        if (indexedBlendEntryPointsAvailable &&
+            Contains(extensionCopy, "GL_EXT_draw_buffers_indexed"))
             features |= GraphicsFeature.IndependentBlend;
 
         GraphicsQueueCapabilities queues =
