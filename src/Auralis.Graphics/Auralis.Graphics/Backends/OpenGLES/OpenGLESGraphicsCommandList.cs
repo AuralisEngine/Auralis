@@ -612,9 +612,9 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
         EnsureRecording();
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(destination);
+        GraphicsCommandValidation.ValidateTextureCopyNotAliased(source, destination);
         EnsureOwned(source);
         EnsureOwned(destination);
-        GraphicsCommandValidation.ValidateTextureCopyNotAliased(source, destination);
         OpenGLESTextureCompatibility.ValidateCopy(source.Description, destination.Description);
 
         _commands.Add(new OpenGLESCmd
