@@ -626,3 +626,108 @@ public sealed class OpenGLESFormatCapabilityTests
             GraphicsFormatSupport.Sampled | GraphicsFormatSupport.DepthStencilAttachment));
     }
 }
+
+
+public sealed class OpenGLESTextureCopyCompatibilityTests
+{
+    private static GraphicsTextureDescription CreateSource(
+        GraphicsFormat format = GraphicsFormat.RGBA8UNorm,
+        uint width = 64,
+        uint height = 32,
+        uint mipLevels = 1,
+        uint arrayLayers = 1,
+        uint sampleCount = 1) =>
+        new(
+            GraphicsTextureDimension.Texture2D,
+            format,
+            width,
+            height,
+            1,
+            mipLevels,
+            arrayLayers,
+            sampleCount,
+            GraphicsTextureUsage.CopySource | GraphicsTextureUsage.ColorAttachment);
+
+    private static GraphicsTextureDescription CreateDestination(
+        GraphicsFormat format = GraphicsFormat.RGBA8UNorm,
+        uint width = 64,
+        uint height = 32,
+        uint mipLevels = 1,
+        uint arrayLayers = 1,
+        uint sampleCount = 1) =>
+        new(
+            GraphicsTextureDimension.Texture2D,
+            format,
+            width,
+            height,
+            1,
+            mipLevels,
+            arrayLayers,
+            sampleCount,
+            GraphicsTextureUsage.CopyDestination | GraphicsTextureUsage.ColorAttachment);
+
+    [Fact]
+    public void ValidateCopy_AllowsDifferentSourceAndDestinationUsageFlags()
+    {
+        OpenGLESTextureCompatibility.ValidateCopy(CreateSource(), CreateDestination());
+    }
+
+    [Theory]
+    [InlineData(63u, 32u)]
+    [InlineData(64u, 31u)]
+    public void ValidateCopy_RejectsMismatchedExtents(uint width, uint height)
+    {
+        Assert.Throws<GraphicsValidationException>(() =>
+            OpenGLESTextureCompatibility.ValidateCopy(
+                CreateSource(), CreateDestination(width: width, height: height)));
+    }
+
+    [Fact]
+    public void ValidateCopy_RejectsMismatchedFormats()
+    {
+        Assert.Throws<GraphicsValidationException>(() =>
+            OpenGLESTextureCompatibility.ValidateCopy(
+                CreateSource(), CreateDestination(GraphicsFormat.RGBA8UNormSrgb)));
+    }
+
+    [Theory]
+    [InlineData(2u, 1u, 1u)]
+    [InlineData(1u, 2u, 1u)]
+    [InlineData(1u, 1u, 2u)]
+    public void ValidateCopy_RejectsMipArraysAndMultisampling(uint mips, uint layers, uint samples)
+    {
+        Assert.Throws<GraphicsValidationException>(() =>
+            OpenGLESTextureCompatibility.ValidateCopy(
+                CreateSource(mipLevels: mips, arrayLayers: layers, sampleCount: samples),
+                CreateDestination(mipLevels: mips, arrayLayers: layers, sampleCount: samples)));
+    }
+
+    [Theory]
+    [InlineData(GraphicsFormat.R8UNorm)]
+    [InlineData(GraphicsFormat.RG8UNorm)]
+    [InlineData(GraphicsFormat.D16UNorm)]
+    [InlineData(GraphicsFormat.D24UNormS8UInt)]
+    public void ValidateCopy_RejectsFormatsOutsideTheImplementedBlitPath(GraphicsFormat format)
+    {
+        Assert.Throws<GraphicsValidationException>(() =>
+            OpenGLESTextureCompatibility.ValidateCopy(CreateSource(format), CreateDestination(format)));
+    }
+
+    [Fact]
+    public void ValidateCopy_RequiresSourceAndDestinationUsages()
+    {
+        GraphicsTextureDescription missingSource = CreateSource() with
+        {
+            Usage = GraphicsTextureUsage.ColorAttachment
+        };
+        GraphicsTextureDescription missingDestination = CreateDestination() with
+        {
+            Usage = GraphicsTextureUsage.ColorAttachment
+        };
+
+        Assert.Throws<GraphicsValidationException>(() =>
+            OpenGLESTextureCompatibility.ValidateCopy(missingSource, CreateDestination()));
+        Assert.Throws<GraphicsValidationException>(() =>
+            OpenGLESTextureCompatibility.ValidateCopy(CreateSource(), missingDestination));
+    }
+}
