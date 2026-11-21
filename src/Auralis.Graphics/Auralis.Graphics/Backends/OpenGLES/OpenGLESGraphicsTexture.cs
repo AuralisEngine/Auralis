@@ -101,9 +101,10 @@ internal sealed class OpenGLESGraphicsTexture : OpenGLESNativeDeviceObject, IGra
         GraphicsTextureViewDescription copy = description;
         copy.Validate(Description);
 
-        return _device.WithContext(gl =>
+        OpenGLESGraphicsDevice device = (OpenGLESGraphicsDevice)Device;
+        return device.WithContext(gl =>
             OpenGLESGraphicsTextureView.CreateUnderContext(
-                _device, gl, _device.TextureViewExt, this, copy));
+                device, gl, device.TextureViewExt, this, copy));
     }
 
     protected override void DisposeCore() => ReleaseOwnerReference();
@@ -194,7 +195,7 @@ internal sealed class OpenGLESGraphicsTextureView : OpenGLESNativeDeviceObject, 
         GraphicsFormat viewFormat = copy.Format == GraphicsFormat.Unknown
             ? texture.Description.Format
             : copy.Format;
-        SizedInternalFormat nativeFormat = GetInternalFormat(viewFormat);
+        SizedInternalFormat nativeFormat = OpenGLESGraphicsTexture.GetInternalFormat(viewFormat);
         TextureTarget target = GetViewTarget(copy.ViewType);
 
         bool isIdentity =
@@ -232,7 +233,6 @@ internal sealed class OpenGLESGraphicsTextureView : OpenGLESNativeDeviceObject, 
                     copy.MipLevelCount,
                     copy.BaseArrayLayer,
                     copy.ArrayLayerCount);
-                device.LabelObject(ObjectIdentifier.Texture, handle, "Auralis GLES Texture View");
             }
 
             OpenGLESGraphicsTextureView view = new(
