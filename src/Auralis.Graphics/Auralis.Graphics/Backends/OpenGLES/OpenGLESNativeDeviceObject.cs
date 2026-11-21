@@ -6,6 +6,7 @@ namespace Auralis.Graphics.Backends.OpenGLES;
 internal interface IOpenGLESNativeResource
 {
     bool TryRetain();
+    bool TryRetainDependency();
     void ReleaseReference();
     void ReleaseNative(GL gl);
 }
@@ -33,6 +34,26 @@ internal abstract class OpenGLESNativeDeviceObject : GraphicsDeviceObject, IOpen
             if (refs == int.MaxValue)
                 throw new InvalidOperationException("The GLES resource reference count overflowed.");
             if (Interlocked.CompareExchange(ref _referenceState, state + 1, state) == state)
+                return true;
+        }
+    }
+
+    /// <summary>
+    /// Acquires a command-held reference through an already-live dependent object (for example a texture
+    /// view). Unlike a public retain, this remains valid after owner disposal has closed new public retains.
+    /// </summary>
+    public bool TryRetainDependency()
+    {
+        while (true)
+        {
+            int state = Volatile.Read(ref _referenceState);
+            int refs = state & int.MaxValue;
+            if (refs == 0)
+                return false;
+            if (refs == int.MaxValue)
+                throw new InvalidOperationException("The GLES resource reference count overflowed.");
+            int next = (state & int.MinValue) | (refs + 1);
+            if (Interlocked.CompareExchange(ref _referenceState, next, state) == state)
                 return true;
         }
     }
