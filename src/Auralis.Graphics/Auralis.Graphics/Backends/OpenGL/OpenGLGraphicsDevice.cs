@@ -485,7 +485,15 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
             0, maxTexture, maxTexture, maxTexture3D, maxArrayLayers,
             maxVertexAttributes, maxVertexBindings, 0,
             maxComputeInvocations, maxComputeX, maxComputeY, maxComputeZ,
-            maxAnisotropy, maxPatchSize);
+            maxAnisotropy, maxPatchSize,
+            MaxMeshWorkGroupCountX: maxMeshWorkGroupCountX,
+            MaxMeshWorkGroupCountY: maxMeshWorkGroupCountY,
+            MaxMeshWorkGroupCountZ: maxMeshWorkGroupCountZ,
+            MaxMeshWorkGroupTotalCount: maxMeshWorkGroupTotalCount,
+            MaxTaskWorkGroupCountX: maxTaskWorkGroupCountX,
+            MaxTaskWorkGroupCountY: maxTaskWorkGroupCountY,
+            MaxTaskWorkGroupCountZ: maxTaskWorkGroupCountZ,
+            MaxTaskWorkGroupTotalCount: maxTaskWorkGroupTotalCount);
 
         bool hasInternalFormatQuery2 = AtLeast(major, minor, 4, 3) ||
                                        gl.IsExtensionPresent("GL_ARB_internalformat_query2");
