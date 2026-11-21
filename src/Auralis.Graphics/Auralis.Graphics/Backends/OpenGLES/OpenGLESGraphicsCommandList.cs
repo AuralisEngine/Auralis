@@ -6,6 +6,7 @@ using Auralis.Graphics.Pipelines;
 using Auralis.Graphics.Resources;
 using Auralis.Graphics.Synchronization;
 using Silk.NET.OpenGLES;
+using Silk.NET.OpenGLES.Extensions.EXT;
 
 namespace Auralis.Graphics.Backends.OpenGLES;
 
