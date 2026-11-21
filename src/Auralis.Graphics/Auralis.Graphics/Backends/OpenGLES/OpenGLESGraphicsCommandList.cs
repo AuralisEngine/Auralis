@@ -100,6 +100,7 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
     private bool _hasTargets;
     private bool _hasViewport;
     private bool _hasDepthTarget;
+    private GraphicsFormat _depthFormat;
     private uint _colorCount;
     private int _targetOffset;
     private int _recordingThreadId;
@@ -170,8 +171,9 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
 
         if (colorTargets.Length > 1)
             throw new GraphicsValidationException("This GLES implementation currently supports one color attachment per framebuffer.");
-        if (colorTargets.IsEmpty && depthStencilTarget is null)
-            throw new GraphicsValidationException("At least one render attachment is required.");
+        if (colorTargets.IsEmpty)
+            throw new GraphicsValidationException(
+                "Depth-only GLES framebuffers are not implemented; provide one supported color attachment.");
 
         uint width = 0, height = 0;
         for (int i = 0; i < colorTargets.Length; i++)
@@ -205,6 +207,7 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
         _colorCount = (uint)colorTargets.Length;
         _hasTargets = true;
         _hasDepthTarget = depthStencilTarget is not null;
+        _depthFormat = depthStencilTarget is null ? GraphicsFormat.Unknown : GetViewFormat(depthStencilTarget);
     }
 
     public void SetViewport(in GraphicsViewport viewport)
@@ -881,11 +884,13 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
                             break;
                         }
                         OpenGLESGraphicsTexture storageTexture = (OpenGLESGraphicsTexture)value.Texture.Texture;
+                        bool layered = storageTexture.Target is
+                            TextureTarget.Texture2DArray or TextureTarget.Texture3D or TextureTarget.TextureCubeMap;
                         gl.BindImageTexture(
                             slot,
                             storageTexture.Handle,
                             0,
-                            false,
+                            layered,
                             0,
                             (GLEnum)BufferAccessARB.ReadWrite,
                             (GLEnum)OpenGLESGraphicsTexture.GetInternalFormat(storageTexture.Description.Format));
@@ -1100,6 +1105,12 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
         EnsureGraphicsQueue();
         if (_renderPipeline is null || !_hasTargets || !_hasViewport)
             throw new GraphicsValidationException("A render pipeline, target and viewport must be selected before drawing.");
+
+        GraphicsDepthStencilState depthState = _renderPipeline.Description.DepthStencil;
+        if ((depthState.DepthTestEnabled || depthState.DepthWriteEnabled) && !_hasDepthTarget)
+            throw new GraphicsValidationException("The active pipeline requires a depth attachment.");
+        if (depthState.StencilTestEnabled && _depthFormat != GraphicsFormat.D24UNormS8UInt)
+            throw new GraphicsValidationException("Stencil testing requires a D24S8 depth/stencil attachment.");
         for (uint set = 0; set < (uint)_pipelineLayout!.BindingLayouts.Length; set++)
             if (!_boundSets.Contains(set))
                 throw new GraphicsValidationException($"Pipeline descriptor set {set} has not been bound.");
@@ -1201,6 +1212,7 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
         _hasTargets = false;
         _hasViewport = false;
         _hasDepthTarget = false;
+        _depthFormat = GraphicsFormat.Unknown;
         _colorCount = 0;
         _targetOffset = 0;
         Exception? releaseFailure = null;
