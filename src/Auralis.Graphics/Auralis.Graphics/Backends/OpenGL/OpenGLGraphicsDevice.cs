@@ -263,8 +263,11 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
                 depthBoundsApi = new ExtDepthBoundsTest(gl.Context);
             if (gl.IsExtensionPresent(ArbPolygonOffsetClamp.ExtensionName))
                 polygonOffsetClampApi = new ArbPolygonOffsetClamp(gl.Context);
-            if (gl.IsExtensionPresent(OpenGLExtMeshShader.ExtensionName))
+            if (gl.IsExtensionPresent(OpenGLExtMeshShader.ExtensionName) &&
+                HasEntryPoints(contextProvider, "glDrawMeshTasksEXT", "glDrawMeshTasksIndirectEXT"))
+            {
                 meshShaderApi = new OpenGLExtMeshShader(gl.Context);
+            }
             if (gl.IsExtensionPresent(NVMeshShader.ExtensionName) &&
                 contextProvider.GetProcAddress("glDrawMeshTasksNV") != 0)
             {
