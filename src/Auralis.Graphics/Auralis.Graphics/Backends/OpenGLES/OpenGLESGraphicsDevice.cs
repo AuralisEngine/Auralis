@@ -245,10 +245,23 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
                 }
             }
 
-            if (gl.IsExtensionPresent(ExtDrawBuffersIndexed.ExtensionName))
+            if (gl.IsExtensionPresent(ExtDrawBuffersIndexed.ExtensionName) &&
+                HasEntryPoints(
+                    contextProvider,
+                    "glEnableiEXT",
+                    "glDisableiEXT",
+                    "glBlendEquationSeparateiEXT",
+                    "glBlendFuncSeparateiEXT",
+                    "glColorMaskiEXT"))
+            {
                 drawBuffersIndexedApi = new ExtDrawBuffersIndexed(gl.Context);
-            if (gl.IsExtensionPresent(ExtCopyImage.ExtensionName))
+            }
+
+            if (gl.IsExtensionPresent(ExtCopyImage.ExtensionName) &&
+                contextProvider.GetProcAddress("glCopyImageSubDataEXT") != 0)
+            {
                 copyImageApi = new ExtCopyImage(gl.Context);
+            }
             if (gl.IsExtensionPresent("GL_OES_copy_image"))
             {
                 nint copyImageAddress = contextProvider.GetProcAddress("glCopyImageSubDataOES");
@@ -264,14 +277,24 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
             if (textureViewAddress != 0)
                 textureViewExt = Marshal.GetDelegateForFunctionPointer<TextureViewExtDelegate>(textureViewAddress);
 
-            bool hasBaseVertexExtension = gl.IsExtensionPresent(ExtDrawElementsBaseVertex.ExtensionName);
+            bool hasBaseVertexExtension =
+                gl.IsExtensionPresent(ExtDrawElementsBaseVertex.ExtensionName) &&
+                contextProvider.GetProcAddress("glDrawElementsInstancedBaseVertexEXT") != 0;
             if (hasBaseVertexExtension)
                 drawElementsBaseVertexApi = new ExtDrawElementsBaseVertex(gl.Context);
 
-            // EXT_base_instance depends on EXT_draw_elements_base_vertex; do not load or report
-            // its functions independently of that required extension.
-            if (hasBaseVertexExtension && gl.IsExtensionPresent(ExtBaseInstance.ExtensionName))
+            // EXT_base_instance depends on EXT_draw_elements_base_vertex. Only expose its
+            // direct-draw contract after resolving every entry point this command list can call.
+            if (hasBaseVertexExtension &&
+                gl.IsExtensionPresent(ExtBaseInstance.ExtensionName) &&
+                HasEntryPoints(
+                    contextProvider,
+                    "glDrawArraysInstancedBaseInstanceEXT",
+                    "glDrawElementsInstancedBaseInstanceEXT",
+                    "glDrawElementsInstancedBaseVertexBaseInstanceEXT"))
+            {
                 baseInstanceApi = new ExtBaseInstance(gl.Context);
+            }
 
             OpenGLESCapabilityProfile profile = QueryProfile(
                 gl,
@@ -644,6 +667,17 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
         }
 
         return supported;
+    }
+
+    private static bool HasEntryPoints(IOpenGLESContextProvider contextProvider, params string[] entryPoints)
+    {
+        for (int i = 0; i < entryPoints.Length; i++)
+        {
+            if (contextProvider.GetProcAddress(entryPoints[i]) == 0)
+                return false;
+        }
+
+        return true;
     }
 
     private static uint ToUInt(int value) => value <= 0 ? 0u : (uint)value;
