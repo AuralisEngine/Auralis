@@ -244,8 +244,13 @@ internal sealed class OpenGLESGraphicsCommandList : GraphicsDeviceObject, IGraph
             "Unsigned-integer color attachment clears are not implemented by this OpenGL ES backend.");
     }
 
-    public void ClearColorSInt(uint attachmentIndex, in GraphicsClearColorSInt color) =>
-        throw new GraphicsValidationException("Integer framebuffer clear operations are not implemented by this GLES backend.");
+    public void ClearColorSInt(uint attachmentIndex, in GraphicsClearColorSInt color)
+    {
+        EnsureRecording();
+        EnsureGraphicsQueue();
+        throw new GraphicsValidationException(
+            "Signed-integer color attachment clears are not implemented by this OpenGL ES backend.");
+    }
 
     public void ClearDepthStencil(
         float depth,
