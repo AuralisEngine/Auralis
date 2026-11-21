@@ -8,6 +8,7 @@ using Auralis.Graphics.Synchronization;
 using Silk.NET.OpenGL;
 using Silk.NET.OpenGL.Extensions.ARB;
 using Silk.NET.OpenGL.Extensions.EXT;
+using Silk.NET.OpenGL.Extensions.NV;
 
 namespace Auralis.Graphics.Backends.OpenGL;
 
@@ -695,6 +696,13 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
         EnsureRecording();
         EnsureMeshPipeline();
         EnsureDrawReady();
+        OpenGLGraphicsDevice device = (OpenGLGraphicsDevice)Device;
+        if (device.MeshShaderApi is null && device.NvMeshShaderApi is not null)
+        {
+            throw new GraphicsValidationException(
+                "GL_NV_mesh_shader indirect commands use a two-field { count, first } layout, " +
+                "while the common Auralis command uses three-dimensional { groupCountX, groupCountY, groupCountZ } arguments.");
+        }
         ValidateIndirectBuffer(arguments, offset, drawCount, ref stride, 12);
 
         _commands.Add(new OpenGLRecordedCommand
@@ -933,7 +941,8 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
         ArbShaderImageLoadStore imageLoadStoreApi,
         ArbDrawBuffersBlend drawBuffersBlendApi,
         ArbComputeShader computeShaderApi,
-        ExtMeshShader? meshShaderApi)
+        ExtMeshShader? meshShaderApi,
+        NVMeshShader? nvMeshShaderApi)
     {
         ReadOnlySpan<OpenGLRecordedCommand> commands = Commands;
         uint framebuffer = 0;
@@ -1122,16 +1131,34 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
                         }
                         break;
                     case OpenGLCommandKind.DrawMeshTasks:
-                        if (activePipeline is null || !activePipeline.IsMeshPipeline || meshShaderApi is null)
+                        if (activePipeline is null || !activePipeline.IsMeshPipeline)
                             throw new GraphicsValidationException("A supported mesh-shader pipeline must be active before mesh-task drawing.");
-                        meshShaderApi.DrawMeshTask(
-                            command.GroupCountX,
-                            command.GroupCountY,
-                            command.GroupCountZ);
+                        if (meshShaderApi is not null)
+                        {
+                            meshShaderApi.DrawMeshTask(
+                                command.GroupCountX,
+                                command.GroupCountY,
+                                command.GroupCountZ);
+                        }
+                        else if (nvMeshShaderApi is not null)
+                        {
+                            // NV exposes only a one-dimensional (first, count) draw. The
+                            // recording-side limit validation restricts Y/Z to one.
+                            if (command.GroupCountY != 1 || command.GroupCountZ != 1)
+                                throw new GraphicsValidationException(
+                                    "GL_NV_mesh_shader supports one-dimensional mesh-task dispatch only.");
+                            nvMeshShaderApi.DrawMeshTask(0, command.GroupCountX);
+                        }
+                        else
+                        {
+                            throw new GraphicsFeatureNotSupportedException(
+                                GraphicsFeature.MeshShaders, GraphicsFeature.MeshShaders);
+                        }
                         break;
                     case OpenGLCommandKind.DrawMeshTasksIndirect:
                         if (activePipeline is null || !activePipeline.IsMeshPipeline || meshShaderApi is null)
-                            throw new GraphicsValidationException("A supported mesh-shader pipeline must be active before indirect mesh-task drawing.");
+                            throw new GraphicsValidationException(
+                                "Indirect mesh-task drawing requires the EXT three-dimensional indirect command path.");
                         gl.BindBuffer(
                             BufferTargetARB.DrawIndirectBuffer,
                             ((OpenGLGraphicsBuffer)command.SourceBuffer!).Handle);
