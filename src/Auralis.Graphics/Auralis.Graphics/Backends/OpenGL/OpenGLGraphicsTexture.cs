@@ -7,7 +7,7 @@ using Silk.NET.OpenGL.Extensions.ARB;
 namespace Auralis.Graphics.Backends.OpenGL;
 
 /// <summary>Immutable-storage OpenGL texture. Its GL name and all views are device-owned.</summary>
-internal sealed class OpenGLGraphicsTexture : GraphicsDeviceObject, IGraphicsTexture, IOpenGLNativeResource
+internal sealed class OpenGLGraphicsTexture : OpenGLNativeDeviceObject, IGraphicsTexture
 {
     private readonly OpenGLGraphicsDevice _device;
     private uint _handle;
@@ -29,8 +29,8 @@ internal sealed class OpenGLGraphicsTexture : GraphicsDeviceObject, IGraphicsTex
     {
         get
         {
-            ThrowIfDisposed();
-            return _handle;
+            uint handle = Volatile.Read(ref _handle);
+            return handle != 0 ? handle : throw new ObjectDisposedException(nameof(OpenGLGraphicsTexture));
         }
     }
 
@@ -124,9 +124,9 @@ internal sealed class OpenGLGraphicsTexture : GraphicsDeviceObject, IGraphicsTex
                 _device, gl, _device.DirectStateAccess, _device.TextureViewApi, this, viewDescription));
     }
 
-    protected override void DisposeCore() => _device.ReleaseResource(this);
+    protected override void DisposeCore() => ReleaseOwnerReference();
 
-    public void ReleaseNative(GL gl)
+    public override void ReleaseNative(GL gl)
     {
         uint handle = Interlocked.Exchange(ref _handle, 0);
         if (handle != 0)
@@ -135,7 +135,7 @@ internal sealed class OpenGLGraphicsTexture : GraphicsDeviceObject, IGraphicsTex
 }
 
 /// <summary>Immutable-storage OpenGL texture view, retaining its parent resource identity.</summary>
-internal sealed class OpenGLGraphicsTextureView : GraphicsDeviceObject, IGraphicsTextureView, IOpenGLNativeResource
+internal sealed class OpenGLGraphicsTextureView : OpenGLNativeDeviceObject, IGraphicsTextureView
 {
     private readonly OpenGLGraphicsDevice _device;
     private uint _handle;
@@ -160,8 +160,8 @@ internal sealed class OpenGLGraphicsTextureView : GraphicsDeviceObject, IGraphic
     {
         get
         {
-            ThrowIfDisposed();
-            return _handle;
+            uint handle = Volatile.Read(ref _handle);
+            return handle != 0 ? handle : throw new ObjectDisposedException(nameof(OpenGLGraphicsTextureView));
         }
     }
 
