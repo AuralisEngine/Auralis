@@ -319,6 +319,9 @@ internal static class Program
             GraphicsFormat.RGBA8UNorm,
             1, 1, 1, 1, 1, 1,
             GraphicsTextureUsage.Storage));
+        uint originalTextureHandle = ((OpenGLESGraphicsTexture)sampledTexture).Handle;
+        uint originalSamplerHandle;
+        uint originalStorageImageHandle;
         using IGraphicsTextureView storageView = storageTexture.CreateView(new GraphicsTextureViewDescription(
             GraphicsFormat.Unknown, GraphicsTextureViewType.Texture2D, 0, 1, 0, 1));
         using IGraphicsTexture alternativeStorageTexture = device.CreateTexture(new GraphicsTextureDescription(
@@ -357,6 +360,8 @@ internal static class Program
             GraphicsFilter.Nearest, GraphicsFilter.Nearest, GraphicsFilter.Nearest,
             GraphicsAddressMode.ClampToEdge, GraphicsAddressMode.ClampToEdge, GraphicsAddressMode.ClampToEdge,
             0, 0));
+        originalSamplerHandle = ((OpenGLESGraphicsSampler)linearSampler).Handle;
+        originalStorageImageHandle = ((OpenGLESGraphicsTexture)storageTexture).Handle;
 
         using IGraphicsBindingLayout bindingLayout = device.CreateBindingLayout(new GraphicsBindingLayoutDescription(
         [
@@ -476,6 +481,19 @@ internal static class Program
             if (missingArrayElementBinding != 0)
                 throw new InvalidOperationException(
                     $"Partially-bound GLES SSBO array element zero was not explicitly unbound (binding={missingArrayElementBinding}).");
+            glesDevice.Api.GetInteger(GLEnum.ImageBindingName, 0, out int imageBinding);
+            if (imageBinding != (int)originalStorageImageHandle)
+                throw new InvalidOperationException(
+                    $"The storage-image descriptor snapshot bound {imageBinding}, expected {originalStorageImageHandle}.");
+            glesDevice.Api.GetInteger(GLEnum.SamplerBinding, 2, out int samplerBinding);
+            if (samplerBinding != (int)originalSamplerHandle)
+                throw new InvalidOperationException(
+                    $"The combined-sampler descriptor snapshot bound {samplerBinding}, expected {originalSamplerHandle}.");
+            glesDevice.Api.ActiveTexture((TextureUnit)0x84C2);
+            glesDevice.Api.GetInteger(GLEnum.TextureBinding2D, out int textureBinding);
+            if (textureBinding != (int)originalTextureHandle)
+                throw new InvalidOperationException(
+                    $"The combined-texture descriptor snapshot bound {textureBinding}, expected {originalTextureHandle}.");
             glesDevice.Api.DeleteBuffer(sentinelBuffer);
         }
         finally
