@@ -469,7 +469,7 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
             for (int i = 0; i < s_multisampleFormats.Length; i++)
             {
                 GraphicsFormat format = s_multisampleFormats[i];
-                if (format is GraphicsFormat.D32Float or GraphicsFormat.D32FloatS8UInt &&
+                if ((format is GraphicsFormat.D32Float or GraphicsFormat.D32FloatS8UInt) &&
                     !profile.Version.IsAtLeast(3, 2))
                     continue;
 
@@ -666,7 +666,7 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
         if (profile.Version.IsAtLeast(3, 1))
             integerStorageSupport |= GraphicsFormatSupport.Storage;
 
-        GraphicsFormatSupport floatStorageSupport = GraphicsFormatSupport.Sampled;
+        GraphicsFormatSupport floatStorageSupport = floatingSampledSupport;
         if (profile.Version.IsAtLeast(3, 1))
             floatStorageSupport |= GraphicsFormatSupport.Storage;
 
