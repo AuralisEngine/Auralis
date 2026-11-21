@@ -178,6 +178,8 @@ internal sealed class OpenGLESGraphicsBindingSet : GraphicsDeviceObject, IGraphi
 
     public IGraphicsBindingLayout Layout { get; }
 
+    internal int ValueCount => _values.Length;
+
     public void SetBuffer(
         uint binding,
         uint arrayElement,
