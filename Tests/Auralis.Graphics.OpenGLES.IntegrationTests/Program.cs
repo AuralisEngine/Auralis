@@ -94,10 +94,12 @@ internal static class Program
                 unsignedCaps.Supports(GraphicsFormatSupport.ColorAttachment) &&
                 device.Capabilities.TryGetFormatCapabilities(GraphicsFormat.RGBA8SInt, out GraphicsFormatCapabilities signedCaps) &&
                 signedCaps.Supports(GraphicsFormatSupport.ColorAttachment);
-            if (hasIntegerColorAttachments)
-                RunTest("typed signed/unsigned integer color clears", "signed and unsigned integer color attachments", () => RunIntegerColorClears(device, context));
+            if (hasIntegerColorAttachments &&
+                device.Capabilities.Limits.MaxColorAttachments >= 3 &&
+                device.Capabilities.Limits.MaxColorDrawBuffers >= 3)
+                RunTest("typed signed/unsigned integer color clears", "signed and unsigned integer formats plus three color attachments", () => RunIntegerColorClears(device, context));
             else
-                SkipTest("typed signed/unsigned integer color clears", "RGBA8 integer attachment formats", "the driver does not report both signed and unsigned RGBA8 color attachments");
+                SkipTest("typed signed/unsigned integer color clears", "signed and unsigned integer formats plus three color attachments", "the driver lacks one of the required RGBA8 integer color formats or reports fewer than three color attachments/draw buffers");
 
             string multiDrawPath = device.Capabilities.Features.Supports(GraphicsFeature.MultiDrawIndirect)
                 ? "native GL_EXT_multi_draw_indirect"
