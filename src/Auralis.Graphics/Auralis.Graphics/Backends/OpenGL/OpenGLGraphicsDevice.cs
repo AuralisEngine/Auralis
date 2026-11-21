@@ -341,14 +341,16 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
             {
                 maxNvDrawMeshTasksCount = ToUInt(gl.GetInteger((GLEnum)0x953D)); // GL_MAX_DRAW_MESH_TASKS_COUNT_NV
                 if (maxNvDrawMeshTasksCount == 0)
-                    throw new GraphicsBackendUnavailableException(
-                        GraphicsBackend.OpenGL,
-                        "GL_NV_mesh_shader was advertised but GL_MAX_DRAW_MESH_TASKS_COUNT_NV is zero.");
-
-                // When EXT is also available, keep its 3D limits as the default capability
-                // snapshot. NV pipelines use the independently queried one-dimensional limit.
-                if (meshShaderApi is null)
                 {
+                    // NV is optional. A broken/zero NV limit must not invalidate a usable
+                    // EXT implementation on a driver that happens to expose both extensions.
+                    nvMeshShaderApi.Dispose();
+                    nvMeshShaderApi = null;
+                }
+                else if (meshShaderApi is null)
+                {
+                    // With NV-only support, expose the one-dimensional NV limit through the
+                    // common capability snapshot. NV pipelines retain the dedicated limit too.
                     maxMeshWorkGroupCountX = maxNvDrawMeshTasksCount;
                     maxMeshWorkGroupCountY = 1;
                     maxMeshWorkGroupCountZ = 1;
