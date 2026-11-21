@@ -222,10 +222,6 @@ internal sealed unsafe class OpenGLESGraphicsRenderPipeline : OpenGLESGraphicsPi
         if (raster.DepthBiasEnabled)
             gl.PolygonOffset(raster.DepthBiasSlopeFactor, raster.DepthBiasConstantFactor);
 
-        if (Description.Topology == GraphicsPrimitiveTopology.PatchList &&
-            Description.Tessellation is { } tessellation)
-
-
         GraphicsDepthStencilState depth = Description.DepthStencil;
         SetEnabled(gl, GLEnum.DepthTest, depth.DepthTestEnabled);
         gl.DepthMask(depth.DepthWriteEnabled);
