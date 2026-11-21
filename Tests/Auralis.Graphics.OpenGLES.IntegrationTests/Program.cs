@@ -137,6 +137,28 @@ internal static class Program
         using IGraphicsTexture cube = device.CreateTexture(new GraphicsTextureDescription(
             GraphicsTextureDimension.Cube, GraphicsFormat.RGBA8UNorm,
             32, 32, 1, 1, 6, 1, GraphicsTextureUsage.Sampled));
+
+        uint multisampleCount =
+            device.Capabilities.SupportsSampleCount(GraphicsFormat.RGBA8UNorm, 4) ? 4u :
+            device.Capabilities.SupportsSampleCount(GraphicsFormat.RGBA8UNorm, 2) ? 2u : 1u;
+        if (multisampleCount > 1)
+        {
+            using IGraphicsTexture multisample = device.CreateTexture(new GraphicsTextureDescription(
+                GraphicsTextureDimension.Texture2D,
+                GraphicsFormat.RGBA8UNorm,
+                64, 64, 1, 1, 1, multisampleCount,
+                GraphicsTextureUsage.Sampled | GraphicsTextureUsage.ColorAttachment));
+            using IGraphicsTextureView multisampleView = multisample.CreateView(
+                new GraphicsTextureViewDescription(
+                    GraphicsFormat.Unknown,
+                    GraphicsTextureViewType.Texture2DMultisample,
+                    0, 1, 0, 1));
+            Console.WriteLine($"PASS: GLES {multisampleCount}x multisample texture allocation and identity view.");
+        }
+        else
+        {
+            Console.WriteLine("SKIP: no multisample sample count is reported for RGBA8Unorm.");
+        }
         using IGraphicsSampler sampler = device.CreateSampler(new GraphicsSamplerDescription(
             GraphicsFilter.Linear, GraphicsFilter.Linear, GraphicsFilter.Linear,
             GraphicsAddressMode.ClampToEdge, GraphicsAddressMode.ClampToEdge, GraphicsAddressMode.ClampToEdge,
