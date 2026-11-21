@@ -247,6 +247,12 @@ public interface IGraphicsCommandList : IGraphicsDeviceObject
 
     void DrawIndexedIndirect(IGraphicsBuffer arguments, ulong offset, uint drawCount = 1, uint stride = 0);
 
+    /// <summary>Records a mesh-shader work-group dispatch. Requires a mesh pipeline.</summary>
+    void DrawMeshTasks(uint groupCountX, uint groupCountY = 1, uint groupCountZ = 1);
+
+    /// <summary>Records one or more mesh-task commands from a GPU indirect-argument buffer.</summary>
+    void DrawMeshTasksIndirect(IGraphicsBuffer arguments, ulong offset, uint drawCount = 1, uint stride = 0);
+
     void Dispatch(uint groupCountX, uint groupCountY = 1, uint groupCountZ = 1);
 
     void DispatchIndirect(IGraphicsBuffer arguments, ulong offset);
