@@ -979,6 +979,87 @@ public sealed class OpenGLESIntegerFormatCapabilityTests
         Assert.False(capabilities.SupportsSampleCount(GraphicsFormat.RGBA8UInt, 4));
     }
 
+    [Fact]
+    public void QueryCapabilities_Exposes32BitDepthFormatsOnlyOnEs32()
+    {
+        OpenGLESGraphicsDevice.OpenGLESQueriedLimits queried = CreateQueriedLimits();
+
+        GraphicsDeviceCapabilities es31 = OpenGLESGraphicsDevice.QueryCapabilities(
+            OpenGLESCapabilityProfile.Create(
+                new OpenGLESVersion(3, 1),
+                ReadOnlySpan<string>.Empty,
+                supportsPresentation: false),
+            queried);
+        GraphicsDeviceCapabilities es32 = OpenGLESGraphicsDevice.QueryCapabilities(
+            OpenGLESCapabilityProfile.Create(
+                new OpenGLESVersion(3, 2),
+                ReadOnlySpan<string>.Empty,
+                supportsPresentation: false),
+            queried);
+
+        Assert.False(es31.SupportsFormat(
+            GraphicsFormat.D32Float, GraphicsFormatSupport.DepthStencilAttachment));
+        Assert.False(es31.SupportsFormat(
+            GraphicsFormat.D32FloatS8UInt, GraphicsFormatSupport.DepthStencilAttachment));
+        Assert.True(es32.SupportsFormat(
+            GraphicsFormat.D32Float, GraphicsFormatSupport.DepthStencilAttachment));
+        Assert.True(es32.SupportsFormat(
+            GraphicsFormat.D32FloatS8UInt, GraphicsFormatSupport.DepthStencilAttachment));
+    }
+
+    [Fact]
+    public void QueryCapabilities_UsesDistinctHalfFloatAndFullFloatFilteringRules()
+    {
+        OpenGLESGraphicsDevice.OpenGLESQueriedLimits queried = CreateQueriedLimits();
+        OpenGLESCapabilityProfile withoutFloatLinear = OpenGLESCapabilityProfile.Create(
+            new OpenGLESVersion(3, 1),
+            ReadOnlySpan<string>.Empty,
+            supportsPresentation: false);
+        OpenGLESCapabilityProfile withFloatLinear = OpenGLESCapabilityProfile.Create(
+            new OpenGLESVersion(3, 1),
+            new[] { "GL_OES_texture_float_linear" },
+            supportsPresentation: false);
+
+        GraphicsDeviceCapabilities baseline =
+            OpenGLESGraphicsDevice.QueryCapabilities(withoutFloatLinear, queried);
+        GraphicsDeviceCapabilities filtered =
+            OpenGLESGraphicsDevice.QueryCapabilities(withFloatLinear, queried);
+
+        Assert.True(baseline.SupportsFormat(
+            GraphicsFormat.R16Float, GraphicsFormatSupport.LinearFiltering));
+        Assert.True(baseline.SupportsFormat(
+            GraphicsFormat.RGBA16Float, GraphicsFormatSupport.LinearFiltering));
+        Assert.False(baseline.SupportsFormat(
+            GraphicsFormat.R32Float, GraphicsFormatSupport.LinearFiltering));
+        Assert.True(filtered.SupportsFormat(
+            GraphicsFormat.R32Float, GraphicsFormatSupport.LinearFiltering));
+        Assert.True(filtered.SupportsFormat(
+            GraphicsFormat.RGBA32Float, GraphicsFormatSupport.LinearFiltering));
+    }
+
+    private static OpenGLESGraphicsDevice.OpenGLESQueriedLimits CreateQueriedLimits() => new(
+        MaxTextureSize: 4096,
+        MaxTexture3DSize: 256,
+        MaxArrayLayers: 256,
+        MaxVertexAttributes: 16,
+        MaxUniformBufferBindings: 24,
+        MaxStorageBufferBindings: 8,
+        MaxTextureUnits: 16,
+        MaxImageUnits: 8,
+        UniformBufferOffsetAlignment: 256,
+        StorageBufferOffsetAlignment: 256,
+        MaxComputeInvocations: 1024,
+        MaxComputeWorkGroupSizeX: 1024,
+        MaxComputeWorkGroupSizeY: 1024,
+        MaxComputeWorkGroupSizeZ: 64,
+        MaxComputeWorkGroupCountX: 65535,
+        MaxComputeWorkGroupCountY: 65535,
+        MaxComputeWorkGroupCountZ: 65535,
+        MaxTessellationPatchSize: 32,
+        MaxAnisotropy: 1,
+        MaxColorAttachments: 4,
+        MaxColorDrawBuffers: 4);
+
     [Theory]
     [InlineData(GraphicsFormat.R8UInt, SizedInternalFormat.R8ui)]
     [InlineData(GraphicsFormat.R8SInt, SizedInternalFormat.R8i)]
