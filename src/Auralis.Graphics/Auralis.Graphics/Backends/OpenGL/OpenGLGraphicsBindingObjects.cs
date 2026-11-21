@@ -272,7 +272,7 @@ internal static class OpenGLBindingSetBinder
                     false,
                     0,
                     BufferAccessARB.ReadWrite,
-                    (InternalFormat)0);
+                    (InternalFormat)SizedInternalFormat.Rgba8);
                 break;
 
             default:
