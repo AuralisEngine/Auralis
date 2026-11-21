@@ -514,24 +514,46 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
     public void DrawMeshTasksIndirect(IGraphicsBuffer arguments, ulong offset, uint drawCount = 1, uint stride = 0) =>
         throw new GraphicsFeatureNotSupportedException(GraphicsFeature.MeshShaders, GraphicsFeature.MeshShaders);
 
-    public void Dispatch(uint groupCountX, uint groupCountY = 1, uint groupCountZ = 1)
+    internal static bool TryCreateDispatchCommand(
+        uint groupCountX,
+        uint groupCountY,
+        uint groupCountZ,
+        uint maxGroupCountX,
+        uint maxGroupCountY,
+        uint maxGroupCountZ,
+        out OpenGLESCmd command)
     {
-        EnsureRecording();
-        EnsureComputeReady();
         OpenGLESComputeWorkGroupValidation.ValidateDispatch(
-            groupCountX,
-            groupCountY,
-            groupCountZ,
-            _queue.GlesDevice.MaxComputeWorkGroupCountX,
-            _queue.GlesDevice.MaxComputeWorkGroupCountY,
-            _queue.GlesDevice.MaxComputeWorkGroupCountZ);
-        _commands.Add(new OpenGLESCmd
+            groupCountX, groupCountY, groupCountZ,
+            maxGroupCountX, maxGroupCountY, maxGroupCountZ);
+
+        command = default;
+        if (groupCountX == 0 || groupCountY == 0 || groupCountZ == 0)
+            return false;
+
+        command = new OpenGLESCmd
         {
             Kind = OpenGLESCmdKind.Dispatch,
             GroupsX = groupCountX,
             GroupsY = groupCountY,
             GroupsZ = groupCountZ
-        });
+        };
+        return true;
+    }
+
+    public void Dispatch(uint groupCountX, uint groupCountY = 1, uint groupCountZ = 1)
+    {
+        EnsureRecording();
+        EnsureComputeReady();
+        if (TryCreateDispatchCommand(
+            groupCountX, groupCountY, groupCountZ,
+            _queue.GlesDevice.MaxComputeWorkGroupCountX,
+            _queue.GlesDevice.MaxComputeWorkGroupCountY,
+            _queue.GlesDevice.MaxComputeWorkGroupCountZ,
+            out OpenGLESCmd command))
+        {
+            _commands.Add(command);
+        }
     }
 
     public void DispatchIndirect(IGraphicsBuffer arguments, ulong offset)
@@ -622,6 +644,9 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
         uint drawFramebuffer = 0;
         OpenGLESGraphicsRenderPipeline? activeRenderPipeline = null;
         OpenGLESGraphicsPipelineLayout? activePipelineLayout = null;
+        Span<float> clearColorValues = stackalloc float[4];
+        Span<float> depthClearValue = stackalloc float[1];
+        Span<int> stencilClearValue = stackalloc int[1];
         try
         {
             for (int i = 0; i < _commands.Count; i++)
@@ -713,14 +738,11 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
 
                     case OpenGLESCmdKind.ClearColor:
                         gl.ColorMask(true, true, true, true);
-                        Span<float> clearColor = stackalloc float[4]
-                        {
-                            command.ClearColor.Red,
-                            command.ClearColor.Green,
-                            command.ClearColor.Blue,
-                            command.ClearColor.Alpha
-                        };
-                        gl.ClearBuffer(GLEnum.Color, 0, clearColor);
+                        clearColorValues[0] = command.ClearColor.Red;
+                        clearColorValues[1] = command.ClearColor.Green;
+                        clearColorValues[2] = command.ClearColor.Blue;
+                        clearColorValues[3] = command.ClearColor.Alpha;
+                        gl.ClearBuffer(GLEnum.Color, 0, clearColorValues);
                         RestoreFramebufferWriteMasks(gl, activeRenderPipeline);
                         break;
 
@@ -730,13 +752,13 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
                         gl.StencilMaskSeparate(GLEnum.Back, uint.MaxValue);
                         if (command.ClearDepthEnabled)
                         {
-                            Span<float> depth = stackalloc float[1] { command.ClearDepth };
-                            gl.ClearBuffer(GLEnum.Depth, 0, depth);
+                            depthClearValue[0] = command.ClearDepth;
+                            gl.ClearBuffer(GLEnum.Depth, 0, depthClearValue);
                         }
                         if (command.ClearStencilEnabled)
                         {
-                            Span<int> stencil = stackalloc int[1] { unchecked((int)command.ClearStencil) };
-                            gl.ClearBuffer(GLEnum.Stencil, 0, stencil);
+                            stencilClearValue[0] = unchecked((int)command.ClearStencil);
+                            gl.ClearBuffer(GLEnum.Stencil, 0, stencilClearValue);
                         }
                         RestoreFramebufferWriteMasks(gl, activeRenderPipeline);
                         break;
