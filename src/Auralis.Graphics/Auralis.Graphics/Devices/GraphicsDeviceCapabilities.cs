@@ -21,7 +21,15 @@ public readonly record struct GraphicsDeviceLimits(
     float MaxSamplerAnisotropy,
     uint MaxTessellationPatchSize = 0,
     uint MaxColorAttachments = 0,
-    uint MaxColorDrawBuffers = 0);
+    uint MaxColorDrawBuffers = 0,
+    uint MaxMeshWorkGroupCountX = 0,
+    uint MaxMeshWorkGroupCountY = 0,
+    uint MaxMeshWorkGroupCountZ = 0,
+    uint MaxMeshWorkGroupTotalCount = 0,
+    uint MaxTaskWorkGroupCountX = 0,
+    uint MaxTaskWorkGroupCountY = 0,
+    uint MaxTaskWorkGroupCountZ = 0,
+    uint MaxTaskWorkGroupTotalCount = 0);
 
 /// <summary>Describes the operations supported for a particular texture format.</summary>
 public readonly record struct GraphicsFormatCapabilities(
