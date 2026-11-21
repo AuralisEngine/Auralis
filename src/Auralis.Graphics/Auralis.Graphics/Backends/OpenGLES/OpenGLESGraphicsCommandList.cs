@@ -31,6 +31,8 @@ internal enum OpenGLESCmdKind : byte
     DrawIndexed,
     DrawIndirect,
     DrawIndexedIndirect,
+    DrawMeshTasks,
+    DrawMeshTasksIndirect,
     Dispatch,
     DispatchIndirect
 }
@@ -552,11 +554,46 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
         });
     }
 
-    public void DrawMeshTasks(uint groupCountX, uint groupCountY = 1, uint groupCountZ = 1) =>
-        throw new GraphicsFeatureNotSupportedException(GraphicsFeature.MeshShaders, GraphicsFeature.MeshShaders);
+    public void DrawMeshTasks(uint groupCountX, uint groupCountY = 1, uint groupCountZ = 1)
+    {
+        EnsureRecording();
+        OpenGLESGraphicsRenderPipeline pipeline = EnsureMeshPipeline();
+        OpenGLESGraphicsDevice device = _queue.GlesDevice;
 
-    public void DrawMeshTasksIndirect(IGraphicsBuffer arguments, ulong offset, uint drawCount = 1, uint stride = 0) =>
-        throw new GraphicsFeatureNotSupportedException(GraphicsFeature.MeshShaders, GraphicsFeature.MeshShaders);
+        OpenGLMeshTaskValidation.Validate(
+            groupCountX,
+            groupCountY,
+            groupCountZ,
+            pipeline.IsTaskPipeline ? device.MaxTaskWorkGroupCountX : device.MaxMeshWorkGroupCountX,
+            pipeline.IsTaskPipeline ? device.MaxTaskWorkGroupCountY : device.MaxMeshWorkGroupCountY,
+            pipeline.IsTaskPipeline ? device.MaxTaskWorkGroupCountZ : device.MaxMeshWorkGroupCountZ,
+            pipeline.IsTaskPipeline ? device.MaxTaskWorkGroupTotalCount : device.MaxMeshWorkGroupTotalCount,
+            pipeline.IsTaskPipeline ? GraphicsFeature.TaskShaders : GraphicsFeature.MeshShaders);
+
+        _commands.Add(new OpenGLESCmd
+        {
+            Kind = OpenGLESCmdKind.DrawMeshTasks,
+            GroupsX = groupCountX,
+            GroupsY = groupCountY,
+            GroupsZ = groupCountZ
+        });
+    }
+
+    public void DrawMeshTasksIndirect(IGraphicsBuffer arguments, ulong offset, uint drawCount = 1, uint stride = 0)
+    {
+        EnsureRecording();
+        _ = EnsureMeshPipeline();
+        ValidateIndirect(arguments, offset, drawCount, 12, stride);
+
+        _commands.Add(new OpenGLESCmd
+        {
+            Kind = OpenGLESCmdKind.DrawMeshTasksIndirect,
+            Buffer0 = arguments,
+            Offset0 = offset,
+            DrawCount = drawCount,
+            Stride = stride
+        });
+    }
 
     internal static bool TryCreateDispatchCommand(
         uint groupCountX,
@@ -1054,6 +1091,40 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
                         gl.BindBuffer(BufferTargetARB.DrawIndirectBuffer, 0);
                         break;
 
+                    case OpenGLESCmdKind.DrawMeshTasks:
+                        (_queue.GlesDevice.DrawMeshTasksExt ?? throw new GraphicsFeatureNotSupportedException(
+                            GraphicsFeature.MeshShaders, GraphicsFeature.MeshShaders))(
+                            command.GroupsX, command.GroupsY, command.GroupsZ);
+                        break;
+
+                    case OpenGLESCmdKind.DrawMeshTasksIndirect:
+                    {
+                        OpenGLESGraphicsDevice meshDevice = _queue.GlesDevice;
+                        DrawMeshTasksIndirectExtDelegate drawIndirect =
+                            meshDevice.DrawMeshTasksIndirectExt ??
+                            throw new GraphicsFeatureNotSupportedException(
+                                GraphicsFeature.MeshShaders, GraphicsFeature.MeshShaders);
+                        gl.BindBuffer(BufferTargetARB.DrawIndirectBuffer, ((OpenGLESGraphicsBuffer)command.Buffer0!).Handle);
+                        if (command.DrawCount > 1 && meshDevice.MultiDrawMeshTasksIndirectExt is { } multiDraw)
+                        {
+                            multiDraw(
+                                checked((nint)command.Offset0),
+                                command.DrawCount,
+                                command.Stride);
+                        }
+                        else
+                        {
+                            uint meshStride = command.Stride == 0 ? 12u : command.Stride;
+                            for (uint drawIndex = 0; drawIndex < command.DrawCount; drawIndex++)
+                            {
+                                ulong argumentOffset = checked(command.Offset0 + checked((ulong)drawIndex * meshStride));
+                                drawIndirect(checked((nint)argumentOffset));
+                            }
+                        }
+                        gl.BindBuffer(BufferTargetARB.DrawIndirectBuffer, 0);
+                        break;
+                    }
+
                     case OpenGLESCmdKind.Dispatch:
                         gl.DispatchCompute(command.GroupsX, command.GroupsY, command.GroupsZ);
                         break;
@@ -1438,6 +1509,20 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
 
     private static bool IsIntegerColorFormat(GraphicsFormat format) =>
         IsUnsignedIntegerColorFormat(format) || IsSignedIntegerColorFormat(format);
+
+    private OpenGLESGraphicsRenderPipeline EnsureMeshPipeline()
+    {
+        EnsureGraphicsReady();
+        OpenGLESGraphicsRenderPipeline pipeline = _renderPipeline!;
+        if (!pipeline.IsMeshPipeline)
+            throw new GraphicsValidationException("Mesh-task drawing requires an active mesh render pipeline.");
+        if (!_queue.GlesDevice.Capabilities.Features.Supports(GraphicsFeature.MeshShaders))
+            throw new GraphicsFeatureNotSupportedException(GraphicsFeature.MeshShaders, GraphicsFeature.MeshShaders);
+        if (pipeline.IsTaskPipeline &&
+            !_queue.GlesDevice.Capabilities.Features.Supports(GraphicsFeature.TaskShaders))
+            throw new GraphicsFeatureNotSupportedException(GraphicsFeature.TaskShaders, GraphicsFeature.TaskShaders);
+        return pipeline;
+    }
 
     private void EnsureGraphicsReady()
     {
