@@ -1100,9 +1100,24 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
         _hasDepthTarget = false;
         _colorCount = 0;
         _targetOffset = 0;
+        Exception? releaseFailure = null;
         foreach (IOpenGLESNativeResource resource in _retained)
-            resource.ReleaseReference();
+        {
+            try
+            {
+                resource.ReleaseReference();
+            }
+            catch (Exception exception)
+            {
+                releaseFailure ??= exception;
+            }
+        }
         _retained.Clear();
+
+        if (releaseFailure is not null)
+            throw new GraphicsException(
+                "One or more retained GLES resources failed to release during command-list cleanup.",
+                releaseFailure);
     }
 
     protected override void DisposeCore()
