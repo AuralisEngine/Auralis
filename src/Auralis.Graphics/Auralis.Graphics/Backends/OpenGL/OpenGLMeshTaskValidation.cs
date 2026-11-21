@@ -18,15 +18,16 @@ internal static class OpenGLMeshTaskValidation
         uint groupCountZ,
         uint maximumX,
         uint maximumY,
-        uint maximumZ)
+        uint maximumZ,
+        GraphicsFeature requiredFeature = GraphicsFeature.MeshShaders)
     {
         if (groupCountX == 0 || groupCountY == 0 || groupCountZ == 0)
             throw new GraphicsValidationException("Mesh-task work-group counts must all be greater than zero.");
 
         if (maximumX == 0 || maximumY == 0 || maximumZ == 0)
             throw new GraphicsFeatureNotSupportedException(
-                GraphicsFeature.MeshShaders,
-                GraphicsFeature.MeshShaders);
+                requiredFeature,
+                requiredFeature);
 
         if (groupCountX > maximumX || groupCountY > maximumY || groupCountZ > maximumZ)
         {
