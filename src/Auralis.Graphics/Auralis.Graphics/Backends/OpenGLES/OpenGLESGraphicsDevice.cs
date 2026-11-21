@@ -182,7 +182,10 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
 
         float maxAnisotropy = 1;
         if (profile.Features.Supports(GraphicsFeature.SamplerAnisotropy))
-            maxAnisotropy = Math.Max(1, gl.GetFloat((GLEnum)0x84FF));
+        {
+            gl.GetFloat((GLEnum)0x84FF, out maxAnisotropy);
+            maxAnisotropy = Math.Max(1, maxAnisotropy);
+        }
 
         return new OpenGLESQueriedLimits(
             maxTextureSize,
