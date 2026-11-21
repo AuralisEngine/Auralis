@@ -74,7 +74,7 @@ internal struct OpenGLESCmd
     internal uint GroupsZ;
 }
 
-internal sealed class OpenGLESGraphicsCommandList : GraphicsDeviceObject, IGraphicsCommandList
+internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject, IGraphicsCommandList
 {
     private readonly OpenGLESGraphicsCommandQueue _queue;
     private readonly GraphicsCommandListLifecycle _lifecycle;
@@ -618,15 +618,15 @@ internal sealed class OpenGLESGraphicsCommandList : GraphicsDeviceObject, IGraph
                 switch (command.Kind)
                 {
                     case OpenGLESCmdKind.Barrier:
-                        gl.MemoryBarrier((uint)MemoryBarrierMask.AllBarrierBits);
+                        gl.MemoryBarrier(unchecked((uint)MemoryBarrierMask.AllBarrierBits));
                         break;
 
                     case OpenGLESCmdKind.CopyBuffer:
                         gl.BindBuffer(BufferTargetARB.CopyReadBuffer, ((OpenGLESGraphicsBuffer)command.Buffer0!).Handle);
                         gl.BindBuffer(BufferTargetARB.CopyWriteBuffer, ((OpenGLESGraphicsBuffer)command.Buffer1!).Handle);
                         gl.CopyBufferSubData(
-                            BufferTargetARB.CopyReadBuffer,
-                            BufferTargetARB.CopyWriteBuffer,
+                            (GLEnum)BufferTargetARB.CopyReadBuffer,
+                            (GLEnum)BufferTargetARB.CopyWriteBuffer,
                             checked((nint)command.Offset0),
                             checked((nint)command.Offset1),
                             checked((nuint)command.Size));
@@ -656,7 +656,7 @@ internal sealed class OpenGLESGraphicsCommandList : GraphicsDeviceObject, IGraph
                         gl.BlitFramebuffer(
                             0, 0, (int)copyWidth, (int)copyHeight,
                             0, 0, (int)copyWidth, (int)copyHeight,
-                            GLEnum.ColorBufferBit,
+                            (uint)GLEnum.ColorBufferBit,
                             GLEnum.Nearest);
                         gl.DeleteFramebuffer(readFramebuffer);
                         gl.DeleteFramebuffer(drawFramebuffer);
@@ -672,11 +672,11 @@ internal sealed class OpenGLESGraphicsCommandList : GraphicsDeviceObject, IGraph
 
                     case OpenGLESCmdKind.Viewport:
                         gl.Viewport(
-                            command.Viewport.X,
-                            command.Viewport.Y,
-                            command.Viewport.Width,
-                            command.Viewport.Height);
-                        gl.DepthRangef(command.Viewport.MinDepth, command.Viewport.MaxDepth);
+                            checked((int)command.Viewport.X),
+                            checked((int)command.Viewport.Y),
+                            checked((uint)command.Viewport.Width),
+                            checked((uint)command.Viewport.Height));
+                        gl.DepthRange(command.Viewport.MinDepth, command.Viewport.MaxDepth);
                         break;
 
                     case OpenGLESCmdKind.Scissor:
@@ -694,14 +694,14 @@ internal sealed class OpenGLESGraphicsCommandList : GraphicsDeviceObject, IGraph
                             command.ClearColor.Green,
                             command.ClearColor.Blue,
                             command.ClearColor.Alpha);
-                        gl.Clear(GLEnum.ColorBufferBit);
+                        gl.Clear((uint)GLEnum.ColorBufferBit);
                         break;
 
                     case OpenGLESCmdKind.ClearDepthStencil:
                         if (command.ClearDepthEnabled)
                         {
-                            gl.ClearDepthf(command.ClearDepth);
-                            gl.Clear(GLEnum.DepthBufferBit);
+                            gl.ClearDepth(command.ClearDepth);
+                            gl.Clear((uint)GLEnum.DepthBufferBit);
                         }
                         break;
 
@@ -854,7 +854,7 @@ internal sealed class OpenGLESGraphicsCommandList : GraphicsDeviceObject, IGraph
                     case GraphicsDescriptorType.StorageTexture:
                         if (value.Texture is null)
                         {
-                            gl.BindImageTexture(slot, 0, 0, false, 0, BufferAccessARB.ReadWrite, SizedInternalFormat.Rgba8);
+                            gl.BindImageTexture(slot, 0, 0, false, 0, (GLEnum)BufferAccessARB.ReadWrite, (GLEnum)SizedInternalFormat.Rgba8);
                             break;
                         }
                         OpenGLESGraphicsTexture storageTexture = (OpenGLESGraphicsTexture)value.Texture.Texture;
@@ -864,8 +864,8 @@ internal sealed class OpenGLESGraphicsCommandList : GraphicsDeviceObject, IGraph
                             0,
                             false,
                             0,
-                            BufferAccessARB.ReadWrite,
-                            OpenGLESGraphicsTexture.GetInternalFormat(storageTexture.Description.Format));
+                            (GLEnum)BufferAccessARB.ReadWrite,
+                            (GLEnum)OpenGLESGraphicsTexture.GetInternalFormat(storageTexture.Description.Format));
                         break;
 
                     default:
