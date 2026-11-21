@@ -82,6 +82,13 @@ public sealed class GraphicsCommandListLifecycle
     public void MarkCompleted() =>
         Transition(GraphicsCommandListState.Pending, GraphicsCommandListState.Executable);
 
+    /// <summary>Attempts the Pending-to-Executable transition without failing if another owner won it.</summary>
+    internal bool TryMarkCompleted() =>
+        Interlocked.CompareExchange(
+            ref _state,
+            (int)GraphicsCommandListState.Executable,
+            (int)GraphicsCommandListState.Pending) == (int)GraphicsCommandListState.Pending;
+
     public void Reset()
     {
         if (Usage == GraphicsCommandListUsage.OneTimeSubmit && Volatile.Read(ref _hasBeenSubmitted) != 0)
