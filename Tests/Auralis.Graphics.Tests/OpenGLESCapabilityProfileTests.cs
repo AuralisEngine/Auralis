@@ -963,3 +963,67 @@ public sealed class OpenGLESIntegerFormatCapabilityTests
         Assert.Equal(expected, OpenGLESGraphicsTexture.GetInternalFormat(format));
     }
 }
+
+
+public sealed class OpenGLESCompressedFormatTests
+{
+    [Theory]
+    [InlineData(GraphicsFormat.BC1UNorm, 0x83F1)]
+    [InlineData(GraphicsFormat.BC1UNormSrgb, 0x8C4D)]
+    [InlineData(GraphicsFormat.BC3UNorm, 0x83F3)]
+    [InlineData(GraphicsFormat.BC3UNormSrgb, 0x8C4F)]
+    [InlineData(GraphicsFormat.BC5UNorm, 0x8DBD)]
+    [InlineData(GraphicsFormat.BC7UNorm, 0x8E8C)]
+    [InlineData(GraphicsFormat.BC7UNormSrgb, 0x8E8D)]
+    [InlineData(GraphicsFormat.ASTC4x4UNorm, 0x93B0)]
+    [InlineData(GraphicsFormat.ASTC4x4UNormSrgb, 0x93D0)]
+    public void GetInternalFormat_MapsExtensionDefinedCompressedFormats(
+        GraphicsFormat format,
+        int expected)
+    {
+        Assert.Equal(expected, (int)OpenGLESGraphicsTexture.GetInternalFormat(format));
+    }
+
+    [Fact]
+    public void QueryCapabilities_ReportsCompressedFormatsOnlyWhenExtensionsArePresent()
+    {
+        OpenGLESCapabilityProfile profile = OpenGLESCapabilityProfile.Create(
+            new OpenGLESVersion(3, 1),
+            [
+                "GL_EXT_texture_compression_s3tc",
+                "GL_EXT_texture_compression_s3tc_srgb",
+                "GL_EXT_texture_compression_rgtc",
+                "GL_EXT_texture_compression_bptc",
+                "GL_KHR_texture_compression_astc_ldr"
+            ],
+            supportsPresentation: false);
+
+        OpenGLESGraphicsDevice.OpenGLESQueriedLimits queried = new(
+            MaxTextureSize: 4096, MaxTexture3DSize: 256, MaxArrayLayers: 256,
+            MaxVertexAttributes: 16, MaxUniformBufferBindings: 24, MaxStorageBufferBindings: 8,
+            MaxTextureUnits: 16, MaxImageUnits: 8,
+            UniformBufferOffsetAlignment: 256, StorageBufferOffsetAlignment: 256,
+            MaxComputeInvocations: 1024, MaxComputeWorkGroupSizeX: 1024,
+            MaxComputeWorkGroupSizeY: 1024, MaxComputeWorkGroupSizeZ: 64,
+            MaxComputeWorkGroupCountX: 65535, MaxComputeWorkGroupCountY: 65535,
+            MaxComputeWorkGroupCountZ: 65535, MaxTessellationPatchSize: 0,
+            MaxAnisotropy: 1, MaxColorAttachments: 4, MaxColorDrawBuffers: 4);
+
+        GraphicsDeviceCapabilities capabilities =
+            OpenGLESGraphicsDevice.QueryCapabilities(profile, queried, supportsImageCopy: true);
+
+        Assert.True(capabilities.SupportsFormat(
+            GraphicsFormat.BC1UNorm,
+            GraphicsFormatSupport.Sampled | GraphicsFormatSupport.LinearFiltering |
+            GraphicsFormatSupport.CopySource | GraphicsFormatSupport.CopyDestination));
+        Assert.False(capabilities.SupportsFormat(GraphicsFormat.BC1UNorm, GraphicsFormatSupport.ColorAttachment));
+        Assert.False(capabilities.SupportsFormat(GraphicsFormat.BC1UNorm, GraphicsFormatSupport.Storage));
+        Assert.True(capabilities.SupportsFormat(GraphicsFormat.ASTC4x4UNormSrgb, GraphicsFormatSupport.Sampled));
+
+        OpenGLESCapabilityProfile noCompression = OpenGLESCapabilityProfile.Create(
+            new OpenGLESVersion(3, 1), ReadOnlySpan<string>.Empty, supportsPresentation: false);
+        GraphicsDeviceCapabilities limited = OpenGLESGraphicsDevice.QueryCapabilities(noCompression, queried);
+        Assert.False(limited.SupportsFormat(GraphicsFormat.BC1UNorm, GraphicsFormatSupport.Sampled));
+        Assert.False(limited.SupportsFormat(GraphicsFormat.ASTC4x4UNorm, GraphicsFormatSupport.Sampled));
+    }
+}
