@@ -7,11 +7,81 @@ namespace Auralis.Graphics.Backends.OpenGL;
 
 internal interface IOpenGLNativeResource
 {
+    bool TryRetain();
+    void ReleaseReference();
     void ReleaseNative(GL gl);
 }
 
+/// <summary>
+/// Device object whose native handle is retained independently from public Dispose state.
+/// The high bit closes the owner reference; the remaining bits count the owner and recorded uses.
+/// </summary>
+internal abstract class OpenGLNativeDeviceObject : GraphicsDeviceObject, IOpenGLNativeResource
+{
+    private const int ClosingMask = int.MinValue;
+    private const int ReferenceMask = int.MaxValue;
+    private readonly OpenGLGraphicsDevice _device;
+    private int _referenceState = 1;
+
+    protected OpenGLNativeDeviceObject(OpenGLGraphicsDevice device) : base(device) =>
+        _device = device;
+
+    public bool TryRetain()
+    {
+        while (true)
+        {
+            int state = Volatile.Read(ref _referenceState);
+            int references = state & ReferenceMask;
+            if ((state & ClosingMask) != 0 || references == 0)
+                return false;
+            if (references == ReferenceMask)
+                throw new InvalidOperationException("The OpenGL native resource reference count overflowed.");
+
+            if (Interlocked.CompareExchange(ref _referenceState, state + 1, state) == state)
+                return true;
+        }
+    }
+
+    public void ReleaseReference()
+    {
+        while (true)
+        {
+            int state = Volatile.Read(ref _referenceState);
+            int references = state & ReferenceMask;
+            if (references == 0)
+                throw new InvalidOperationException("An OpenGL native resource reference was released more than once.");
+
+            int nextState = (state & ClosingMask) | (references - 1);
+            if (Interlocked.CompareExchange(ref _referenceState, nextState, state) != state)
+                continue;
+
+            if (references == 1)
+                _device.ReleaseResource(this);
+            return;
+        }
+    }
+
+    protected void ReleaseOwnerReference()
+    {
+        while (true)
+        {
+            int state = Volatile.Read(ref _referenceState);
+            if ((state & ClosingMask) != 0)
+                throw new InvalidOperationException("The OpenGL native resource owner reference was already released.");
+
+            if (Interlocked.CompareExchange(
+                    ref _referenceState, state | ClosingMask, state) == state)
+                break;
+        }
+
+        ReleaseReference();
+    }
+
+    public abstract void ReleaseNative(GL gl);
+}
+
 /// <summary>Native OpenGL buffer with directly mapped driver memory.</summary>
-internal sealed unsafe class OpenGLGraphicsBuffer : GraphicsDeviceObject, IGraphicsBuffer, IOpenGLNativeResource
+internal sealed unsafe class OpenGLGraphicsBuffer : OpenGLNativeDeviceObject, IGraphicsBuffer
 {
     private readonly OpenGLGraphicsDevice _device;
     private readonly object _mappingGate = new();
@@ -35,8 +105,8 @@ internal sealed unsafe class OpenGLGraphicsBuffer : GraphicsDeviceObject, IGraph
     {
         get
         {
-            ThrowIfDisposed();
-            return _handle;
+            uint handle = Volatile.Read(ref _handle);
+            return handle != 0 ? handle : throw new ObjectDisposedException(nameof(OpenGLGraphicsBuffer));
         }
     }
 
@@ -124,13 +194,10 @@ internal sealed unsafe class OpenGLGraphicsBuffer : GraphicsDeviceObject, IGraph
         lock (_mappingGate)
             _mapped?.Invalidate();
 
-        // Device disposal drains registered resources under its current context. A late Dispose
-        // must not reactivate a context that the device has already torn down.
-        if (!_device.IsDisposed)
-            _device.ReleaseResource(this);
+        ReleaseOwnerReference();
     }
 
-    public void ReleaseNative(GL gl)
+    public override void ReleaseNative(GL gl)
     {
         lock (_mappingGate)
         {
