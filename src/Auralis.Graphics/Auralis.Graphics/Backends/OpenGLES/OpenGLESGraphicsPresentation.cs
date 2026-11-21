@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Auralis.Graphics.Abstractions;
 using Auralis.Graphics.Commands;
 using Auralis.Graphics.Presentation;
@@ -320,7 +321,7 @@ internal sealed class OpenGLESGraphicsSwapChain : OpenGLESNativeDeviceObject, IG
         if (description.BufferCount is < 2 or > 8)
             throw new GraphicsValidationException("The GLES swapchain supports two to eight buffered images.");
 
-        OpenGLESSwapChainImage[] images = new OpenGLESSwapChainImage[description.BufferCount];
+        OpenGLESSwapChainImage[] images = new OpenGLESSwapChainImage[checked((int)description.BufferCount)];
         GraphicsTextureDescription textureDescription = new(
             GraphicsTextureDimension.Texture2D,
             description.Format,
