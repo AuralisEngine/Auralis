@@ -88,6 +88,7 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
     private readonly TextureViewExtDelegate? _textureViewExt;
     private readonly ExtDrawElementsBaseVertex? _drawElementsBaseVertexApi;
     private readonly ExtBaseInstance? _baseInstanceApi;
+    private readonly ExtMeshShader? _meshShaderApi;
     private readonly object _contextGate = new();
     private readonly object _resourceGate = new();
     private readonly HashSet<IOpenGLESNativeResource> _resources = new(ReferenceEqualityComparer.Instance);
@@ -107,6 +108,7 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
         TextureViewExtDelegate? textureViewExt,
         ExtDrawElementsBaseVertex? drawElementsBaseVertexApi,
         ExtBaseInstance? baseInstanceApi,
+        ExtMeshShader? meshShaderApi,
         OpenGLESVersion version,
         string versionString,
         string vendor,
@@ -125,6 +127,7 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
         _textureViewExt = textureViewExt;
         _drawElementsBaseVertexApi = drawElementsBaseVertexApi;
         _baseInstanceApi = baseInstanceApi;
+        _meshShaderApi = meshShaderApi;
         Version = version;
         VersionString = versionString;
         Vendor = vendor;
@@ -140,6 +143,14 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
         MaxComputeWorkGroupCountX = limits.MaxComputeWorkGroupCountX;
         MaxComputeWorkGroupCountY = limits.MaxComputeWorkGroupCountY;
         MaxComputeWorkGroupCountZ = limits.MaxComputeWorkGroupCountZ;
+        MaxMeshWorkGroupCountX = limits.MaxMeshWorkGroupCountX;
+        MaxMeshWorkGroupCountY = limits.MaxMeshWorkGroupCountY;
+        MaxMeshWorkGroupCountZ = limits.MaxMeshWorkGroupCountZ;
+        MaxMeshWorkGroupTotalCount = limits.MaxMeshWorkGroupTotalCount;
+        MaxTaskWorkGroupCountX = limits.MaxTaskWorkGroupCountX;
+        MaxTaskWorkGroupCountY = limits.MaxTaskWorkGroupCountY;
+        MaxTaskWorkGroupCountZ = limits.MaxTaskWorkGroupCountZ;
+        MaxTaskWorkGroupTotalCount = limits.MaxTaskWorkGroupTotalCount;
         _ownsContextProvider = contextProvider.Ownership == OpenGLESContextOwnership.Owned;
 
         Backend = GraphicsBackend.OpenGLES;
@@ -193,6 +204,7 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
     internal TextureViewExtDelegate? TextureViewExt => _textureViewExt;
     internal ExtDrawElementsBaseVertex? DrawElementsBaseVertexApi => _drawElementsBaseVertexApi;
     internal ExtBaseInstance? BaseInstanceApi => _baseInstanceApi;
+    internal ExtMeshShader? MeshShaderApi => _meshShaderApi;
 
     internal uint MaxUniformBufferBindings { get; }
     internal uint MaxStorageBufferBindings { get; }
@@ -203,6 +215,14 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
     internal uint MaxComputeWorkGroupCountX { get; }
     internal uint MaxComputeWorkGroupCountY { get; }
     internal uint MaxComputeWorkGroupCountZ { get; }
+    internal uint MaxMeshWorkGroupCountX { get; }
+    internal uint MaxMeshWorkGroupCountY { get; }
+    internal uint MaxMeshWorkGroupCountZ { get; }
+    internal uint MaxMeshWorkGroupTotalCount { get; }
+    internal uint MaxTaskWorkGroupCountX { get; }
+    internal uint MaxTaskWorkGroupCountY { get; }
+    internal uint MaxTaskWorkGroupCountZ { get; }
+    internal uint MaxTaskWorkGroupTotalCount { get; }
 
     internal static OpenGLESGraphicsDevice Create(
         IOpenGLESContextProvider contextProvider,
@@ -221,6 +241,7 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
         TextureViewExtDelegate? textureViewExt = null;
         ExtDrawElementsBaseVertex? drawElementsBaseVertexApi = null;
         ExtBaseInstance? baseInstanceApi = null;
+        ExtMeshShader? meshShaderApi = null;
         contextProvider.MakeCurrent();
         try
         {
@@ -296,6 +317,16 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
                 baseInstanceApi = new ExtBaseInstance(gl.Context);
             }
 
+            if (gl.IsExtensionPresent(ExtMeshShader.ExtensionName) &&
+                HasEntryPoints(
+                    contextProvider,
+                    "glDrawMeshTasksEXT",
+                    "glDrawMeshTasksIndirectEXT",
+                    "glMultiDrawMeshTasksIndirectEXT"))
+            {
+                meshShaderApi = new ExtMeshShader(gl.Context);
+            }
+
             OpenGLESCapabilityProfile profile = QueryProfile(
                 gl,
                 version,
@@ -304,7 +335,8 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
                 drawBuffersIndexedApi is not null,
                 drawElementsBaseVertexApi is not null,
                 baseInstanceApi is not null,
-                textureViewExt is not null);
+                textureViewExt is not null,
+                meshShaderApi is not null);
             profile.EnsureRequiredBaseline();
 
             string vendor = gl.GetStringS(StringName.Vendor);
@@ -319,7 +351,7 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
             OpenGLESGraphicsDevice device = new(
                 contextProvider, gl, multiDrawArraysIndirectExt, multiDrawElementsIndirectExt,
                 drawBuffersIndexedApi, copyImageApi, copyImageSubDataOes, textureViewExt,
-                drawElementsBaseVertexApi, baseInstanceApi,
+                drawElementsBaseVertexApi, baseInstanceApi, meshShaderApi,
                 version, versionString, vendor, renderer, profile, capabilities, queriedLimits);
             gl = null;
             multiDrawArraysIndirectExt = null;
@@ -330,10 +362,12 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
             textureViewExt = null;
             drawElementsBaseVertexApi = null;
             baseInstanceApi = null;
+            meshShaderApi = null;
             return device;
         }
         catch
         {
+            meshShaderApi?.Dispose();
             baseInstanceApi?.Dispose();
             drawElementsBaseVertexApi?.Dispose();
             copyImageApi?.Dispose();
@@ -355,7 +389,8 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
         bool indexedBlendEntryPointsAvailable,
         bool baseVertexEntryPointsAvailable,
         bool baseInstanceEntryPointsAvailable,
-        bool textureViewEntryPointAvailable)
+        bool textureViewEntryPointAvailable,
+        bool meshShaderEntryPointsAvailable)
     {
         int extensionCount = Math.Max(0, gl.GetInteger(GLEnum.NumExtensions));
         string[] extensions = new string[extensionCount];
@@ -368,7 +403,8 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
             indexedBlendEntryPointsAvailable,
             baseVertexEntryPointsAvailable,
             baseInstanceEntryPointsAvailable,
-            textureViewEntryPointAvailable);
+            textureViewEntryPointAvailable,
+            meshShaderEntryPointsAvailable);
     }
 
     private static OpenGLESQueriedLimits QueryLimits(GL gl, OpenGLESCapabilityProfile profile)
