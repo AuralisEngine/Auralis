@@ -35,8 +35,20 @@ public sealed class OpenGLESGraphicsBackendProvider : IGraphicsBackendProvider
         cancellationToken.ThrowIfCancellationRequested();
         EnsureAvailable();
 
-        // The host provider represents one already-selected GLES context, not an adapter enumeration API.
-        return ValueTask.FromResult<ReadOnlyMemory<GraphicsAdapterInfo>>(ReadOnlyMemory<GraphicsAdapterInfo>.Empty);
+        // The host-provided context already selects the adapter. Expose one default logical adapter
+        // so GraphicsDeviceFactory can follow its normal enumeration/selection path without inventing
+        // a platform-specific adapter identifier.
+        GraphicsAdapterInfo[] adapters =
+        [
+            new GraphicsAdapterInfo(
+                default,
+                "OpenGL ES host context",
+                GraphicsAdapterType.Unknown,
+                0,
+                0,
+                0)
+        ];
+        return ValueTask.FromResult<ReadOnlyMemory<GraphicsAdapterInfo>>(adapters);
     }
 
     public ValueTask<IGraphicsDevice> CreateDeviceAsync(
