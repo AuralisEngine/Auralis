@@ -146,7 +146,8 @@ public sealed class OpenGLESCapabilityProfile
         bool indexedBlendEntryPointsAvailable = true,
         bool baseVertexEntryPointsAvailable = true,
         bool baseInstanceEntryPointsAvailable = true,
-        bool textureViewEntryPointAvailable = true)
+        bool textureViewEntryPointAvailable = true,
+        bool meshShaderEntryPointsAvailable = true)
     {
         if (version.Major < 1 || version.Minor < 0)
             throw new ArgumentOutOfRangeException(nameof(version));
@@ -202,6 +203,10 @@ public sealed class OpenGLESCapabilityProfile
         if (textureViewEntryPointAvailable &&
             (Contains(extensionCopy, "GL_EXT_texture_view") || Contains(extensionCopy, "GL_OES_texture_view")))
             features |= GraphicsFeature.TextureViews;
+
+        // EXT_mesh_shader defines both stages for GLES 3.1+ with independent driver limits.
+        if (meshShaderEntryPointsAvailable && Contains(extensionCopy, "GL_EXT_mesh_shader"))
+            features |= GraphicsFeature.MeshShaders | GraphicsFeature.TaskShaders;
 
         GraphicsQueueCapabilities queues =
             GraphicsQueueCapabilities.Graphics | GraphicsQueueCapabilities.Copy;
