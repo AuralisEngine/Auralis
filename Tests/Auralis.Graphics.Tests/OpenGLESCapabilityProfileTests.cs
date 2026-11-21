@@ -2,7 +2,6 @@ using Auralis.Graphics.Abstractions;
 using Auralis.Graphics.Backends.OpenGLES;
 using Auralis.Graphics.Devices;
 using Auralis.Graphics.Presentation;
-using Auralis.Graphics.Devices;
 
 namespace Auralis.Graphics.Tests;
 
