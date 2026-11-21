@@ -56,6 +56,7 @@ internal static class Program
             RunComputePipelineLayoutSwitch(device);
             RunTextureAndSamplerResources(device);
             RunResourceRetentionAfterRecording(device);
+            RunReusableCommandListAfterOwnerDisposal(device);
             RunOffscreenGraphicsPipeline(device, context);
 
             Console.WriteLine("PASS: all opted-in OpenGL ES hardware integration tests completed.");
@@ -172,6 +173,63 @@ internal static class Program
             throw new TimeoutException("The GLES resource-retention fence did not complete within 10 seconds.");
 
         Console.WriteLine("PASS: GLES native buffers remain alive after public disposal while recorded work retains them.");
+    }
+
+
+    private static void RunReusableCommandListAfterOwnerDisposal(IGraphicsDevice device)
+    {
+        const int size = 4096;
+        using IGraphicsBuffer source = device.CreateBuffer(new GraphicsBufferDescription(
+            size,
+            GraphicsBufferUsage.CopySource | GraphicsBufferUsage.CopyDestination,
+            GraphicsMemoryAccess.CpuReadWrite));
+        using IGraphicsBuffer destination = device.CreateBuffer(new GraphicsBufferDescription(
+            size,
+            GraphicsBufferUsage.CopySource | GraphicsBufferUsage.CopyDestination,
+            GraphicsMemoryAccess.CpuReadWrite));
+
+        Memory<byte> input = source.Map(GraphicsMapMode.Write, 0, size);
+        for (int i = 0; i < input.Length; i++)
+            input.Span[i] = (byte)((i * 29 + 3) & 0xFF);
+        source.Unmap();
+
+        IGraphicsCommandQueue queue = device.GetQueue(GraphicsQueueType.Copy);
+        using IGraphicsCommandList commandList = queue.CreateCommandList(GraphicsCommandListUsage.Reusable);
+        using IGraphicsFence fence = device.CreateFence();
+
+        commandList.Begin();
+        commandList.CopyBuffer(source, 0, destination, 0, size);
+        commandList.End();
+
+        queue.Submit([commandList], fence, 1);
+        if (!fence.Wait(1, TimeSpan.FromSeconds(10)))
+            throw new TimeoutException("The first GLES reusable-command-list submission did not complete.");
+
+        // Creating a list polls the queue's completion sync so the reusable list becomes Executable.
+        using (IGraphicsCommandList completionPoll = queue.CreateCommandList())
+        {
+        }
+
+        source.Dispose();
+        queue.Submit([commandList], fence, 2);
+        if (!fence.Wait(2, TimeSpan.FromSeconds(10)))
+            throw new TimeoutException("The second GLES reusable-command-list submission did not complete.");
+
+        using (IGraphicsCommandList completionPoll = queue.CreateCommandList())
+        {
+        }
+
+        Memory<byte> actual = destination.Map(GraphicsMapMode.Read, 0, size);
+        for (int i = 0; i < actual.Length; i++)
+        {
+            byte expected = (byte)((i * 29 + 3) & 0xFF);
+            if (actual.Span[i] != expected)
+                throw new InvalidOperationException(
+                    $"GLES reusable-command-list copy mismatch at byte {i}: expected 0x{expected:X2}, received 0x{actual.Span[i]:X2}.");
+        }
+        destination.Unmap();
+
+        Console.WriteLine("PASS: GLES reusable command list retains a disposed source buffer across repeated submissions and fence completion.");
     }
 
     private static void RunOffscreenGraphicsPipeline(IGraphicsDevice device, GlfwOpenGLESContextProvider context)
