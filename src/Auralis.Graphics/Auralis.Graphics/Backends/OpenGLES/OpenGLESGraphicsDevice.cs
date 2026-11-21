@@ -484,6 +484,43 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
             ? ToUInt(gl.GetInteger(GLEnum.MaxPatchVertices))
             : 0;
 
+        uint maxMeshWorkGroupCountX = 0;
+        uint maxMeshWorkGroupCountY = 0;
+        uint maxMeshWorkGroupCountZ = 0;
+        uint maxMeshWorkGroupTotalCount = 0;
+        uint maxTaskWorkGroupCountX = 0;
+        uint maxTaskWorkGroupCountY = 0;
+        uint maxTaskWorkGroupCountZ = 0;
+        uint maxTaskWorkGroupTotalCount = 0;
+        if (profile.Features.Supports(GraphicsFeature.MeshShaders))
+        {
+            // GL_EXT_mesh_shader limits use indexed GL_MAX_*_WORK_GROUP_COUNT_EXT queries.
+            gl.GetInteger((GLEnum)0x9752, 0, out int meshCountX); // GL_MAX_MESH_WORK_GROUP_COUNT_EXT
+            gl.GetInteger((GLEnum)0x9752, 1, out int meshCountY);
+            gl.GetInteger((GLEnum)0x9752, 2, out int meshCountZ);
+            gl.GetInteger((GLEnum)0x9751, 0, out int taskCountX); // GL_MAX_TASK_WORK_GROUP_COUNT_EXT
+            gl.GetInteger((GLEnum)0x9751, 1, out int taskCountY);
+            gl.GetInteger((GLEnum)0x9751, 2, out int taskCountZ);
+            maxMeshWorkGroupCountX = ToUInt(meshCountX);
+            maxMeshWorkGroupCountY = ToUInt(meshCountY);
+            maxMeshWorkGroupCountZ = ToUInt(meshCountZ);
+            maxTaskWorkGroupCountX = ToUInt(taskCountX);
+            maxTaskWorkGroupCountY = ToUInt(taskCountY);
+            maxTaskWorkGroupCountZ = ToUInt(taskCountZ);
+            maxMeshWorkGroupTotalCount = ToUInt(gl.GetInteger((GLEnum)0x9741)); // GL_MAX_MESH_WORK_GROUP_TOTAL_COUNT_EXT
+            maxTaskWorkGroupTotalCount = ToUInt(gl.GetInteger((GLEnum)0x9740)); // GL_MAX_TASK_WORK_GROUP_TOTAL_COUNT_EXT
+
+            if (maxMeshWorkGroupCountX == 0 || maxMeshWorkGroupCountY == 0 ||
+                maxMeshWorkGroupCountZ == 0 || maxMeshWorkGroupTotalCount == 0 ||
+                maxTaskWorkGroupCountX == 0 || maxTaskWorkGroupCountY == 0 ||
+                maxTaskWorkGroupCountZ == 0 || maxTaskWorkGroupTotalCount == 0)
+            {
+                throw new GraphicsBackendUnavailableException(
+                    GraphicsBackend.OpenGLES,
+                    "GL_EXT_mesh_shader was advertised but returned zero mesh/task work-group limits.");
+            }
+        }
+
         float maxAnisotropy = 1;
         if (profile.Features.Supports(GraphicsFeature.SamplerAnisotropy))
         {
@@ -513,7 +550,15 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
             maxAnisotropy,
             maxColorAttachments,
             maxColorDrawBuffers,
-            formatSampleCounts);
+            formatSampleCounts,
+            maxMeshWorkGroupCountX,
+            maxMeshWorkGroupCountY,
+            maxMeshWorkGroupCountZ,
+            maxMeshWorkGroupTotalCount,
+            maxTaskWorkGroupCountX,
+            maxTaskWorkGroupCountY,
+            maxTaskWorkGroupCountZ,
+            maxTaskWorkGroupTotalCount);
     }
 
     internal static GraphicsDeviceCapabilities QueryCapabilities(
@@ -768,7 +813,15 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
         float MaxAnisotropy,
         uint MaxColorAttachments,
         uint MaxColorDrawBuffers,
-        GraphicsSampleCountFlags[]? FormatSampleCounts = null);
+        GraphicsSampleCountFlags[]? FormatSampleCounts = null,
+        uint MaxMeshWorkGroupCountX = 0,
+        uint MaxMeshWorkGroupCountY = 0,
+        uint MaxMeshWorkGroupCountZ = 0,
+        uint MaxMeshWorkGroupTotalCount = 0,
+        uint MaxTaskWorkGroupCountX = 0,
+        uint MaxTaskWorkGroupCountY = 0,
+        uint MaxTaskWorkGroupCountZ = 0,
+        uint MaxTaskWorkGroupTotalCount = 0);
 
     public IGraphicsCommandQueue GetQueue(GraphicsQueueType queueType, uint index = 0)
     {
@@ -1034,6 +1087,15 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
             }
             finally
             {
+                try
+                {
+                    _meshShaderApi?.Dispose();
+                }
+                catch (Exception exception)
+                {
+                    RecordFailure(ref failures, exception);
+                }
+
                 try
                 {
                     _baseInstanceApi?.Dispose();
