@@ -5,8 +5,8 @@ using Silk.NET.OpenGLES;
 namespace Auralis.Graphics.Backends.OpenGLES;
 
 /// <summary>
-/// GLES immutable-storage texture. The initial backend supports the GLES 3.1 2D/array/3D/cubemap
-/// storage targets; unsupported dimensionalities and multisampling are rejected explicitly.
+/// GLES immutable-storage texture. Supports GLES 3.1 2D/array/3D/cubemap storage and
+/// single-mip 2D multisample storage where the device reports the requested format/sample count.
 /// </summary>
 internal sealed class OpenGLESGraphicsTexture : OpenGLESNativeDeviceObject, IGraphicsTexture
 {
