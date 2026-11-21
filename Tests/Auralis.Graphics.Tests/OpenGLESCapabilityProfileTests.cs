@@ -1057,3 +1057,74 @@ public sealed class OpenGLESCompressedFormatTests
         Assert.False(limited.SupportsFormat(GraphicsFormat.ASTC4x4UNorm, GraphicsFormatSupport.Sampled));
     }
 }
+
+
+public sealed class OpenGLESMeshTaskCapabilityTests
+{
+    [Fact]
+    public void MeshTaskFeatureRequiresExtensionAndResolvedEntryPoints()
+    {
+        OpenGLESCapabilityProfile supported = OpenGLESCapabilityProfile.Create(
+            new OpenGLESVersion(3, 1),
+            ["GL_EXT_mesh_shader"],
+            supportsPresentation: false,
+            meshShaderEntryPointsAvailable: true);
+
+        Assert.True(supported.Features.Supports(GraphicsFeature.MeshShaders));
+        Assert.True(supported.Features.Supports(GraphicsFeature.TaskShaders));
+
+        OpenGLESCapabilityProfile noFunctions = OpenGLESCapabilityProfile.Create(
+            new OpenGLESVersion(3, 1),
+            ["GL_EXT_mesh_shader"],
+            supportsPresentation: false,
+            meshShaderEntryPointsAvailable: false);
+
+        Assert.False(noFunctions.Features.Supports(GraphicsFeature.MeshShaders));
+        Assert.False(noFunctions.Features.Supports(GraphicsFeature.TaskShaders));
+
+        OpenGLESCapabilityProfile noExtension = OpenGLESCapabilityProfile.Create(
+            new OpenGLESVersion(3, 1),
+            ReadOnlySpan<string>.Empty,
+            supportsPresentation: false,
+            meshShaderEntryPointsAvailable: true);
+
+        Assert.False(noExtension.Features.Supports(GraphicsFeature.MeshShaders));
+        Assert.False(noExtension.Features.Supports(GraphicsFeature.TaskShaders));
+    }
+
+    [Fact]
+    public void QueryCapabilities_PublishesMeshAndTaskDispatchLimits()
+    {
+        OpenGLESCapabilityProfile profile = OpenGLESCapabilityProfile.Create(
+            new OpenGLESVersion(3, 1),
+            ["GL_EXT_mesh_shader"],
+            supportsPresentation: false,
+            meshShaderEntryPointsAvailable: true);
+
+        OpenGLESGraphicsDevice.OpenGLESQueriedLimits queried = new(
+            MaxTextureSize: 4096, MaxTexture3DSize: 256, MaxArrayLayers: 256,
+            MaxVertexAttributes: 16, MaxUniformBufferBindings: 24, MaxStorageBufferBindings: 8,
+            MaxTextureUnits: 16, MaxImageUnits: 8,
+            UniformBufferOffsetAlignment: 256, StorageBufferOffsetAlignment: 256,
+            MaxComputeInvocations: 1024, MaxComputeWorkGroupSizeX: 1024,
+            MaxComputeWorkGroupSizeY: 1024, MaxComputeWorkGroupSizeZ: 64,
+            MaxComputeWorkGroupCountX: 65535, MaxComputeWorkGroupCountY: 65535,
+            MaxComputeWorkGroupCountZ: 65535, MaxTessellationPatchSize: 0,
+            MaxAnisotropy: 1, MaxColorAttachments: 4, MaxColorDrawBuffers: 4,
+            MaxMeshWorkGroupCountX: 65535, MaxMeshWorkGroupCountY: 65535,
+            MaxMeshWorkGroupCountZ: 65535, MaxMeshWorkGroupTotalCount: 4194304,
+            MaxTaskWorkGroupCountX: 65535, MaxTaskWorkGroupCountY: 65535,
+            MaxTaskWorkGroupCountZ: 65535, MaxTaskWorkGroupTotalCount: 4194304);
+
+        GraphicsDeviceCapabilities capabilities =
+            OpenGLESGraphicsDevice.QueryCapabilities(profile, queried);
+
+        Assert.True(capabilities.Features.Supports(GraphicsFeature.MeshShaders));
+        Assert.True(capabilities.Features.Supports(GraphicsFeature.TaskShaders));
+        Assert.Equal(65535u, capabilities.Limits.MaxMeshWorkGroupCountX);
+        Assert.Equal(4194304u, capabilities.Limits.MaxMeshWorkGroupTotalCount);
+        Assert.Equal(65535u, capabilities.Limits.MaxTaskWorkGroupCountZ);
+        Assert.Equal(4194304u, capabilities.Limits.MaxTaskWorkGroupTotalCount);
+    }
+}
+
