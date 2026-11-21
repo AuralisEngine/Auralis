@@ -1,4 +1,5 @@
 using System.Buffers;
+using System.Runtime.ExceptionServices;
 using Auralis.Graphics.Abstractions;
 using Auralis.Graphics.Commands;
 using Auralis.Graphics.Devices;
@@ -227,9 +228,28 @@ internal sealed class OpenGLGraphicsCommandQueue : IGraphicsCommandQueue
                     if (status == ARB.WaitFailed)
                         throw new GraphicsException("OpenGL failed to poll a command submission sync.");
 
-                    _device.SyncApi.DeleteSync(submission.Sync);
-                    CompleteSubmission(submission);
+                    Exception? failure = null;
+                    try
+                    {
+                        _device.SyncApi.DeleteSync(submission.Sync);
+                    }
+                    catch (Exception exception)
+                    {
+                        failure = exception;
+                    }
+
+                    try
+                    {
+                        CompleteSubmission(submission);
+                    }
+                    catch (Exception exception)
+                    {
+                        failure ??= exception;
+                    }
+
                     _pending.RemoveAt(i);
+                    if (failure is not null)
+                        ExceptionDispatchInfo.Capture(failure).Throw();
                 }
             }
         });
@@ -243,42 +263,105 @@ internal sealed class OpenGLGraphicsCommandQueue : IGraphicsCommandQueue
         _device.WithContext(gl =>
         {
             gl.Finish();
+            Exception? failure = null;
             lock (_gate)
             {
                 for (int i = _pending.Count - 1; i >= 0; i--)
                 {
                     PendingSubmission submission = _pending[i];
-                    _device.SyncApi.DeleteSync(submission.Sync);
-                    CompleteSubmission(submission);
+                    try
+                    {
+                        _device.SyncApi.DeleteSync(submission.Sync);
+                    }
+                    catch (Exception exception)
+                    {
+                        failure ??= exception;
+                    }
+
+                    try
+                    {
+                        CompleteSubmission(submission);
+                    }
+                    catch (Exception exception)
+                    {
+                        failure ??= exception;
+                    }
+
                     _pending.RemoveAt(i);
                 }
             }
+
+            if (failure is not null)
+                ExceptionDispatchInfo.Capture(failure).Throw();
         });
     }
 
     internal void DrainUnderContext(GL gl)
     {
+        Exception? failure = null;
         lock (_gate)
         {
             for (int i = _pending.Count - 1; i >= 0; i--)
             {
                 PendingSubmission submission = _pending[i];
-                _device.SyncApi.DeleteSync(submission.Sync);
-                CompleteSubmission(submission);
+                try
+                {
+                    _device.SyncApi.DeleteSync(submission.Sync);
+                }
+                catch (Exception exception)
+                {
+                    failure ??= exception;
+                }
+
+                try
+                {
+                    CompleteSubmission(submission);
+                }
+                catch (Exception exception)
+                {
+                    failure ??= exception;
+                }
+
                 _pending.RemoveAt(i);
             }
         }
+
+        if (failure is not null)
+            ExceptionDispatchInfo.Capture(failure).Throw();
     }
 
     private void CompleteSubmission(PendingSubmission submission)
     {
+        Exception? failure = null;
         for (int i = 0; i < submission.Count; i++)
-            submission.CommandLists[i].Complete();
+        {
+            try
+            {
+                submission.CommandLists[i].Complete();
+            }
+            catch (Exception exception)
+            {
+                // Continue completing the rest of the submission so one faulty list cannot
+                // strand other retained resources or corrupt global submission accounting.
+                failure ??= exception;
+            }
+        }
 
         ArrayPool<OpenGLGraphicsCommandList>.Shared.Return(
             submission.CommandLists,
             clearArray: true);
-        _device.OnSubmissionCompleted();
+
+        try
+        {
+            _device.OnSubmissionCompleted();
+        }
+        catch (Exception exception)
+        {
+            failure ??= exception;
+        }
+
+        if (failure is not null)
+            ExceptionDispatchInfo.Capture(failure).Throw();
     }
 
     private readonly record struct PendingSubmission(
