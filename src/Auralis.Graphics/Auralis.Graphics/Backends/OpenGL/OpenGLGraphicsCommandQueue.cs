@@ -274,6 +274,7 @@ internal sealed class OpenGLGraphicsCommandQueue : IGraphicsCommandQueue
         if (_device.IsDisposed)
             return;
 
+        List<PendingSubmission>? completed = null;
         _device.WithContext(gl =>
         {
             lock (_gate)
@@ -291,31 +292,30 @@ internal sealed class OpenGLGraphicsCommandQueue : IGraphicsCommandQueue
                     if (status == ARB.WaitFailed)
                         throw new GraphicsException("OpenGL failed to poll a command submission sync.");
 
-                    Exception? failure = null;
-                    try
-                    {
-                        _device.SyncApi.DeleteSync(submission.Sync);
-                    }
-                    catch (Exception exception)
-                    {
-                        failure = exception;
-                    }
-
-                    try
-                    {
-                        CompleteSubmission(submission);
-                    }
-                    catch (Exception exception)
-                    {
-                        failure ??= exception;
-                    }
-
+                    // Publish the lifecycle transition while the owning queue record is still
+                    // protected. A concurrent Dispose can then never mistake a completed record
+                    // for an unowned Pending list.
+                    _device.SyncApi.DeleteSync(submission.Sync);
+                    MarkSubmissionCompleted(submission);
                     _pending.RemoveAt(i);
-                    if (failure is not null)
-                        ExceptionDispatchInfo.Capture(failure).Throw();
+                    completed ??= new List<PendingSubmission>(4);
+                    completed.Add(submission);
                 }
             }
         });
+
+        if (completed is null)
+            return;
+
+        Exception? failure = null;
+        for (int i = 0; i < completed.Count; i++)
+        {
+            try { CompleteSubmission(completed[i]); }
+            catch (Exception exception) { failure ??= exception; }
+        }
+
+        if (failure is not null)
+            ExceptionDispatchInfo.Capture(failure).Throw();
     }
 
     internal void WaitForCompletion(OpenGLGraphicsCommandList commandList)
@@ -323,90 +323,105 @@ internal sealed class OpenGLGraphicsCommandQueue : IGraphicsCommandQueue
         if (_device.IsDisposed || commandList.Lifecycle.State != GraphicsCommandListState.Pending)
             return;
 
-        _device.WithContext(gl =>
+        while (commandList.Lifecycle.State == GraphicsCommandListState.Pending)
         {
-            gl.Finish();
-            Exception? failure = null;
-            lock (_gate)
+            PendingSubmission completedSubmission = default;
+            bool hasCompletedSubmission = false;
+            bool recoveredUnqueuedSubmission = false;
+
+            _device.WithContext(gl =>
             {
-                for (int i = _pending.Count - 1; i >= 0; i--)
+                lock (_gate)
                 {
-                    PendingSubmission submission = _pending[i];
-                    try
+                    for (int i = _pending.Count - 1; i >= 0; i--)
                     {
-                        _device.SyncApi.DeleteSync(submission.Sync);
-                    }
-                    catch (Exception exception)
-                    {
-                        failure ??= exception;
-                    }
+                        PendingSubmission submission = _pending[i];
+                        bool contains = false;
+                        for (int j = 0; j < submission.Count; j++)
+                            contains |= ReferenceEquals(submission.CommandLists[j], commandList);
+                        if (!contains)
+                            continue;
 
-                    try
-                    {
-                        CompleteSubmission(submission);
-                    }
-                    catch (Exception exception)
-                    {
-                        failure ??= exception;
-                    }
+                        // Wait only for the submission that owns this command list. The bounded
+                        // wait returns the context to other device callers between iterations.
+                        ARB status = _device.SyncApi.ClientWaitSync(
+                            submission.Sync,
+                            (SyncObjectMask)0,
+                            1_000_000);
+                        if (status == ARB.WaitFailed)
+                            throw new GraphicsException("OpenGL failed while waiting for command-list completion.");
+                        if (status is not (ARB.AlreadySignaled or ARB.ConditionSatisfied or ARB.TimeoutExpired))
+                            throw new GraphicsException($"OpenGL returned unexpected command-list sync status {status}.");
 
-                    _pending.RemoveAt(i);
+                        if (status is ARB.AlreadySignaled or ARB.ConditionSatisfied)
+                        {
+                            _device.SyncApi.DeleteSync(submission.Sync);
+                            MarkSubmissionCompleted(submission);
+                            _pending.RemoveAt(i);
+                            completedSubmission = submission;
+                            hasCompletedSubmission = true;
+                        }
+                        return;
+                    }
                 }
 
-                // A submit callback can mark a list Pending and then fail before it successfully
-                // inserts its completion record. The context gate guarantees its GL work has exited;
-                // glFinish above guarantees that work is complete, so close that unqueued lifecycle
-                // transition here rather than leaving a disposed list permanently Pending.
                 if (commandList.Lifecycle.State == GraphicsCommandListState.Pending)
                 {
-                    try
-                    {
-                        commandList.Complete();
-                    }
-                    catch (Exception exception)
-                    {
-                        failure ??= exception;
-                    }
+                    // The submission may have failed after marking Pending but before queueing its
+                    // record. This exceptional path finishes the stream but leaves unrelated queue
+                    // records intact; only the orphaned list is recovered here.
+                    gl.Finish();
+                    if (commandList.Lifecycle.State == GraphicsCommandListState.Pending)
+                        commandList.MarkCompletedAfterGpu();
+                    recoveredUnqueuedSubmission = true;
                 }
-            }
+            });
 
-            if (failure is not null)
-                ExceptionDispatchInfo.Capture(failure).Throw();
-        });
+            if (hasCompletedSubmission)
+                CompleteSubmission(completedSubmission);
+            else if (recoveredUnqueuedSubmission)
+                commandList.ReleaseCompletedResourcesIfDisposed();
+        }
     }
 
     internal void DrainUnderContext(GL gl)
     {
+        List<PendingSubmission>? completed = null;
         Exception? failure = null;
         lock (_gate)
         {
             for (int i = _pending.Count - 1; i >= 0; i--)
             {
                 PendingSubmission submission = _pending[i];
-                try
-                {
-                    _device.SyncApi.DeleteSync(submission.Sync);
-                }
-                catch (Exception exception)
-                {
-                    failure ??= exception;
-                }
+                try { _device.SyncApi.DeleteSync(submission.Sync); }
+                catch (Exception exception) { failure ??= exception; }
 
-                try
-                {
-                    CompleteSubmission(submission);
-                }
-                catch (Exception exception)
-                {
-                    failure ??= exception;
-                }
+                try { MarkSubmissionCompleted(submission); }
+                catch (Exception exception) { failure ??= exception; }
 
                 _pending.RemoveAt(i);
+                completed ??= new List<PendingSubmission>(4);
+                completed.Add(submission);
+            }
+        }
+
+        if (completed is not null)
+        {
+            for (int i = 0; i < completed.Count; i++)
+            {
+                try { CompleteSubmission(completed[i]); }
+                catch (Exception exception) { failure ??= exception; }
             }
         }
 
         if (failure is not null)
             ExceptionDispatchInfo.Capture(failure).Throw();
+    }
+
+    private static void MarkSubmissionCompleted(PendingSubmission submission)
+    {
+        for (int i = 0; i < submission.Count; i++)
+            submission.CommandLists[i].MarkCompletedAfterGpu();
     }
 
     private void CompleteSubmission(PendingSubmission submission)
@@ -416,12 +431,12 @@ internal sealed class OpenGLGraphicsCommandQueue : IGraphicsCommandQueue
         {
             try
             {
-                submission.CommandLists[i].Complete();
+                submission.CommandLists[i].ReleaseCompletedResourcesIfDisposed();
             }
             catch (Exception exception)
             {
-                // Continue completing the rest of the submission so one faulty list cannot
-                // strand other retained resources or corrupt global submission accounting.
+                // Continue releasing each disposed list and balance queue accounting even when one
+                // resource wrapper reports a cleanup error.
                 failure ??= exception;
             }
         }
