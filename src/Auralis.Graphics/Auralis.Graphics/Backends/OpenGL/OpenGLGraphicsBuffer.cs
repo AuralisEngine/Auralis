@@ -12,6 +12,11 @@ internal interface IOpenGLNativeResource
     void ReleaseNative(GL gl);
 }
 
+internal interface IOpenGLNativeResourcePreparation
+{
+    void PrepareForNativeRelease();
+}
+
 /// <summary>
 /// Device object whose native handle is retained independently from public Dispose state.
 /// The high bit closes the owner reference; the remaining bits count the owner and recorded uses.
@@ -106,7 +111,7 @@ internal abstract class OpenGLNativeDeviceObject : GraphicsDeviceObject, IOpenGL
 }
 
 /// <summary>Native OpenGL buffer with directly mapped driver memory.</summary>
-internal sealed unsafe class OpenGLGraphicsBuffer : OpenGLNativeDeviceObject, IGraphicsBuffer
+internal sealed unsafe class OpenGLGraphicsBuffer : OpenGLNativeDeviceObject, IGraphicsBuffer, IOpenGLNativeResourcePreparation
 {
     private readonly OpenGLGraphicsDevice _device;
     private readonly object _mappingGate = new();
@@ -222,17 +227,32 @@ internal sealed unsafe class OpenGLGraphicsBuffer : OpenGLNativeDeviceObject, IG
         ReleaseOwnerReference();
     }
 
+    public void PrepareForNativeRelease()
+    {
+        OpenGLMappedMemoryManager? mapped;
+        lock (_mappingGate)
+        {
+            mapped = _mapped;
+            // Close new Span/Memory/Pin access before waiting for pins already issued.
+            mapped?.Invalidate();
+        }
+
+        mapped?.WaitForPins();
+    }
+
     public override void ReleaseNative(GL gl)
     {
         lock (_mappingGate)
         {
+            if (_isMapped)
+                _mapped?.ValidateNoPins();
+
             uint handle = Interlocked.Exchange(ref _handle, 0);
             if (handle == 0)
                 return;
 
             if (_isMapped)
             {
-                _mapped?.WaitForPins();
                 _device.DirectStateAccess.UnmapNamedBuffer(handle);
                 _isMapped = false;
             }
