@@ -469,6 +469,10 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
             for (int i = 0; i < s_multisampleFormats.Length; i++)
             {
                 GraphicsFormat format = s_multisampleFormats[i];
+                if (format is GraphicsFormat.D32Float or GraphicsFormat.D32FloatS8UInt &&
+                    !profile.Version.IsAtLeast(3, 2))
+                    continue;
+
                 formatSampleCounts[(int)format] = QueryTextureSampleCounts(gl, format);
             }
         }
@@ -643,16 +647,18 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
 
         GraphicsFormatSupport signedNormalizedSupport =
             GraphicsFormatSupport.Sampled | GraphicsFormatSupport.LinearFiltering;
+        GraphicsFormatSupport halfFloatSampledSupport =
+            GraphicsFormatSupport.Sampled | GraphicsFormatSupport.LinearFiltering;
         GraphicsFormatSupport floatingSampledSupport = GraphicsFormatSupport.Sampled;
         if (profile.HasExtension("GL_OES_texture_float_linear"))
             floatingSampledSupport |= GraphicsFormatSupport.LinearFiltering;
 
-        GraphicsFormatSupport halfFloatColorSupport = GraphicsFormatSupport.Sampled;
+        GraphicsFormatSupport halfFloatColorSupport = halfFloatSampledSupport;
         if (profile.HasExtension("GL_EXT_color_buffer_half_float") ||
             profile.HasExtension("GL_EXT_color_buffer_float"))
             halfFloatColorSupport |= GraphicsFormatSupport.ColorAttachment;
 
-        GraphicsFormatSupport fullFloatColorSupport = GraphicsFormatSupport.Sampled;
+        GraphicsFormatSupport fullFloatColorSupport = floatingSampledSupport;
         if (profile.HasExtension("GL_EXT_color_buffer_float"))
             fullFloatColorSupport |= GraphicsFormatSupport.ColorAttachment;
 
@@ -665,7 +671,15 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
             floatStorageSupport |= GraphicsFormatSupport.Storage;
 
         if (supportsImageCopy)
+        {
             normalizedSingleSupport |= GraphicsFormatSupport.CopySource | GraphicsFormatSupport.CopyDestination;
+            signedNormalizedSupport |= GraphicsFormatSupport.CopySource | GraphicsFormatSupport.CopyDestination;
+            halfFloatSampledSupport |= GraphicsFormatSupport.CopySource | GraphicsFormatSupport.CopyDestination;
+            floatingSampledSupport |= GraphicsFormatSupport.CopySource | GraphicsFormatSupport.CopyDestination;
+            halfFloatColorSupport |= GraphicsFormatSupport.CopySource | GraphicsFormatSupport.CopyDestination;
+            fullFloatColorSupport |= GraphicsFormatSupport.CopySource | GraphicsFormatSupport.CopyDestination;
+            integerStorageSupport |= GraphicsFormatSupport.CopySource | GraphicsFormatSupport.CopyDestination;
+        }
 
         // Integer color formats are sampleable and color-renderable, but do not support
         // linear filtering or fixed-function blending.
@@ -707,6 +721,11 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
             halfFloatStorageSupport |= GraphicsFormatSupport.Storage;
             fullFloatStorageSupport |= GraphicsFormatSupport.Storage;
         }
+        if (supportsImageCopy)
+        {
+            halfFloatStorageSupport |= GraphicsFormatSupport.CopySource | GraphicsFormatSupport.CopyDestination;
+            fullFloatStorageSupport |= GraphicsFormatSupport.CopySource | GraphicsFormatSupport.CopyDestination;
+        }
 
         List<GraphicsFormatCapabilities> formats =
         [
@@ -727,8 +746,8 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
             new(GraphicsFormat.R8SNorm, signedNormalizedSupport, SampleCounts(GraphicsFormat.R8SNorm)),
             new(GraphicsFormat.RG8SNorm, signedNormalizedSupport, SampleCounts(GraphicsFormat.RG8SNorm)),
             new(GraphicsFormat.RGBA8SNorm, signedNormalizedSupport, SampleCounts(GraphicsFormat.RGBA8SNorm)),
-            new(GraphicsFormat.R16Float, floatingSampledSupport, SampleCounts(GraphicsFormat.R16Float)),
-            new(GraphicsFormat.RG16Float, floatingSampledSupport, SampleCounts(GraphicsFormat.RG16Float)),
+            new(GraphicsFormat.R16Float, halfFloatSampledSupport, SampleCounts(GraphicsFormat.R16Float)),
+            new(GraphicsFormat.RG16Float, halfFloatSampledSupport, SampleCounts(GraphicsFormat.RG16Float)),
             new(GraphicsFormat.RGBA16Float, halfFloatStorageSupport, SampleCounts(GraphicsFormat.RGBA16Float)),
             new(GraphicsFormat.R32Float, floatStorageSupport, SampleCounts(GraphicsFormat.R32Float)),
             new(GraphicsFormat.RG32Float, floatStorageSupport, SampleCounts(GraphicsFormat.RG32Float)),
@@ -747,10 +766,16 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
             new(GraphicsFormat.RGBA32UInt, integerStorageSupport, SampleCounts(GraphicsFormat.RGBA32UInt)),
             new(GraphicsFormat.RGBA32SInt, integerStorageSupport, SampleCounts(GraphicsFormat.RGBA32SInt)),
             new(GraphicsFormat.D16UNorm, depthSupport, SampleCounts(GraphicsFormat.D16UNorm)),
-            new(GraphicsFormat.D24UNormS8UInt, depthSupport, SampleCounts(GraphicsFormat.D24UNormS8UInt)),
-            new(GraphicsFormat.D32Float, depthSupport, SampleCounts(GraphicsFormat.D32Float)),
-            new(GraphicsFormat.D32FloatS8UInt, depthSupport, SampleCounts(GraphicsFormat.D32FloatS8UInt))
+            new(GraphicsFormat.D24UNormS8UInt, depthSupport, SampleCounts(GraphicsFormat.D24UNormS8UInt))
         ];
+
+        // DEPTH_COMPONENT32F and DEPTH32F_STENCIL8 are required sized depth formats in
+        // GLES 3.2. Do not expose their tokens or query them on GLES 3.1 contexts.
+        if (profile.Version.IsAtLeast(3, 2))
+        {
+            formats.Add(new(GraphicsFormat.D32Float, depthSupport, SampleCounts(GraphicsFormat.D32Float)));
+            formats.Add(new(GraphicsFormat.D32FloatS8UInt, depthSupport, SampleCounts(GraphicsFormat.D32FloatS8UInt)));
+        }
 
         GraphicsFormatSupport compressedSupport = GraphicsFormatSupport.Sampled | GraphicsFormatSupport.LinearFiltering;
         if (supportsImageCopy)
