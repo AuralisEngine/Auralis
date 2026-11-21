@@ -1360,11 +1360,15 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
     {
         _queue.WaitForCompletion(this);
 
-        // Device disposal owns the context gate and will drain queued submissions before
-        // releasing native objects. Do not race its pending-list completion or release retained
-        // resources outside that context-bound drain.
-        if (_lifecycle.State == GraphicsCommandListState.Pending && Device.IsDisposed)
-            return;
+        // Device shutdown drains queued submissions while the context is current. An exceptional
+        // submission can have reached Pending before its completion record was enqueued; wait for
+        // shutdown to finish and close that unqueued transition here if the queue did not.
+        if (Device.IsDisposed)
+        {
+            ((OpenGLGraphicsDevice)Device).WaitForShutdownCompletion();
+            if (_lifecycle.State == GraphicsCommandListState.Pending)
+                _lifecycle.MarkCompleted();
+        }
 
         // Disposing a recording abandons it; it must never become executable after Dispose.
         if (_lifecycle.State == GraphicsCommandListState.Recording)
