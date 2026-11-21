@@ -664,6 +664,20 @@ public sealed class GraphicsReviewRegressionTests
         Assert.Equal(GraphicsCommandListState.Pending, lifecycle.State);
     }
 
+
+    [Fact]
+    public void ConcurrentCompletionRecoveryIsIdempotent()
+    {
+        var lifecycle = new GraphicsCommandListLifecycle(GraphicsQueueType.Graphics);
+        lifecycle.Begin();
+        lifecycle.End();
+        lifecycle.MarkSubmitted();
+
+        Assert.True(lifecycle.TryMarkCompleted());
+        Assert.False(lifecycle.TryMarkCompleted());
+        Assert.Equal(GraphicsCommandListState.Executable, lifecycle.State);
+    }
+
     private static GraphicsDeviceFactoryTests.TestDevice CreateDevice(
         GraphicsFeature features = GraphicsFeature.None,
         params GraphicsFormatCapabilities[] formats) =>
