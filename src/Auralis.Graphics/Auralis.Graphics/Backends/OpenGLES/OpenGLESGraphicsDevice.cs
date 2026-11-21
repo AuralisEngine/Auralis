@@ -285,6 +285,7 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
 
         GraphicsFormatSupport normalizedSingleSupport =
             GraphicsFormatSupport.Sampled |
+            GraphicsFormatSupport.ColorAttachment |
             GraphicsFormatSupport.VertexBuffer |
             GraphicsFormatSupport.LinearFiltering;
 
