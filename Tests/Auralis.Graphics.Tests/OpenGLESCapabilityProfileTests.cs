@@ -272,3 +272,171 @@ public sealed class OpenGLESBackendProviderTests
         public void Dispose() => IsDisposed = true;
     }
 }
+
+public sealed class OpenGLESShaderCompatibilityTests
+{
+    [Fact]
+    public void Es31_AllowsVertexFragmentAndComputeStages()
+    {
+        OpenGLESVersion version = new(3, 1);
+
+        Assert.Equal(Silk.NET.OpenGLES.ShaderType.VertexShader,
+            OpenGLESShaderCompatibility.GetNativeStage(version, GraphicsShaderStage.Vertex));
+        Assert.Equal(Silk.NET.OpenGLES.ShaderType.FragmentShader,
+            OpenGLESShaderCompatibility.GetNativeStage(version, GraphicsShaderStage.Fragment));
+        Assert.Equal(Silk.NET.OpenGLES.ShaderType.ComputeShader,
+            OpenGLESShaderCompatibility.GetNativeStage(version, GraphicsShaderStage.Compute));
+        Assert.Throws<GraphicsFeatureNotSupportedException>(() =>
+            OpenGLESShaderCompatibility.GetNativeStage(version, GraphicsShaderStage.Geometry));
+        Assert.Throws<GraphicsFeatureNotSupportedException>(() =>
+            OpenGLESShaderCompatibility.GetNativeStage(version, GraphicsShaderStage.TessellationControl));
+    }
+
+    [Fact]
+    public void Es32_AddsGeometryAndTessellationShaderStages()
+    {
+        OpenGLESVersion version = new(3, 2);
+
+        Assert.Equal(Silk.NET.OpenGLES.ShaderType.GeometryShader,
+            OpenGLESShaderCompatibility.GetNativeStage(version, GraphicsShaderStage.Geometry));
+        Assert.Equal(Silk.NET.OpenGLES.ShaderType.TessControlShader,
+            OpenGLESShaderCompatibility.GetNativeStage(version, GraphicsShaderStage.TessellationControl));
+        Assert.Equal(Silk.NET.OpenGLES.ShaderType.TessEvaluationShader,
+            OpenGLESShaderCompatibility.GetNativeStage(version, GraphicsShaderStage.TessellationEvaluation));
+    }
+
+    [Theory]
+    [InlineData(GraphicsShaderStage.Task)]
+    [InlineData(GraphicsShaderStage.Mesh)]
+    public void MeshAndTaskStagesAreNeverClaimedAsGlesCore(GraphicsShaderStage stage)
+    {
+        Assert.Throws<GraphicsFeatureNotSupportedException>(() =>
+            OpenGLESShaderCompatibility.GetNativeStage(new OpenGLESVersion(3, 2), stage));
+    }
+
+    [Fact]
+    public void ValidatesGlslEsLanguageAndContextCompatibility()
+    {
+        OpenGLESShaderCompatibility.ValidateSourceVersion(
+            new OpenGLESVersion(3, 1),
+            GraphicsShaderStage.Vertex,
+            "#version 300 es\nvoid main(){}");
+        OpenGLESShaderCompatibility.ValidateSourceVersion(
+            new OpenGLESVersion(3, 1),
+            GraphicsShaderStage.Compute,
+            "#version 310 es\nlayout(local_size_x=1) in; void main(){}");
+        OpenGLESShaderCompatibility.ValidateSourceVersion(
+            new OpenGLESVersion(3, 2),
+            GraphicsShaderStage.Geometry,
+            "#version 320 es\nlayout(points) in; layout(points, max_vertices=1) out; void main(){}");
+    }
+
+    [Theory]
+    [InlineData("#version 450 core\nvoid main(){}")]
+    [InlineData("#version 100 es\nvoid main(){}")]
+    [InlineData("void main(){}")]
+    public void RejectsDesktopLegacyOrMissingVersionDirectives(string source)
+    {
+        Assert.Throws<GraphicsValidationException>(() =>
+            OpenGLESShaderCompatibility.ValidateSourceVersion(
+                new OpenGLESVersion(3, 2), GraphicsShaderStage.Vertex, source));
+    }
+
+    [Fact]
+    public void RejectsComputeAndGeometryStagesWithOlderGlslEsVersions()
+    {
+        Assert.Throws<GraphicsValidationException>(() =>
+            OpenGLESShaderCompatibility.ValidateSourceVersion(
+                new OpenGLESVersion(3, 1), GraphicsShaderStage.Compute, "#version 300 es\nvoid main(){}"));
+        Assert.Throws<GraphicsValidationException>(() =>
+            OpenGLESShaderCompatibility.ValidateSourceVersion(
+                new OpenGLESVersion(3, 2), GraphicsShaderStage.Geometry, "#version 310 es\nvoid main(){}"));
+    }
+
+    [Fact]
+    public void RejectsGlslEsVersionHigherThanContext()
+    {
+        Assert.Throws<GraphicsValidationException>(() =>
+            OpenGLESShaderCompatibility.ValidateSourceVersion(
+                new OpenGLESVersion(3, 1), GraphicsShaderStage.Vertex, "#version 320 es\nvoid main(){}"));
+    }
+}
+
+public sealed class OpenGLESTextureCompatibilityTests
+{
+    [Theory]
+    [InlineData(GraphicsFormat.R8UNorm, Silk.NET.OpenGLES.SizedInternalFormat.R8)]
+    [InlineData(GraphicsFormat.RG8UNorm, Silk.NET.OpenGLES.SizedInternalFormat.RG8)]
+    [InlineData(GraphicsFormat.RGBA8UNorm, Silk.NET.OpenGLES.SizedInternalFormat.Rgba8)]
+    [InlineData(GraphicsFormat.RGBA8UNormSrgb, Silk.NET.OpenGLES.SizedInternalFormat.Srgb8Alpha8)]
+    public void SupportedFormatsHaveAnExplicitGlesInternalFormat(
+        GraphicsFormat format,
+        Silk.NET.OpenGLES.SizedInternalFormat expected)
+    {
+        Assert.Equal(expected, OpenGLESGraphicsTexture.GetInternalFormat(format));
+    }
+
+    [Fact]
+    public void UnsupportedTextureFormatIsRejected()
+    {
+        Assert.Throws<GraphicsValidationException>(() =>
+            OpenGLESGraphicsTexture.GetInternalFormat(GraphicsFormat.Unknown));
+        Assert.Throws<GraphicsValidationException>(() =>
+            OpenGLESGraphicsTexture.GetInternalFormat(GraphicsFormat.BGRA8UNorm));
+    }
+
+    [Fact]
+    public void ValidGlesTextureDescriptionMapsToExpectedTarget()
+    {
+        GraphicsTextureDescription description = new(
+            GraphicsTextureDimension.Texture2D,
+            GraphicsFormat.RGBA8UNorm,
+            128, 64, 1, 8, 1, 1,
+            GraphicsTextureUsage.Sampled | GraphicsTextureUsage.Storage);
+
+        Assert.Equal(
+            Silk.NET.OpenGLES.TextureTarget.Texture2D,
+            OpenGLESTextureCompatibility.ValidateAndGetTarget(description));
+    }
+
+    [Fact]
+    public void TwoDimensionalArrayUsesGlesArrayTarget()
+    {
+        GraphicsTextureDescription description = new(
+            GraphicsTextureDimension.Texture2D,
+            GraphicsFormat.RGBA8UNorm,
+            128, 64, 1, 8, 4, 1,
+            GraphicsTextureUsage.Sampled);
+
+        Assert.Equal(
+            Silk.NET.OpenGLES.TextureTarget.Texture2DArray,
+            OpenGLESTextureCompatibility.ValidateAndGetTarget(description));
+    }
+
+    [Fact]
+    public void RejectsUnsupportedGlesTextureKindsWithoutAContext()
+    {
+        GraphicsTextureDescription oneDimensional = new(
+            GraphicsTextureDimension.Texture1D,
+            GraphicsFormat.RGBA8UNorm,
+            128, 1, 1, 8, 1, 1,
+            GraphicsTextureUsage.Sampled);
+        GraphicsTextureDescription multisampled = new(
+            GraphicsTextureDimension.Texture2D,
+            GraphicsFormat.RGBA8UNorm,
+            128, 64, 1, 1, 1, 4,
+            GraphicsTextureUsage.Sampled);
+        GraphicsTextureDescription cubeArray = new(
+            GraphicsTextureDimension.Cube,
+            GraphicsFormat.RGBA8UNorm,
+            128, 128, 1, 8, 12, 1,
+            GraphicsTextureUsage.Sampled);
+
+        Assert.Throws<GraphicsValidationException>(() =>
+            OpenGLESTextureCompatibility.ValidateAndGetTarget(oneDimensional));
+        Assert.Throws<GraphicsValidationException>(() =>
+            OpenGLESTextureCompatibility.ValidateAndGetTarget(multisampled));
+        Assert.Throws<GraphicsValidationException>(() =>
+            OpenGLESTextureCompatibility.ValidateAndGetTarget(cubeArray));
+    }
+}
