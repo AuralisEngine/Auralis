@@ -30,3 +30,31 @@ internal static class GraphicsCommandValidation
                 $"CPU fence signal value {cpuSignalValue} cannot overtake pending GPU signal value {pendingValue}.");
     }
 }
+
+/// <summary>
+/// Completes submitted command-list lifecycle transitions only after failed GPU work has been
+/// brought to an idle point. The caller owns the backend context serialization while this runs.
+/// </summary>
+internal static class GraphicsCommandListSubmissionRecovery
+{
+    internal static void RecoverFailedSubmission<TList>(
+        IReadOnlyList<TList> submittedLists,
+        int submittedCount,
+        bool commandsStarted,
+        Action finishGpuWork,
+        Action<TList> markCompleted)
+    {
+        ArgumentNullException.ThrowIfNull(submittedLists);
+        ArgumentNullException.ThrowIfNull(finishGpuWork);
+        ArgumentNullException.ThrowIfNull(markCompleted);
+        if ((uint)submittedCount > (uint)submittedLists.Count)
+            throw new ArgumentOutOfRangeException(nameof(submittedCount));
+
+        // A failed Finish must leave submitted lists Pending so disposal can retry the safe path.
+        if (commandsStarted)
+            finishGpuWork();
+
+        for (int i = 0; i < submittedCount; i++)
+            markCompleted(submittedLists[i]);
+    }
+}
