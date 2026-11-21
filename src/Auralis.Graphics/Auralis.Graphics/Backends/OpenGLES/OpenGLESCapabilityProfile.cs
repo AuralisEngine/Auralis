@@ -199,7 +199,8 @@ public sealed class OpenGLESCapabilityProfile
             Contains(extensionCopy, "GL_EXT_base_instance") &&
             Contains(extensionCopy, "GL_EXT_draw_elements_base_vertex"))
             features |= GraphicsFeature.BaseInstanceDrawing;
-        if (textureViewEntryPointAvailable && Contains(extensionCopy, "GL_EXT_texture_view"))
+        if (textureViewEntryPointAvailable &&
+            (Contains(extensionCopy, "GL_EXT_texture_view") || Contains(extensionCopy, "GL_OES_texture_view")))
             features |= GraphicsFeature.TextureViews;
 
         GraphicsQueueCapabilities queues =
