@@ -193,6 +193,12 @@ public sealed class OpenGLBackendTests
                 extAvailable: true,
                 nvAvailable: true,
                 GraphicsFeature.MeshShaders));
+        Assert.Throws<GraphicsValidationException>(() =>
+            OpenGLMeshShaderDialectValidation.ValidateGlslSource(
+                "// GL_NV_mesh_shader is mentioned in a comment, not enabled\nvoid main() {}",
+                extAvailable: false,
+                nvAvailable: true,
+                GraphicsFeature.MeshShaders));
     }
 
     [Fact]
