@@ -63,6 +63,7 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
     internal uint MaxTaskWorkGroupCountY { get; }
     internal uint MaxTaskWorkGroupCountZ { get; }
     internal uint MaxTaskWorkGroupTotalCount { get; }
+    internal uint MaxNvDrawMeshTasksCount { get; }
     internal uint MaxUniformBufferBindings { get; }
     internal uint MaxStorageBufferBindings { get; }
     internal uint MaxTextureUnits { get; }
@@ -119,6 +120,7 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
         uint maxTaskWorkGroupCountY,
         uint maxTaskWorkGroupCountZ,
         uint maxTaskWorkGroupTotalCount,
+        uint maxNvDrawMeshTasksCount,
         uint maxUniformBufferBindings,
         uint maxStorageBufferBindings,
         uint maxTextureUnits,
@@ -168,6 +170,7 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
         MaxTaskWorkGroupCountY = maxTaskWorkGroupCountY;
         MaxTaskWorkGroupCountZ = maxTaskWorkGroupCountZ;
         MaxTaskWorkGroupTotalCount = maxTaskWorkGroupTotalCount;
+        MaxNvDrawMeshTasksCount = maxNvDrawMeshTasksCount;
         MaxUniformBufferBindings = maxUniformBufferBindings;
         MaxStorageBufferBindings = maxStorageBufferBindings;
         MaxTextureUnits = maxTextureUnits;
@@ -307,6 +310,7 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
             uint maxTaskWorkGroupCountY = 0;
             uint maxTaskWorkGroupCountZ = 0;
             uint maxTaskWorkGroupTotalCount = 0;
+            uint maxNvDrawMeshTasksCount = 0;
             if (computeShaderApi is not null)
             {
                 uniformBufferObjectApi!.GetInteger(GetPName.MaxComputeWorkGroupCount, 0, out int countX);
@@ -333,21 +337,27 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
                 maxMeshWorkGroupTotalCount = ToUInt(gl.GetInteger(GetPName.MaxMeshWorkGroupTotalCountExt));
                 maxTaskWorkGroupTotalCount = ToUInt(gl.GetInteger(GetPName.MaxTaskWorkGroupTotalCountExt));
             }
-            else if (nvMeshShaderApi is not null)
+            if (nvMeshShaderApi is not null)
             {
-                uint maxNvDrawCount = ToUInt(gl.GetInteger((GLEnum)0x953D)); // GL_MAX_DRAW_MESH_TASKS_COUNT_NV
-                maxMeshWorkGroupCountX = maxNvDrawCount;
-                maxMeshWorkGroupCountY = 1;
-                maxMeshWorkGroupCountZ = 1;
-                maxMeshWorkGroupTotalCount = maxNvDrawCount;
-                maxTaskWorkGroupCountX = maxNvDrawCount;
-                maxTaskWorkGroupCountY = 1;
-                maxTaskWorkGroupCountZ = 1;
-                maxTaskWorkGroupTotalCount = maxNvDrawCount;
-                if (maxNvDrawCount == 0)
+                maxNvDrawMeshTasksCount = ToUInt(gl.GetInteger((GLEnum)0x953D)); // GL_MAX_DRAW_MESH_TASKS_COUNT_NV
+                if (maxNvDrawMeshTasksCount == 0)
                     throw new GraphicsBackendUnavailableException(
                         GraphicsBackend.OpenGL,
                         "GL_NV_mesh_shader was advertised but GL_MAX_DRAW_MESH_TASKS_COUNT_NV is zero.");
+
+                // When EXT is also available, keep its 3D limits as the default capability
+                // snapshot. NV pipelines use the independently queried one-dimensional limit.
+                if (meshShaderApi is null)
+                {
+                    maxMeshWorkGroupCountX = maxNvDrawMeshTasksCount;
+                    maxMeshWorkGroupCountY = 1;
+                    maxMeshWorkGroupCountZ = 1;
+                    maxMeshWorkGroupTotalCount = maxNvDrawMeshTasksCount;
+                    maxTaskWorkGroupCountX = maxNvDrawMeshTasksCount;
+                    maxTaskWorkGroupCountY = 1;
+                    maxTaskWorkGroupCountZ = 1;
+                    maxTaskWorkGroupTotalCount = maxNvDrawMeshTasksCount;
+                }
             }
 
             bool supportsMeshShaders = OpenGLMeshTaskValidation.IsSupported(
@@ -394,6 +404,7 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
                 maxMeshWorkGroupTotalCount,
                 maxTaskWorkGroupCountX, maxTaskWorkGroupCountY, maxTaskWorkGroupCountZ,
                 maxTaskWorkGroupTotalCount,
+                maxNvDrawMeshTasksCount,
                 maxUniformBufferBindings, maxStorageBufferBindings, maxTextureUnits, maxImageUnits,
                 uniformBufferOffsetAlignment, storageBufferOffsetAlignment,
                 major, minor, vendor, renderer, version, capabilities);
