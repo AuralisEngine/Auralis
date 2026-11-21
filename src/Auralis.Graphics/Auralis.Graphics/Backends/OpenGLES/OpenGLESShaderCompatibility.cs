@@ -9,6 +9,32 @@ namespace Auralis.Graphics.Backends.OpenGLES;
 /// <summary>Pure OpenGL ES shader stage and GLSL ES language validation.</summary>
 internal static class OpenGLESShaderCompatibility
 {
+    internal static ShaderType GetNativeStage(OpenGLESGraphicsDevice device, GraphicsShaderStage stage)
+    {
+        if (stage is GraphicsShaderStage.Mesh or GraphicsShaderStage.Task)
+        {
+            bool deviceMeshShadersAvailable =
+                device.Capabilities.Features.Supports(GraphicsFeature.MeshShaders) &&
+                (stage != GraphicsShaderStage.Task ||
+                    device.Capabilities.Features.Supports(GraphicsFeature.TaskShaders));
+            return GetMeshNativeStage(deviceMeshShadersAvailable, stage);
+        }
+
+        return GetNativeStage(device.Version, stage);
+    }
+
+    private static ShaderType GetMeshNativeStage(bool deviceMeshShadersAvailable, GraphicsShaderStage stage) =>
+        stage switch
+        {
+            GraphicsShaderStage.Mesh when deviceMeshShadersAvailable => (ShaderType)0x9559,
+            GraphicsShaderStage.Task when deviceMeshShadersAvailable => (ShaderType)0x955A,
+            GraphicsShaderStage.Mesh =>
+                throw new GraphicsFeatureNotSupportedException(GraphicsFeature.MeshShaders, GraphicsFeature.MeshShaders),
+            GraphicsShaderStage.Task =>
+                throw new GraphicsFeatureNotSupportedException(GraphicsFeature.TaskShaders, GraphicsFeature.TaskShaders),
+            _ => throw new ArgumentOutOfRangeException(nameof(stage))
+        };
+
     internal static ShaderType GetNativeStage(OpenGLESVersion version, GraphicsShaderStage stage) =>
         stage switch
         {
@@ -24,10 +50,14 @@ internal static class OpenGLESShaderCompatibility
                 throw new GraphicsFeatureNotSupportedException(GraphicsFeature.GeometryShaders, GraphicsFeature.GeometryShaders),
             GraphicsShaderStage.TessellationControl or GraphicsShaderStage.TessellationEvaluation =>
                 throw new GraphicsFeatureNotSupportedException(GraphicsFeature.TessellationShaders, GraphicsFeature.TessellationShaders),
-            GraphicsShaderStage.Mesh =>
-                throw new GraphicsFeatureNotSupportedException(GraphicsFeature.MeshShaders, GraphicsFeature.MeshShaders),
-            GraphicsShaderStage.Task =>
-                throw new GraphicsFeatureNotSupportedException(GraphicsFeature.TaskShaders, GraphicsFeature.TaskShaders),
+            GraphicsShaderStage.Mesh when deviceMeshShadersAvailable =>
+                (ShaderType)0x9559, // GL_MESH_SHADER_EXT
+            GraphicsShaderStage.Task when deviceMeshShadersAvailable =>
+                (ShaderType)0x955A, // GL_TASK_SHADER_EXT
+            GraphicsShaderStage.Mesh or GraphicsShaderStage.Task =>
+                throw new GraphicsFeatureNotSupportedException(
+                    GraphicsFeature.MeshShaders | GraphicsFeature.TaskShaders,
+                    GraphicsFeature.MeshShaders | GraphicsFeature.TaskShaders),
             _ => throw new GraphicsValidationException($"Unsupported OpenGL ES shader stage: {stage}.")
         };
 
@@ -56,5 +86,19 @@ internal static class OpenGLESShaderCompatibility
         if (stage is GraphicsShaderStage.Geometry or GraphicsShaderStage.TessellationControl or GraphicsShaderStage.TessellationEvaluation &&
             languageVersion < 320)
             throw new GraphicsValidationException("Geometry and tessellation shaders require '#version 320 es'.");
+
+        if (stage is GraphicsShaderStage.Mesh or GraphicsShaderStage.Task)
+        {
+            if (languageVersion < 310)
+                throw new GraphicsValidationException("GLES EXT mesh/task shaders require '#version 310 es' or newer.");
+            if (!Regex.IsMatch(
+                    source,
+                    @"^\s*#\s*extension\s+GL_EXT_mesh_shader\s*:\s*require\b",
+                    RegexOptions.Multiline | RegexOptions.CultureInvariant))
+            {
+                throw new GraphicsValidationException(
+                    "GLES mesh/task shader source must enable GL_EXT_mesh_shader with '#extension GL_EXT_mesh_shader : require'.");
+            }
+        }
     }
 }
