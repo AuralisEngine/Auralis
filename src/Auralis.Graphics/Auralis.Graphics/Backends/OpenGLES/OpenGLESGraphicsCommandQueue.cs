@@ -79,95 +79,87 @@ internal sealed class OpenGLESGraphicsCommandQueue : IGraphicsCommandQueue
         nint completionSync = 0;
         bool queued = false;
 
-        try
+        _device.WithContext(gl =>
         {
-            _device.WithContext(gl =>
+            try
             {
-                try
+                // Keep Executable -> Pending and failure recovery serialized with Dispose.
+                for (int i = 0; i < lists.Length; i++)
                 {
-                    // Keep the state transition and its failure recovery under the same context
-                    // gate. A concurrent Dispose therefore cannot observe an unowned Pending list.
-                    for (int i = 0; i < lists.Length; i++)
+                    lists[i].MarkSubmitted();
+                    submitted++;
+                }
+
+                commandsStarted = true;
+                for (int i = 0; i < lists.Length; i++)
+                    lists[i].Execute(gl);
+
+                completionSync = gl.FenceSync(SyncCondition.SyncGpuCommandsComplete, (uint)0);
+                if (completionSync == 0)
+                    throw new GraphicsException("OpenGL ES failed to create a command-submission sync object.");
+
+                fence?.SignalFromGpu(gl, signalValue);
+                gl.Flush();
+
+                lock (_gate)
+                {
+                    _pending.Add(new PendingSubmission(lists, completionSync));
+                    queued = true;
+                }
+            }
+            catch (Exception submissionError)
+            {
+                // If a command may have reached the driver, finish it before publishing completion.
+                // If Finish itself fails, keep Pending as an orphan; WaitForCompletion retries Finish
+                // before any retained reference can be released.
+                Exception? cleanupFailure = null;
+                bool gpuWorkFinished = !commandsStarted;
+                if (commandsStarted)
+                {
+                    try
                     {
-                        lists[i].MarkSubmitted();
-                        submitted++;
+                        gl.Finish();
+                        gpuWorkFinished = true;
                     }
-
-                    commandsStarted = true;
-                    for (int i = 0; i < lists.Length; i++)
-                        lists[i].Execute(gl);
-
-                    completionSync = gl.FenceSync(SyncCondition.SyncGpuCommandsComplete, (uint)0);
-                    if (completionSync == 0)
-                        throw new GraphicsException("OpenGL ES failed to create a command-submission sync object.");
-
-                    fence?.SignalFromGpu(gl, signalValue);
-                    gl.Flush();
-
-                    lock (_gate)
+                    catch (Exception exception)
                     {
-                        _pending.Add(new PendingSubmission(lists, completionSync));
-                        queued = true;
+                        cleanupFailure ??= exception;
                     }
                 }
-                catch (Exception submissionError)
-                {
-                    // If any command may have reached the driver, finish it before completing lists.
-                    // If Finish fails, lists remain Pending and WaitForCompletion has an explicit
-                    // unowned-submission recovery path that retries Finish before releasing refs.
-                    Exception? cleanupFailure = null;
-                    bool gpuWorkFinished = !commandsStarted;
-                    if (commandsStarted)
-                    {
-                        try
-                        {
-                            gl.Finish();
-                            gpuWorkFinished = true;
-                        }
-                        catch (Exception exception)
-                        {
-                            cleanupFailure ??= exception;
-                        }
-                    }
 
-                    if (completionSync != 0)
+                if (completionSync != 0)
+                {
+                    try { gl.DeleteSync(completionSync); }
+                    catch (Exception exception) { cleanupFailure ??= exception; }
+                    completionSync = 0;
+                }
+
+                if (gpuWorkFinished)
+                {
+                    for (int i = 0; i < submitted; i++)
                     {
-                        try { gl.DeleteSync(completionSync); }
+                        if (lists[i].Lifecycle.State != GraphicsCommandListState.Pending)
+                            continue;
+
+                        try { lists[i].MarkCompletedAfterGpu(); }
                         catch (Exception exception) { cleanupFailure ??= exception; }
-                        completionSync = 0;
                     }
-
-                    if (gpuWorkFinished)
-                    {
-                        for (int i = 0; i < submitted; i++)
-                        {
-                            if (lists[i].Lifecycle.State != GraphicsCommandListState.Pending)
-                                continue;
-
-                            try { lists[i].MarkCompletedAfterGpu(); }
-                            catch (Exception exception) { cleanupFailure ??= exception; }
-                        }
-                    }
-
-                    if (cleanupFailure is not null)
-                        throw new AggregateException(
-                            "GLES submission failed and its in-context recovery also failed.",
-                            submissionError,
-                            cleanupFailure);
-
-                    ExceptionDispatchInfo.Capture(submissionError).Throw();
-                    throw;
                 }
-            });
-        }
-        catch (Exception submissionError)
-        {
-            // The failure path above completes successfully marked lists while still holding the
-            // context gate. Do not call Complete here: that would race a waiting Dispose and could
-            // release retained resources without a GPU-completion owner.
-            ExceptionDispatchInfo.Capture(submissionError).Throw();
-            throw;
-        }
+
+                if (cleanupFailure is not null)
+                    throw new AggregateException(
+                        "GLES submission failed and its in-context recovery also failed.",
+                        submissionError,
+                        cleanupFailure);
+
+                ExceptionDispatchInfo.Capture(submissionError).Throw();
+                throw;
+            }
+        });
+
+        // If MakeCurrent/ReleaseCurrent fails after queue insertion, the pending record remains
+        // authoritative and is deliberately not rolled back here.
+        _ = queued;
     }
 
     public void Wait(IGraphicsFence fence, ulong value)
@@ -209,9 +201,8 @@ internal sealed class OpenGLESGraphicsCommandQueue : IGraphicsCommandQueue
             }
         });
 
-        if (completed is null)
-            return;
-        CompleteAll(completed);
+        if (completed is not null)
+            CompleteAll(completed);
     }
 
     internal void WaitForCompletion(OpenGLESGraphicsCommandList commandList)
@@ -235,8 +226,6 @@ internal sealed class OpenGLESGraphicsCommandQueue : IGraphicsCommandQueue
                         if (!contains)
                             continue;
 
-                        // Wait only for this list's owning submission. The finite wait releases
-                        // the context gate between iterations so unrelated device work can proceed.
                         GLEnum status = gl.ClientWaitSync(
                             submission.Sync,
                             (SyncObjectMask)SyncObjectMask.Bit,
@@ -260,9 +249,8 @@ internal sealed class OpenGLESGraphicsCommandQueue : IGraphicsCommandQueue
 
                 if (commandList.Lifecycle.State == GraphicsCommandListState.Pending)
                 {
-                    // A failed submission can transition to Pending before a queue record exists.
-                    // This fallback is only for that orphaned list; keep unrelated pending records
-                    // intact and never release the list until Finish confirms the stream is idle.
+                    // This is the exceptional no-record recovery path after submission failure.
+                    // Do not drain unrelated queue records.
                     gl.Finish();
                     if (commandList.Lifecycle.State == GraphicsCommandListState.Pending)
                         commandList.MarkCompletedAfterGpu();
@@ -271,7 +259,7 @@ internal sealed class OpenGLESGraphicsCommandQueue : IGraphicsCommandQueue
             });
 
             if (hasCompletedSubmission)
-                CompleteAll([completedSubmission]);
+                CompleteSubmission(completedSubmission);
             else if (recoveredUnqueuedSubmission)
                 commandList.ReleaseCompletedResourcesIfDisposed();
         }
@@ -309,25 +297,31 @@ internal sealed class OpenGLESGraphicsCommandQueue : IGraphicsCommandQueue
         List<Exception>? failures = null;
         for (int i = 0; i < submissions.Count; i++)
         {
-            OpenGLESGraphicsCommandList[] commandLists = submissions[i].CommandLists;
-            for (int j = 0; j < commandLists.Length; j++)
+            try { CompleteSubmission(submissions[i]); }
+            catch (Exception exception)
             {
-                try
-                {
-                    commandLists[j].ReleaseCompletedResourcesIfDisposed();
-                }
-                catch (Exception exception)
-                {
-                    failures ??= new List<Exception>();
-                    failures.Add(exception);
-                }
+                failures ??= new List<Exception>();
+                failures.Add(exception);
             }
         }
 
         if (failures is not null)
             throw new AggregateException(
-                "One or more GLES command lists failed to release retained resources after GPU completion.",
+                "One or more GLES submissions failed to release retained resources after GPU completion.",
                 failures);
+    }
+
+    private static void CompleteSubmission(PendingSubmission submission)
+    {
+        Exception? failure = null;
+        for (int i = 0; i < submission.CommandLists.Length; i++)
+        {
+            try { submission.CommandLists[i].ReleaseCompletedResourcesIfDisposed(); }
+            catch (Exception exception) { failure ??= exception; }
+        }
+
+        if (failure is not null)
+            ExceptionDispatchInfo.Capture(failure).Throw();
     }
 
     private readonly record struct PendingSubmission(
