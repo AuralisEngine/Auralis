@@ -83,9 +83,36 @@ internal static class Program
             RunTest("resource retention after recording", "OpenGL ES 3.1", () => RunResourceRetentionAfterRecording(device));
             RunTest("reusable command-list resubmission", "OpenGL ES 3.1", () => RunReusableCommandListAfterOwnerDisposal(device));
             RunTest("offscreen graphics pipeline", "OpenGL ES 3.1", () => RunOffscreenGraphicsPipeline(device, context));
-            RunTest("MRT rendering and attachment ordering", "OpenGL ES 3.1, at least two color attachments", () => RunMrtRendering(device, context));
-            RunTest("typed signed/unsigned integer color clears", "OpenGL ES 3.1 integer color attachments", () => RunIntegerColorClears(device, context));
-            RunTest("multi-command array and indexed indirect drawing", "OpenGL ES 3.1 indirect drawing", () => RunMultiDrawIndirect(device, context));
+            if (device.Capabilities.Limits.MaxColorAttachments >= 2 &&
+                device.Capabilities.Limits.MaxColorDrawBuffers >= 2)
+                RunTest("MRT rendering and attachment ordering", "OpenGL ES 3.1, at least two color attachments", () => RunMrtRendering(device, context));
+            else
+                SkipTest("MRT rendering and attachment ordering", "at least two color attachments and draw buffers", "driver-reported attachment or draw-buffer limit is below two");
+
+            bool hasIntegerColorAttachments =
+                device.Capabilities.TryGetFormatCapabilities(GraphicsFormat.RGBA8UInt, out GraphicsFormatCapabilities unsignedCaps) &&
+                unsignedCaps.Supports(GraphicsFormatSupport.ColorAttachment) &&
+                device.Capabilities.TryGetFormatCapabilities(GraphicsFormat.RGBA8SInt, out GraphicsFormatCapabilities signedCaps) &&
+                signedCaps.Supports(GraphicsFormatSupport.ColorAttachment);
+            if (hasIntegerColorAttachments)
+                RunTest("typed signed/unsigned integer color clears", "signed and unsigned integer color attachments", () => RunIntegerColorClears(device, context));
+            else
+                SkipTest("typed signed/unsigned integer color clears", "RGBA8 integer attachment formats", "the driver does not report both signed and unsigned RGBA8 color attachments");
+
+            string multiDrawPath = device.Capabilities.Features.Supports(GraphicsFeature.MultiDrawIndirect)
+                ? "native GL_EXT_multi_draw_indirect"
+                : "GPU-resident single-draw fallback";
+            RunTest("multi-command array and indexed indirect drawing", $"OpenGL ES 3.1, {multiDrawPath}", () => RunMultiDrawIndirect(device, context));
+
+            if (device.Capabilities.Features.Supports(GraphicsFeature.TextureViews))
+                RunTest("subresource texture-view rendering and parent retention", "GL_EXT_texture_view or GL_OES_texture_view", () => RunTextureViewSubresourceRendering(device, context));
+            else
+                SkipTest("subresource texture-view rendering and parent retention", "GL_EXT_texture_view or GL_OES_texture_view", "the extension or native texture-view entry point is unavailable");
+
+            if (((OpenGLESGraphicsDevice)device).HasImageCopy)
+                RunTest("native full-resource image copy without destination attachment usage", "GL_EXT_copy_image or GL_OES_copy_image", () => RunNativeImageCopy(device, context));
+            else
+                SkipTest("native full-resource image copy without destination attachment usage", "GL_EXT_copy_image or GL_OES_copy_image", "neither image-copy extension and its entry point is available; the framebuffer-blit fallback is covered by the offscreen rendering case");
 
             uint multisampleCount =
                 device.Capabilities.SupportsSampleCount(GraphicsFormat.RGBA8UNorm, 4) ? 4u :
@@ -115,6 +142,114 @@ internal static class Program
             else
                 context.Dispose();
         }
+    }
+
+    private static void RunTextureViewSubresourceRendering(
+        IGraphicsDevice device,
+        GlfwOpenGLESContextProvider context)
+    {
+        using IGraphicsTexture mipParent = device.CreateTexture(new GraphicsTextureDescription(
+            GraphicsTextureDimension.Texture2D,
+            GraphicsFormat.RGBA8UNorm,
+            64, 64, 1, 2, 1, 1,
+            GraphicsTextureUsage.ColorAttachment));
+        using IGraphicsTextureView mipView = mipParent.CreateView(new GraphicsTextureViewDescription(
+            GraphicsFormat.Unknown,
+            GraphicsTextureViewType.Texture2D,
+            1, 1, 0, 1));
+
+        using IGraphicsTexture arrayParent = device.CreateTexture(new GraphicsTextureDescription(
+            GraphicsTextureDimension.Texture2D,
+            GraphicsFormat.RGBA8UNorm,
+            64, 64, 1, 1, 2, 1,
+            GraphicsTextureUsage.ColorAttachment));
+        using IGraphicsTextureView arrayLayerView = arrayParent.CreateView(new GraphicsTextureViewDescription(
+            GraphicsFormat.Unknown,
+            GraphicsTextureViewType.Texture2D,
+            0, 1, 1, 1));
+
+        IGraphicsCommandQueue queue = device.GetQueue(GraphicsQueueType.Graphics);
+        using IGraphicsCommandList commands = queue.CreateCommandList();
+        using IGraphicsFence fence = device.CreateFence();
+        IGraphicsTextureView[] mipTarget = [mipView];
+        IGraphicsTextureView[] arrayTarget = [arrayLayerView];
+
+        commands.Begin();
+        commands.SetRenderTargets(mipTarget);
+        commands.SetViewport(new GraphicsViewport(0, 0, 32, 32));
+        commands.SetScissor(new GraphicsScissorRect(0, 0, 32, 32));
+        commands.ClearColor(0, new GraphicsClearColor(1, 0, 1, 1));
+        commands.SetRenderTargets(arrayTarget);
+        commands.SetViewport(new GraphicsViewport(0, 0, 64, 64));
+        commands.SetScissor(new GraphicsScissorRect(0, 0, 64, 64));
+        commands.ClearColor(0, new GraphicsClearColor(0, 1, 1, 1));
+        commands.End();
+
+        // The recorded views own references to their parent textures. Closing the
+        // public texture-owner references must not invalidate either native view.
+        mipParent.Dispose();
+        arrayParent.Dispose();
+        queue.Submit([commands], fence, 1);
+        if (!fence.Wait(1, TimeSpan.FromSeconds(10)))
+            throw new TimeoutException("The GLES texture-view rendering fence did not complete.");
+
+        AssertPixelNear(ReadRgba8Pixel(device, context, mipView), 255, 0, 255, 255);
+        AssertPixelNear(ReadRgba8Pixel(device, context, arrayLayerView), 0, 255, 255, 255);
+        Console.WriteLine("Validated mip-restricted and array-layer texture views as framebuffer attachments, GPU output, and parent-resource retention after public owner disposal.");
+    }
+
+    private static void RunNativeImageCopy(
+        IGraphicsDevice device,
+        GlfwOpenGLESContextProvider context)
+    {
+        using IGraphicsTexture source = device.CreateTexture(new GraphicsTextureDescription(
+            GraphicsTextureDimension.Texture2D,
+            GraphicsFormat.RGBA8UNorm,
+            64, 64, 1, 1, 1, 1,
+            GraphicsTextureUsage.ColorAttachment | GraphicsTextureUsage.CopySource));
+        using IGraphicsTexture destination = device.CreateTexture(new GraphicsTextureDescription(
+            GraphicsTextureDimension.Texture2D,
+            GraphicsFormat.RGBA8UNorm,
+            64, 64, 1, 1, 1, 1,
+            GraphicsTextureUsage.CopyDestination));
+        using IGraphicsTextureView sourceView = source.CreateView(new GraphicsTextureViewDescription(
+            GraphicsFormat.Unknown, GraphicsTextureViewType.Texture2D, 0, 1, 0, 1));
+        using IGraphicsTextureView destinationView = destination.CreateView(new GraphicsTextureViewDescription(
+            GraphicsFormat.Unknown, GraphicsTextureViewType.Texture2D, 0, 1, 0, 1));
+
+        IGraphicsCommandQueue graphicsQueue = device.GetQueue(GraphicsQueueType.Graphics);
+        using (IGraphicsCommandList clear = graphicsQueue.CreateCommandList())
+        using (IGraphicsFence clearFence = device.CreateFence())
+        {
+            IGraphicsTextureView[] targets = [sourceView];
+            clear.Begin();
+            clear.SetRenderTargets(targets);
+            clear.SetViewport(new GraphicsViewport(0, 0, 64, 64));
+            clear.SetScissor(new GraphicsScissorRect(0, 0, 64, 64));
+            clear.ClearColor(0, new GraphicsClearColor(0.125f, 0.375f, 0.875f, 1));
+            clear.End();
+            graphicsQueue.Submit([clear], clearFence, 1);
+            if (!clearFence.Wait(1, TimeSpan.FromSeconds(10)))
+                throw new TimeoutException("The GLES image-copy source clear fence did not complete.");
+        }
+
+        IGraphicsCommandQueue copyQueue = device.GetQueue(GraphicsQueueType.Copy);
+        using (IGraphicsCommandList copy = copyQueue.CreateCommandList())
+        using (IGraphicsFence copyFence = device.CreateFence())
+        {
+            copy.Begin();
+            copy.CopyTexture(source, destination);
+            ExpectThrows<GraphicsValidationException>(
+                () => copy.CopyTexture(source, source),
+                "native image copy must reject self-copy");
+            copy.End();
+            copyQueue.Submit([copy], copyFence, 1);
+            if (!copyFence.Wait(1, TimeSpan.FromSeconds(10)))
+                throw new TimeoutException("The GLES native image-copy fence did not complete.");
+        }
+
+        AssertPixelNear(ReadRgba8Pixel(device, context, destinationView), 32, 32, 64, 96, 223, 255);
+        Console.WriteLine("Validated full-resource GL_EXT/GL_OES_copy_image GPU output and destination operation without ColorAttachment usage; self-copy is rejected.");
     }
 
     private static void RunMrtRendering(IGraphicsDevice device, GlfwOpenGLESContextProvider context)
