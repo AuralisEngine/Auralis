@@ -80,7 +80,7 @@ internal abstract class OpenGLESGraphicsPipeline : OpenGLESNativeDeviceObject, I
     }
 }
 
-internal sealed class OpenGLESGraphicsRenderPipeline : OpenGLESGraphicsPipeline, IGraphicsRenderPipeline
+internal sealed unsafe class OpenGLESGraphicsRenderPipeline : OpenGLESGraphicsPipeline, IGraphicsRenderPipeline
 {
     private uint _vertexArray;
 
@@ -131,7 +131,7 @@ internal sealed class OpenGLESGraphicsRenderPipeline : OpenGLESGraphicsPipeline,
                 device.RegisterUnderContext(pipeline);
                 program = 0;
                 vertexArray = 0;
-                return (IGraphicsRenderPipeline)pipeline;
+                return pipeline;
             }
             catch
             {
@@ -180,6 +180,9 @@ internal sealed class OpenGLESGraphicsRenderPipeline : OpenGLESGraphicsPipeline,
                     GraphicsFeature.TessellationShaders, GraphicsFeature.TessellationShaders);
             if (description.Tessellation is not { } tessellation)
                 throw new GraphicsValidationException("Patch topology requires a tessellation patch-control-point description.");
+            if (tessellation.PatchControlPoints != 3)
+                throw new NotSupportedException(
+                    "Silk.NET.OpenGLES 2.23.0 does not expose the GLES core patch-parameter entry point; this implementation currently supports the GLES default of three patch control points only.");
             if (tessellation.PatchControlPoints > device.Capabilities.Limits.MaxTessellationPatchSize)
                 throw new GraphicsValidationException(
                     $"Patch control point count {tessellation.PatchControlPoints} exceeds the GLES device limit {device.Capabilities.Limits.MaxTessellationPatchSize}.");
@@ -212,8 +215,8 @@ internal sealed class OpenGLESGraphicsRenderPipeline : OpenGLESGraphicsPipeline,
             });
         }
         gl.FrontFace(raster.FrontFace == GraphicsFrontFace.Clockwise
-            ? GLEnum.Cw
-            : GLEnum.Ccw);
+            ? FrontFaceDirection.CW
+            : FrontFaceDirection.Ccw);
 
         SetEnabled(gl, GLEnum.PolygonOffsetFill, raster.DepthBiasEnabled);
         if (raster.DepthBiasEnabled)
@@ -221,7 +224,7 @@ internal sealed class OpenGLESGraphicsRenderPipeline : OpenGLESGraphicsPipeline,
 
         if (Description.Topology == GraphicsPrimitiveTopology.PatchList &&
             Description.Tessellation is { } tessellation)
-            gl.PatchParameteri(PatchParameterName.Vertices, checked((int)tessellation.PatchControlPoints));
+
 
         GraphicsDepthStencilState depth = Description.DepthStencil;
         SetEnabled(gl, GLEnum.DepthTest, depth.DepthTestEnabled);
@@ -449,7 +452,7 @@ internal sealed class OpenGLESGraphicsComputePipeline : OpenGLESGraphicsPipeline
             {
                 OpenGLESGraphicsComputePipeline pipeline = new(device, description, program);
                 device.RegisterUnderContext(pipeline);
-                return (IGraphicsComputePipeline)pipeline;
+                return pipeline;
             }
             catch
             {
