@@ -175,6 +175,8 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
     internal MultiDrawElementsIndirectExtDelegate? MultiDrawElementsIndirectExt => _multiDrawElementsIndirectExt;
     internal ExtDrawBuffersIndexed? DrawBuffersIndexedApi => _drawBuffersIndexedApi;
     internal ExtCopyImage? CopyImageApi => _copyImageApi;
+    internal bool SupportsCubeMapArray =>
+        Version.IsAtLeast(3, 2) || Profile.HasExtension("GL_OES_texture_cube_map_array");
     internal TextureViewExtDelegate? TextureViewExt => _textureViewExt;
     internal ExtDrawElementsBaseVertex? DrawElementsBaseVertexApi => _drawElementsBaseVertexApi;
     internal ExtBaseInstance? BaseInstanceApi => _baseInstanceApi;
