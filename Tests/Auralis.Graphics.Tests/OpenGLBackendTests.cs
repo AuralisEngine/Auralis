@@ -151,6 +151,58 @@ public sealed class OpenGLBackendTests
     }
 
     [Fact]
+    public void MeshShaderGlslDialectRequiresExactlyOneAvailableExtension()
+    {
+        Assert.Equal(
+            OpenGLMeshShaderDialect.Ext,
+            OpenGLMeshShaderDialectValidation.ValidateGlslSource(
+                "#version 450 core\n#extension GL_EXT_mesh_shader : require\nvoid main() {}",
+                extAvailable: true,
+                nvAvailable: false,
+                GraphicsFeature.MeshShaders));
+
+        Assert.Equal(
+            OpenGLMeshShaderDialect.Nv,
+            OpenGLMeshShaderDialectValidation.ValidateGlslSource(
+                "#version 450 core\n#extension GL_NV_mesh_shader : require\nvoid main() {}",
+                extAvailable: false,
+                nvAvailable: true,
+                GraphicsFeature.MeshShaders));
+
+        Assert.Throws<GraphicsFeatureNotSupportedException>(() =>
+            OpenGLMeshShaderDialectValidation.ValidateGlslSource(
+                "#extension GL_EXT_mesh_shader : require",
+                extAvailable: false,
+                nvAvailable: true,
+                GraphicsFeature.MeshShaders));
+        Assert.Throws<GraphicsFeatureNotSupportedException>(() =>
+            OpenGLMeshShaderDialectValidation.ValidateGlslSource(
+                "#extension GL_NV_mesh_shader : require",
+                extAvailable: true,
+                nvAvailable: false,
+                GraphicsFeature.MeshShaders));
+        Assert.Throws<GraphicsValidationException>(() =>
+            OpenGLMeshShaderDialectValidation.ValidateGlslSource(
+                "#extension GL_EXT_mesh_shader : require\n#extension GL_NV_mesh_shader : require",
+                extAvailable: true,
+                nvAvailable: true,
+                GraphicsFeature.MeshShaders));
+        Assert.Throws<GraphicsValidationException>(() =>
+            OpenGLMeshShaderDialectValidation.ValidateGlslSource(
+                "#version 450 core\nvoid main() {}",
+                extAvailable: true,
+                nvAvailable: true,
+                GraphicsFeature.MeshShaders));
+    }
+
+    [Fact]
+    public void NvAndExtMeshShaderStageTokensShareTheOfficialNativeValues()
+    {
+        Assert.Equal((ShaderType)0x9559, OpenGLGraphicsShader.ToShaderType(GraphicsShaderStage.Mesh));
+        Assert.Equal((ShaderType)0x955A, OpenGLGraphicsShader.ToShaderType(GraphicsShaderStage.Task));
+    }
+
+    [Fact]
     public void MeshTaskWorkGroupCountsAreValidatedAgainstDriverLimits()
     {
         OpenGLMeshTaskValidation.Validate(
