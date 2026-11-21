@@ -57,6 +57,9 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
     internal uint MaxMeshWorkGroupCountX { get; }
     internal uint MaxMeshWorkGroupCountY { get; }
     internal uint MaxMeshWorkGroupCountZ { get; }
+    internal uint MaxTaskWorkGroupCountX { get; }
+    internal uint MaxTaskWorkGroupCountY { get; }
+    internal uint MaxTaskWorkGroupCountZ { get; }
     internal uint MaxUniformBufferBindings { get; }
     internal uint MaxStorageBufferBindings { get; }
     internal uint MaxTextureUnits { get; }
@@ -106,6 +109,9 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
         uint maxMeshWorkGroupCountX,
         uint maxMeshWorkGroupCountY,
         uint maxMeshWorkGroupCountZ,
+        uint maxTaskWorkGroupCountX,
+        uint maxTaskWorkGroupCountY,
+        uint maxTaskWorkGroupCountZ,
         uint maxUniformBufferBindings,
         uint maxStorageBufferBindings,
         uint maxTextureUnits,
@@ -149,6 +155,9 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
         MaxMeshWorkGroupCountX = maxMeshWorkGroupCountX;
         MaxMeshWorkGroupCountY = maxMeshWorkGroupCountY;
         MaxMeshWorkGroupCountZ = maxMeshWorkGroupCountZ;
+        MaxTaskWorkGroupCountX = maxTaskWorkGroupCountX;
+        MaxTaskWorkGroupCountY = maxTaskWorkGroupCountY;
+        MaxTaskWorkGroupCountZ = maxTaskWorkGroupCountZ;
         MaxUniformBufferBindings = maxUniformBufferBindings;
         MaxStorageBufferBindings = maxStorageBufferBindings;
         MaxTextureUnits = maxTextureUnits;
@@ -270,6 +279,9 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
             uint maxMeshWorkGroupCountX = 0;
             uint maxMeshWorkGroupCountY = 0;
             uint maxMeshWorkGroupCountZ = 0;
+            uint maxTaskWorkGroupCountX = 0;
+            uint maxTaskWorkGroupCountY = 0;
+            uint maxTaskWorkGroupCountZ = 0;
             if (computeShaderApi is not null)
             {
                 uniformBufferObjectApi!.GetInteger(GetPName.MaxComputeWorkGroupCount, 0, out int countX);
@@ -287,6 +299,12 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
                 maxMeshWorkGroupCountX = ToUInt(countX);
                 maxMeshWorkGroupCountY = ToUInt(countY);
                 maxMeshWorkGroupCountZ = ToUInt(countZ);
+                uniformBufferObjectApi.GetInteger(GetPName.MaxTaskWorkGroupCountExt, 0, out countX);
+                uniformBufferObjectApi.GetInteger(GetPName.MaxTaskWorkGroupCountExt, 1, out countY);
+                uniformBufferObjectApi.GetInteger(GetPName.MaxTaskWorkGroupCountExt, 2, out countZ);
+                maxTaskWorkGroupCountX = ToUInt(countX);
+                maxTaskWorkGroupCountY = ToUInt(countY);
+                maxTaskWorkGroupCountZ = ToUInt(countZ);
             }
 
             bool supportsMeshShaders = OpenGLMeshTaskValidation.IsSupported(
@@ -294,6 +312,11 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
                 maxMeshWorkGroupCountX,
                 maxMeshWorkGroupCountY,
                 maxMeshWorkGroupCountZ);
+            bool supportsTaskShaders = OpenGLMeshTaskValidation.IsSupported(
+                meshShaderApi is not null,
+                maxTaskWorkGroupCountX,
+                maxTaskWorkGroupCountY,
+                maxTaskWorkGroupCountZ);
             GraphicsDeviceCapabilities capabilities = QueryCapabilities(
                 gl, major, minor, internalFormatQuery!, uniformBufferObjectApi!,
                 contextProvider.SupportsPresentation,
@@ -302,6 +325,7 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
                 polygonOffsetClampApi is not null,
                 spirvApi is not null,
                 supportsMeshShaders,
+                supportsTaskShaders,
                 supportedLineWidths);
 
             cancellationToken.ThrowIfCancellationRequested();
@@ -314,6 +338,7 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
                 meshShaderApi, shaderBinaryApi!, spirvApi, supportedLineWidths, computeShaderApi!, uniformBufferObjectApi!,
                 maxComputeWorkGroupCountX, maxComputeWorkGroupCountY, maxComputeWorkGroupCountZ,
                 maxMeshWorkGroupCountX, maxMeshWorkGroupCountY, maxMeshWorkGroupCountZ,
+                maxTaskWorkGroupCountX, maxTaskWorkGroupCountY, maxTaskWorkGroupCountZ,
                 maxUniformBufferBindings, maxStorageBufferBindings, maxTextureUnits, maxImageUnits,
                 uniformBufferOffsetAlignment, storageBufferOffsetAlignment,
                 major, minor, vendor, renderer, version, capabilities);
@@ -381,6 +406,7 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
         bool supportsDepthBiasClamp,
         bool supportsSpirV,
         bool supportsMeshShaders,
+        bool supportsTaskShaders,
         OpenGLLineWidthRange supportedLineWidths)
     {
         static bool AtLeast(int major, int minor, int requiredMajor, int requiredMinor) =>
@@ -402,7 +428,8 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
         if (supportsDepthBounds) features |= GraphicsFeature.DepthBoundsTest;
         if (supportsDepthBiasClamp) features |= GraphicsFeature.DepthBiasClamp;
         if (supportsSpirV) features |= GraphicsFeature.SpirVShaders;
-        if (supportsMeshShaders) features |= GraphicsFeature.MeshShaders | GraphicsFeature.TaskShaders;
+        if (supportsMeshShaders) features |= GraphicsFeature.MeshShaders;
+        if (supportsTaskShaders) features |= GraphicsFeature.TaskShaders;
         if (supportedLineWidths.SupportsWideLines) features |= GraphicsFeature.WideLines;
         // Timestamp queries, sparse resources, and multi-viewport are intentionally not
         // advertised until the corresponding execution paths are implemented.
