@@ -139,19 +139,27 @@ public sealed class OpenGLResourceRetentionTests
     }
 
     [Fact]
-    public void DeviceDisposalMayForceNativeReleaseBeforeManagedRetentionsDrain()
+    public void DeviceShutdownReleasesNativeObjectWhileSubmittedListStillRetainsIt()
     {
+        var lifecycle = new GraphicsCommandListLifecycle(GraphicsQueueType.Graphics);
         var retention = new OpenGLResourceRetention();
         var resource = new InstrumentedNativeResource();
 
+        lifecycle.Begin();
         retention.Retain(resource);
+        lifecycle.End();
+        lifecycle.MarkSubmitted();
         resource.DisposeOwner();
 
-        // Device disposal releases all registered GL objects only after finishing the context.
+        Assert.Equal(GraphicsCommandListState.Pending, lifecycle.State);
+        Assert.Equal(0, resource.NativeReleaseCount);
+
+        // The simulated device shutdown finishes the queue before forcing native deletion.
         resource.DisposeDevice();
+        lifecycle.MarkCompleted();
         Assert.Equal(1, resource.NativeReleaseCount);
 
-        // Later command-list cleanup must not issue a second native delete.
+        // Managed list cleanup after shutdown must not issue another native delete.
         retention.ReleaseAll();
         Assert.Equal(1, resource.NativeReleaseCount);
     }
