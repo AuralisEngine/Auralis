@@ -213,6 +213,19 @@ public sealed class OpenGLESBackendProviderTests
     }
 
     [Fact]
+    public async Task ProviderExposesItsHostSelectedAdapterToTheFactory()
+    {
+        FakeOpenGLESContextProvider context = new();
+        OpenGLESGraphicsBackendProvider provider = new(context);
+
+        ReadOnlyMemory<GraphicsAdapterInfo> adapters = await provider.EnumerateAdaptersAsync();
+
+        Assert.Single(adapters.ToArray());
+        Assert.True(adapters.Span[0].Id.IsDefault);
+        Assert.Equal("OpenGL ES host context", adapters.Span[0].Name);
+    }
+
+    [Fact]
     public async Task FactoryRejectsAnUnavailableGlesProvider()
     {
         FakeOpenGLESContextProvider context = new() { Available = false };
