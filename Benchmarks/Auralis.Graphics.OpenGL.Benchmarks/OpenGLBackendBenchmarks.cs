@@ -3,6 +3,7 @@ using Auralis.Graphics.Commands;
 using Auralis.Graphics.Devices;
 using Auralis.Graphics.OpenGL.TestSupport;
 using Auralis.Graphics.Resources;
+using Auralis.Graphics.Synchronization;
 using BenchmarkDotNet.Attributes;
 using BenchmarkDotNet.Jobs;
 
