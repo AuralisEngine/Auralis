@@ -47,6 +47,7 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
     private readonly MultiDrawElementsIndirectExtDelegate? _multiDrawElementsIndirectExt;
     private readonly ExtDrawBuffersIndexed? _drawBuffersIndexedApi;
     private readonly ExtCopyImage? _copyImageApi;
+    private readonly ExtTextureView? _textureViewApi;
     private readonly ExtDrawElementsBaseVertex? _drawElementsBaseVertexApi;
     private readonly ExtBaseInstance? _baseInstanceApi;
     private readonly object _contextGate = new();
@@ -64,6 +65,7 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
         MultiDrawElementsIndirectExtDelegate? multiDrawElementsIndirectExt,
         ExtDrawBuffersIndexed? drawBuffersIndexedApi,
         ExtCopyImage? copyImageApi,
+        ExtTextureView? textureViewApi,
         ExtDrawElementsBaseVertex? drawElementsBaseVertexApi,
         ExtBaseInstance? baseInstanceApi,
         OpenGLESVersion version,
@@ -80,6 +82,7 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
         _multiDrawElementsIndirectExt = multiDrawElementsIndirectExt;
         _drawBuffersIndexedApi = drawBuffersIndexedApi;
         _copyImageApi = copyImageApi;
+        _textureViewApi = textureViewApi;
         _drawElementsBaseVertexApi = drawElementsBaseVertexApi;
         _baseInstanceApi = baseInstanceApi;
         Version = version;
@@ -143,6 +146,7 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
     internal MultiDrawElementsIndirectExtDelegate? MultiDrawElementsIndirectExt => _multiDrawElementsIndirectExt;
     internal ExtDrawBuffersIndexed? DrawBuffersIndexedApi => _drawBuffersIndexedApi;
     internal ExtCopyImage? CopyImageApi => _copyImageApi;
+    internal ExtTextureView? TextureViewApi => _textureViewApi;
     internal ExtDrawElementsBaseVertex? DrawElementsBaseVertexApi => _drawElementsBaseVertexApi;
     internal ExtBaseInstance? BaseInstanceApi => _baseInstanceApi;
 
@@ -169,6 +173,7 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
         MultiDrawElementsIndirectExtDelegate? multiDrawElementsIndirectExt = null;
         ExtDrawBuffersIndexed? drawBuffersIndexedApi = null;
         ExtCopyImage? copyImageApi = null;
+        ExtTextureView? textureViewApi = null;
         ExtDrawElementsBaseVertex? drawElementsBaseVertexApi = null;
         ExtBaseInstance? baseInstanceApi = null;
         contextProvider.MakeCurrent();
@@ -199,6 +204,8 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
                 drawBuffersIndexedApi = new ExtDrawBuffersIndexed(gl.Context);
             if (gl.IsExtensionPresent(ExtCopyImage.ExtensionName))
                 copyImageApi = new ExtCopyImage(gl.Context);
+            if (gl.IsExtensionPresent(ExtTextureView.ExtensionName))
+                textureViewApi = new ExtTextureView(gl.Context);
 
             bool hasBaseVertexExtension = gl.IsExtensionPresent(ExtDrawElementsBaseVertex.ExtensionName);
             if (hasBaseVertexExtension)
@@ -229,13 +236,15 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
 
             OpenGLESGraphicsDevice device = new(
                 contextProvider, gl, multiDrawArraysIndirectExt, multiDrawElementsIndirectExt,
-                drawBuffersIndexedApi, copyImageApi, drawElementsBaseVertexApi, baseInstanceApi,
+                drawBuffersIndexedApi, copyImageApi, textureViewApi,
+                drawElementsBaseVertexApi, baseInstanceApi,
                 version, versionString, vendor, renderer, profile, capabilities, queriedLimits);
             gl = null;
             multiDrawArraysIndirectExt = null;
             multiDrawElementsIndirectExt = null;
             drawBuffersIndexedApi = null;
             copyImageApi = null;
+            textureViewApi = null;
             drawElementsBaseVertexApi = null;
             baseInstanceApi = null;
             return device;
@@ -244,6 +253,7 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
         {
             baseInstanceApi?.Dispose();
             drawElementsBaseVertexApi?.Dispose();
+            textureViewApi?.Dispose();
             copyImageApi?.Dispose();
             drawBuffersIndexedApi?.Dispose();
             gl?.Dispose();
@@ -822,6 +832,15 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
                 try
                 {
                     _drawElementsBaseVertexApi?.Dispose();
+                }
+                catch (Exception exception)
+                {
+                    RecordFailure(ref failures, exception);
+                }
+
+                try
+                {
+                    _textureViewApi?.Dispose();
                 }
                 catch (Exception exception)
                 {
