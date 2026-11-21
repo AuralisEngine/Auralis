@@ -72,6 +72,10 @@ internal static class Program
                 ref passed, ref skipped, ref failed);
             Run("EXT task+mesh shader pipeline", session, TaskAndMeshShaderDraw,
                 ref passed, ref skipped, ref failed);
+            Run("NV mesh-shader direct draw", session, NvMeshShaderDirectDraw,
+                ref passed, ref skipped, ref failed);
+            Run("NV task+mesh shader pipeline", session, NvTaskAndMeshShaderDraw,
+                ref passed, ref skipped, ref failed);
 
             Console.WriteLine();
             Console.WriteLine($"Hardware integration result: {passed} passed, {skipped} skipped, {failed} failed.");
@@ -841,8 +845,8 @@ internal static class Program
     private static void MeshShaderDirectAndIndirectDraw(GlfwOpenGLHardwareSession session)
     {
         IGraphicsDevice device = session.Device;
-        if (!device.Capabilities.Features.Supports(GraphicsFeature.MeshShaders))
-            throw new HardwareTestSkippedException("GL_EXT_mesh_shader or valid mesh work-group limits are unavailable.");
+        if (((OpenGLGraphicsDevice)device).MeshShaderApi is null)
+            throw new HardwareTestSkippedException("GL_EXT_mesh_shader or its required native entry points are unavailable.");
 
         RequireFormat(device, GraphicsFormat.RGBA8UNorm, GraphicsFormatSupport.ColorAttachment);
         using IGraphicsTexture colorTarget = CreateColorTarget(device);
@@ -890,8 +894,9 @@ internal static class Program
     private static void TaskAndMeshShaderDraw(GlfwOpenGLHardwareSession session)
     {
         IGraphicsDevice device = session.Device;
-        if (!device.Capabilities.Features.Supports(GraphicsFeature.TaskShaders))
-            throw new HardwareTestSkippedException("GL_EXT_mesh_shader task limits are unavailable or task shaders are unsupported.");
+        if (((OpenGLGraphicsDevice)device).MeshShaderApi is null ||
+            !device.Capabilities.Features.Supports(GraphicsFeature.TaskShaders))
+            throw new HardwareTestSkippedException("GL_EXT_mesh_shader task entry points or task work-group limits are unavailable.");
 
         RequireFormat(device, GraphicsFormat.RGBA8UNorm, GraphicsFormatSupport.ColorAttachment);
         using IGraphicsTexture colorTarget = CreateColorTarget(device);
@@ -939,6 +944,145 @@ internal static class Program
 
         queue.Submit([commandList], fence, 1);
         WaitForGpu(fence, commandList, 1);
+    }
+
+    private static void NvMeshShaderDirectDraw(GlfwOpenGLHardwareSession session)
+    {
+        IGraphicsDevice device = session.Device;
+        OpenGLGraphicsDevice nativeDevice = (OpenGLGraphicsDevice)device;
+        if (nativeDevice.NvMeshShaderApi is null)
+            throw new HardwareTestSkippedException("GL_NV_mesh_shader or glDrawMeshTasksNV is unavailable.");
+        if (nativeDevice.MaxNvDrawMeshTasksCount == 0)
+            throw new HardwareTestSkippedException("GL_MAX_DRAW_MESH_TASKS_COUNT_NV is zero.");
+
+        using IGraphicsTexture colorTarget = CreateColorTarget(device);
+        using IGraphicsTextureView colorView = colorTarget.CreateView(new GraphicsTextureViewDescription(
+            GraphicsFormat.Unknown, GraphicsTextureViewType.Texture2D, 0, 1, 0, 1));
+        using IGraphicsShader meshShader = CreateShader(
+            device,
+            GraphicsShaderStage.Mesh,
+            """
+            #version 450 core
+            #extension GL_NV_mesh_shader : require
+            layout(local_size_x = 1) in;
+            layout(triangles, max_vertices = 3, max_primitives = 1) out;
+            void main()
+            {
+                gl_PrimitiveCountNV = 1;
+                gl_MeshVerticesNV[0].gl_Position = vec4(-0.6, -0.5, 0.0, 1.0);
+                gl_MeshVerticesNV[1].gl_Position = vec4( 0.6, -0.5, 0.0, 1.0);
+                gl_MeshVerticesNV[2].gl_Position = vec4( 0.0,  0.6, 0.0, 1.0);
+                gl_PrimitiveIndicesNV[0] = 0;
+                gl_PrimitiveIndicesNV[1] = 1;
+                gl_PrimitiveIndicesNV[2] = 2;
+            }
+            """);
+        using IGraphicsShader fragmentShader = CreateShader(
+            device,
+            GraphicsShaderStage.Fragment,
+            """
+            #version 450 core
+            layout(location = 0) out vec4 color;
+            void main() { color = vec4(0.7, 0.3, 0.1, 1.0); }
+            """);
+        using IGraphicsPipelineLayout pipelineLayout = device.CreatePipelineLayout([]);
+        IGraphicsShader[] shaders = [meshShader, fragmentShader];
+        GraphicsFormat[] formats = [GraphicsFormat.RGBA8UNorm];
+        using IGraphicsRenderPipeline pipeline = device.CreateRenderPipeline(
+            new GraphicsRenderPipelineDescription(
+                pipelineLayout, shaders, GraphicsPrimitiveTopology.TriangleList, formats));
+
+        IGraphicsCommandQueue queue = device.GetQueue(GraphicsQueueType.Graphics);
+        using IGraphicsCommandList commands = queue.CreateCommandList();
+        using IGraphicsFence fence = device.CreateFence();
+        IGraphicsTextureView[] targets = [colorView];
+        commands.Begin();
+        commands.SetRenderTargets(targets);
+        commands.SetViewport(new GraphicsViewport(0, 0, 32, 32));
+        commands.SetScissor(new GraphicsScissorRect(0, 0, 32, 32));
+        commands.ClearColor(0, new GraphicsClearColor(0, 0, 0, 1));
+        commands.SetRenderPipeline(pipeline);
+        commands.DrawMeshTasks(1, 1, 1);
+        commands.End();
+        queue.Submit([commands], fence, 1);
+        WaitForGpu(fence, commands, 1);
+
+        byte[] pixels = ReadTexturePixels(session, colorTarget, 32, 32);
+        AssertPixel(pixels, 32, 16, 16, 179, 77, 26, 255);
+    }
+
+    private static void NvTaskAndMeshShaderDraw(GlfwOpenGLHardwareSession session)
+    {
+        IGraphicsDevice device = session.Device;
+        OpenGLGraphicsDevice nativeDevice = (OpenGLGraphicsDevice)device;
+        if (nativeDevice.NvMeshShaderApi is null)
+            throw new HardwareTestSkippedException("GL_NV_mesh_shader or glDrawMeshTasksNV is unavailable.");
+        if (!device.Capabilities.Features.Supports(GraphicsFeature.TaskShaders))
+            throw new HardwareTestSkippedException("The driver does not expose usable NV task-shader limits.");
+
+        using IGraphicsTexture colorTarget = CreateColorTarget(device);
+        using IGraphicsTextureView colorView = colorTarget.CreateView(new GraphicsTextureViewDescription(
+            GraphicsFormat.Unknown, GraphicsTextureViewType.Texture2D, 0, 1, 0, 1));
+        using IGraphicsShader taskShader = CreateShader(
+            device,
+            GraphicsShaderStage.Task,
+            """
+            #version 450 core
+            #extension GL_NV_mesh_shader : require
+            layout(local_size_x = 1) in;
+            void main() { gl_TaskCountNV = 1; }
+            """);
+        using IGraphicsShader meshShader = CreateShader(
+            device,
+            GraphicsShaderStage.Mesh,
+            """
+            #version 450 core
+            #extension GL_NV_mesh_shader : require
+            layout(local_size_x = 1) in;
+            layout(triangles, max_vertices = 3, max_primitives = 1) out;
+            void main()
+            {
+                gl_PrimitiveCountNV = 1;
+                gl_MeshVerticesNV[0].gl_Position = vec4(-0.6, -0.5, 0.0, 1.0);
+                gl_MeshVerticesNV[1].gl_Position = vec4( 0.6, -0.5, 0.0, 1.0);
+                gl_MeshVerticesNV[2].gl_Position = vec4( 0.0,  0.6, 0.0, 1.0);
+                gl_PrimitiveIndicesNV[0] = 0;
+                gl_PrimitiveIndicesNV[1] = 1;
+                gl_PrimitiveIndicesNV[2] = 2;
+            }
+            """);
+        using IGraphicsShader fragmentShader = CreateShader(
+            device,
+            GraphicsShaderStage.Fragment,
+            """
+            #version 450 core
+            layout(location = 0) out vec4 color;
+            void main() { color = vec4(0.1, 0.3, 0.9, 1.0); }
+            """);
+        using IGraphicsPipelineLayout pipelineLayout = device.CreatePipelineLayout([]);
+        IGraphicsShader[] shaders = [taskShader, meshShader, fragmentShader];
+        GraphicsFormat[] formats = [GraphicsFormat.RGBA8UNorm];
+        using IGraphicsRenderPipeline pipeline = device.CreateRenderPipeline(
+            new GraphicsRenderPipelineDescription(
+                pipelineLayout, shaders, GraphicsPrimitiveTopology.TriangleList, formats));
+
+        IGraphicsCommandQueue queue = device.GetQueue(GraphicsQueueType.Graphics);
+        using IGraphicsCommandList commands = queue.CreateCommandList();
+        using IGraphicsFence fence = device.CreateFence();
+        IGraphicsTextureView[] targets = [colorView];
+        commands.Begin();
+        commands.SetRenderTargets(targets);
+        commands.SetViewport(new GraphicsViewport(0, 0, 32, 32));
+        commands.SetScissor(new GraphicsScissorRect(0, 0, 32, 32));
+        commands.ClearColor(0, new GraphicsClearColor(0, 0, 0, 1));
+        commands.SetRenderPipeline(pipeline);
+        commands.DrawMeshTasks(1, 1, 1);
+        commands.End();
+        queue.Submit([commands], fence, 1);
+        WaitForGpu(fence, commands, 1);
+
+        byte[] pixels = ReadTexturePixels(session, colorTarget, 32, 32);
+        AssertPixel(pixels, 32, 16, 16, 26, 77, 230, 255);
     }
 
     private static IGraphicsBuffer CreateBuffer(
