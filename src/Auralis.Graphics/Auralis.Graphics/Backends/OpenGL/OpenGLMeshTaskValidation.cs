@@ -71,8 +71,8 @@ internal static class OpenGLMeshShaderDialectValidation
         GraphicsFeature requiredFeature)
     {
         ArgumentNullException.ThrowIfNull(source);
-        bool requestsExt = source.Contains("GL_EXT_mesh_shader", StringComparison.Ordinal);
-        bool requestsNv = source.Contains("GL_NV_mesh_shader", StringComparison.Ordinal);
+        bool requestsExt = HasExtensionDirective(source, "GL_EXT_mesh_shader");
+        bool requestsNv = HasExtensionDirective(source, "GL_NV_mesh_shader");
         if (requestsExt == requestsNv)
         {
             throw new GraphicsValidationException(
@@ -89,5 +89,33 @@ internal static class OpenGLMeshShaderDialectValidation
         if (!nvAvailable)
             throw new GraphicsFeatureNotSupportedException(requiredFeature, requiredFeature);
         return OpenGLMeshShaderDialect.Nv;
+    }
+
+    private static bool HasExtensionDirective(string source, string extension)
+    {
+        const string Directive = "#extension";
+        int lineStart = 0;
+        while (lineStart < source.Length)
+        {
+            int lineEnd = source.IndexOf('\n', lineStart);
+            if (lineEnd < 0)
+                lineEnd = source.Length;
+
+            ReadOnlySpan<char> line = source.AsSpan(lineStart, lineEnd - lineStart).Trim();
+            if (line.StartsWith(Directive, StringComparison.Ordinal))
+            {
+                ReadOnlySpan<char> extensionText = line[Directive.Length..].TrimStart();
+                if (extensionText.StartsWith(extension, StringComparison.Ordinal))
+                {
+                    ReadOnlySpan<char> suffix = extensionText[extension.Length..];
+                    if (suffix.IsEmpty || char.IsWhiteSpace(suffix[0]))
+                        return true;
+                }
+            }
+
+            lineStart = lineEnd + 1;
+        }
+
+        return false;
     }
 }
