@@ -13,6 +13,9 @@ internal static class OpenGLESTextureCompatibility
     {
         description.Validate();
 
+        if ((description.CreationOptions & GraphicsResourceCreationOptions.AllowAliasing) != 0)
+            throw new GraphicsValidationException("OpenGL ES does not expose resource aliasing through this backend.");
+
         if (description.SampleCount > 1)
         {
             if (!version.IsAtLeast(3, 1))
@@ -31,9 +34,6 @@ internal static class OpenGLESTextureCompatibility
             throw new GraphicsValidationException("OpenGL ES has no 1D texture target.");
         if (description.Dimension == GraphicsTextureDimension.Cube && description.ArrayLayers != 6)
             throw new GraphicsValidationException("Cube-map arrays are not implemented by this OpenGL ES backend.");
-        if ((description.CreationOptions & GraphicsResourceCreationOptions.AllowAliasing) != 0)
-            throw new GraphicsValidationException("OpenGL ES does not expose resource aliasing through this backend.");
-
         _ = OpenGLESGraphicsTexture.GetInternalFormat(description.Format);
         return OpenGLESGraphicsTexture.GetTextureTarget(description);
     }
@@ -90,4 +90,5 @@ internal static class OpenGLESTextureCompatibility
         if (source.Format is not (GraphicsFormat.RGBA8UNorm or GraphicsFormat.RGBA8UNormSrgb))
             throw new GraphicsValidationException(
                 $"The GLES framebuffer-blit copy fallback does not support format {source.Format}.");
-    }}
+    }
+}
