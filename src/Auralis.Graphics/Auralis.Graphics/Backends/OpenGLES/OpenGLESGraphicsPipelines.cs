@@ -93,9 +93,24 @@ internal sealed unsafe class OpenGLESGraphicsRenderPipeline : OpenGLESGraphicsPi
     {
         Description = description;
         _vertexArray = vertexArray;
+
+        ReadOnlySpan<IGraphicsShader> shaders = description.Shaders;
+        bool hasMeshShader = false;
+        bool hasTaskShader = false;
+        for (int i = 0; i < shaders.Length; i++)
+        {
+            hasMeshShader |= shaders[i].Description.Stage == GraphicsShaderStage.Mesh;
+            hasTaskShader |= shaders[i].Description.Stage == GraphicsShaderStage.Task;
+        }
+        IsMeshPipeline = hasMeshShader;
+        IsTaskPipeline = hasTaskShader;
     }
 
     public GraphicsRenderPipelineDescription Description { get; }
+
+    internal bool IsMeshPipeline { get; }
+
+    internal bool IsTaskPipeline { get; }
 
     internal uint VertexArray
     {
@@ -149,6 +164,19 @@ internal sealed unsafe class OpenGLESGraphicsRenderPipeline : OpenGLESGraphicsPi
         OpenGLESGraphicsDevice device,
         GraphicsRenderPipelineDescription description)
     {
+        bool hasMeshShader = false;
+        bool hasTaskShader = false;
+        ReadOnlySpan<IGraphicsShader> pipelineShaders = description.Shaders;
+        for (int i = 0; i < pipelineShaders.Length; i++)
+        {
+            hasMeshShader |= pipelineShaders[i].Description.Stage == GraphicsShaderStage.Mesh;
+            hasTaskShader |= pipelineShaders[i].Description.Stage == GraphicsShaderStage.Task;
+        }
+        if (hasMeshShader && !device.Capabilities.Features.Supports(GraphicsFeature.MeshShaders))
+            throw new GraphicsFeatureNotSupportedException(GraphicsFeature.MeshShaders, GraphicsFeature.MeshShaders);
+        if (hasTaskShader && !device.Capabilities.Features.Supports(GraphicsFeature.TaskShaders))
+            throw new GraphicsFeatureNotSupportedException(GraphicsFeature.TaskShaders, GraphicsFeature.TaskShaders);
+
         GraphicsRasterizationState raster = description.Rasterization;
         if (raster.PolygonMode != GraphicsPolygonMode.Fill)
             throw new GraphicsValidationException("OpenGL ES does not expose desktop polygon mode; only filled polygons are supported.");
