@@ -726,15 +726,22 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
                         break;
 
                     case OpenGLESCmdKind.ClearColor:
-                        gl.ClearColor(
+                        gl.ColorMask(true, true, true, true);
+                        Span<float> clearColor = stackalloc float[4]
+                        {
                             command.ClearColor.Red,
                             command.ClearColor.Green,
                             command.ClearColor.Blue,
-                            command.ClearColor.Alpha);
-                        gl.Clear((uint)GLEnum.ColorBufferBit);
+                            command.ClearColor.Alpha
+                        };
+                        gl.ClearBuffer(GLEnum.Color, 0, clearColor);
+                        RestoreFramebufferWriteMasks(gl, activeRenderPipeline);
                         break;
 
                     case OpenGLESCmdKind.ClearDepthStencil:
+                        gl.DepthMask(true);
+                        gl.StencilMaskSeparate(GLEnum.Front, uint.MaxValue);
+                        gl.StencilMaskSeparate(GLEnum.Back, uint.MaxValue);
                         if (command.ClearDepthEnabled)
                         {
                             Span<float> depth = stackalloc float[1] { command.ClearDepth };
@@ -745,6 +752,7 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
                             Span<int> stencil = stackalloc int[1] { unchecked((int)command.ClearStencil) };
                             gl.ClearBuffer(GLEnum.Stencil, 0, stencil);
                         }
+                        RestoreFramebufferWriteMasks(gl, activeRenderPipeline);
                         break;
 
                     case OpenGLESCmdKind.RenderPipeline:
@@ -849,6 +857,45 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
             gl.BindBuffer(BufferTargetARB.DrawIndirectBuffer, 0);
             gl.BindBuffer(BufferTargetARB.DispatchIndirectBuffer, 0);
             gl.Disable(GLEnum.ScissorTest);
+        }
+    }
+
+
+    private static void RestoreFramebufferWriteMasks(
+        GL gl,
+        OpenGLESGraphicsRenderPipeline? activeRenderPipeline)
+    {
+        if (activeRenderPipeline is null)
+        {
+            gl.ColorMask(true, true, true, true);
+            gl.DepthMask(true);
+            gl.StencilMaskSeparate(GLEnum.Front, uint.MaxValue);
+            gl.StencilMaskSeparate(GLEnum.Back, uint.MaxValue);
+            return;
+        }
+
+        ReadOnlySpan<GraphicsBlendAttachmentState> blendAttachments =
+            activeRenderPipeline.Description.Blend.Attachments;
+        GraphicsColorWriteMask colorMask = blendAttachments.IsEmpty
+            ? GraphicsColorWriteMask.All
+            : blendAttachments[0].WriteMask;
+        gl.ColorMask(
+            (colorMask & GraphicsColorWriteMask.Red) != 0,
+            (colorMask & GraphicsColorWriteMask.Green) != 0,
+            (colorMask & GraphicsColorWriteMask.Blue) != 0,
+            (colorMask & GraphicsColorWriteMask.Alpha) != 0);
+
+        GraphicsDepthStencilState depthStencil = activeRenderPipeline.Description.DepthStencil;
+        gl.DepthMask(depthStencil.DepthWriteEnabled);
+        if (depthStencil.StencilTestEnabled)
+        {
+            gl.StencilMaskSeparate(GLEnum.Front, depthStencil.FrontStencil.WriteMask);
+            gl.StencilMaskSeparate(GLEnum.Back, depthStencil.BackStencil.WriteMask);
+        }
+        else
+        {
+            gl.StencilMaskSeparate(GLEnum.Front, uint.MaxValue);
+            gl.StencilMaskSeparate(GLEnum.Back, uint.MaxValue);
         }
     }
 
