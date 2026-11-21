@@ -182,6 +182,11 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
         uint max3DTextureSize = ToUInt(gl.GetInteger(GLEnum.Max3DTextureSize));
         uint maxArrayLayers = ToUInt(gl.GetInteger(GLEnum.MaxArrayTextureLayers));
         uint maxVertexAttributes = ToUInt(gl.GetInteger(GLEnum.MaxVertexAttribs));
+        uint maxColorAttachments = ToUInt(gl.GetInteger(GLEnum.MaxColorAttachments));
+        uint maxColorDrawBuffers = ToUInt(gl.GetInteger(GLEnum.MaxDrawBuffers));
+        if (maxColorAttachments == 0 || maxColorDrawBuffers == 0)
+            throw new GraphicsBackendUnavailableException(GraphicsBackend.OpenGLES,
+                "The GLES context did not report valid color-attachment and draw-buffer limits.");
         uint maxComputeInvocations = 0;
         uint maxComputeWorkGroupSizeX = 0;
         uint maxComputeWorkGroupSizeY = 0;
@@ -251,7 +256,9 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
             maxComputeWorkGroupCountY,
             maxComputeWorkGroupCountZ,
             maxTessellationPatchSize,
-            maxAnisotropy);
+            maxAnisotropy,
+            maxColorAttachments,
+            maxColorDrawBuffers);
     }
 
     internal static GraphicsDeviceCapabilities QueryCapabilities(
@@ -272,7 +279,9 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
             MaxComputeWorkGroupSizeY: queried.MaxComputeWorkGroupSizeY,
             MaxComputeWorkGroupSizeZ: queried.MaxComputeWorkGroupSizeZ,
             MaxSamplerAnisotropy: queried.MaxAnisotropy,
-            MaxTessellationPatchSize: queried.MaxTessellationPatchSize);
+            MaxTessellationPatchSize: queried.MaxTessellationPatchSize,
+            MaxColorAttachments: queried.MaxColorAttachments,
+            MaxColorDrawBuffers: queried.MaxColorDrawBuffers);
 
         GraphicsFormatSupport colorSupport =
             GraphicsFormatSupport.Sampled |
@@ -289,6 +298,12 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
             GraphicsFormatSupport.VertexBuffer |
             GraphicsFormatSupport.LinearFiltering;
 
+        // Integer color formats are sampleable and color-renderable, but do not support
+        // linear filtering or fixed-function blending.
+        GraphicsFormatSupport integerColorSupport =
+            GraphicsFormatSupport.Sampled |
+            GraphicsFormatSupport.ColorAttachment;
+
         GraphicsFormatSupport depthSupport =
             GraphicsFormatSupport.Sampled |
             GraphicsFormatSupport.DepthStencilAttachment;
@@ -302,6 +317,12 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
             new(GraphicsFormat.R8UNorm, normalizedSingleSupport, GraphicsSampleCountFlags.One),
             new(GraphicsFormat.RG8UNorm, normalizedSingleSupport, GraphicsSampleCountFlags.One),
             new(GraphicsFormat.RGBA8UNorm, rgba8Support, GraphicsSampleCountFlags.One),
+            new(GraphicsFormat.R8UInt, integerColorSupport, GraphicsSampleCountFlags.One),
+            new(GraphicsFormat.R8SInt, integerColorSupport, GraphicsSampleCountFlags.One),
+            new(GraphicsFormat.RG8UInt, integerColorSupport, GraphicsSampleCountFlags.One),
+            new(GraphicsFormat.RG8SInt, integerColorSupport, GraphicsSampleCountFlags.One),
+            new(GraphicsFormat.RGBA8UInt, integerColorSupport, GraphicsSampleCountFlags.One),
+            new(GraphicsFormat.RGBA8SInt, integerColorSupport, GraphicsSampleCountFlags.One),
             new(GraphicsFormat.RGBA8UNormSrgb,
                 GraphicsFormatSupport.Sampled | GraphicsFormatSupport.ColorAttachment |
                 GraphicsFormatSupport.Blend | GraphicsFormatSupport.CopySource |
@@ -339,7 +360,9 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
         uint MaxComputeWorkGroupCountY,
         uint MaxComputeWorkGroupCountZ,
         uint MaxTessellationPatchSize,
-        float MaxAnisotropy);
+        float MaxAnisotropy,
+        uint MaxColorAttachments,
+        uint MaxColorDrawBuffers);
 
     public IGraphicsCommandQueue GetQueue(GraphicsQueueType queueType, uint index = 0)
     {
