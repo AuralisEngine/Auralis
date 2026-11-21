@@ -1106,9 +1106,9 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
                             throw new GraphicsFeatureNotSupportedException(
                                 GraphicsFeature.MeshShaders, GraphicsFeature.MeshShaders);
                         gl.BindBuffer(BufferTargetARB.DrawIndirectBuffer, ((OpenGLESGraphicsBuffer)command.Buffer0!).Handle);
-                        if (command.DrawCount > 1 && meshDevice.MultiDrawMeshTasksIndirectExt is { } multiDraw)
+                        if (command.DrawCount > 1 && meshDevice.MultiDrawMeshTasksIndirectExt is { } meshMultiDraw)
                         {
-                            multiDraw(
+                            meshMultiDraw(
                                 checked((nint)command.Offset0),
                                 command.DrawCount,
                                 command.Stride);
