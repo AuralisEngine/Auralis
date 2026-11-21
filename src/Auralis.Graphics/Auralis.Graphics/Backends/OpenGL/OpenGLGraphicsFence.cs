@@ -10,7 +10,7 @@ namespace Auralis.Graphics.Backends.OpenGL;
 /// Timeline-style fence backed by ordered GLsync objects. Signal order is monotonic, so a FIFO
 /// queue is sufficient and avoids per-entry tree nodes and temporary cleanup collections.
 /// </summary>
-internal sealed class OpenGLGraphicsFence : GraphicsDeviceObject, IGraphicsFence, IOpenGLNativeResource
+internal sealed class OpenGLGraphicsFence : OpenGLNativeDeviceObject, IGraphicsFence
 {
     private readonly OpenGLGraphicsDevice _device;
     private readonly ArbSync _syncApi;
@@ -191,9 +191,9 @@ internal sealed class OpenGLGraphicsFence : GraphicsDeviceObject, IGraphicsFence
                 $"Fence values must increase monotonically. Last signal: {_lastSignaledValue}; requested: {value}.");
     }
 
-    protected override void DisposeCore() => _device.ReleaseResource(this);
+    protected override void DisposeCore() => ReleaseOwnerReference();
 
-    public void ReleaseNative(GL gl)
+    public override void ReleaseNative(GL gl)
     {
         lock (_gate)
         {
