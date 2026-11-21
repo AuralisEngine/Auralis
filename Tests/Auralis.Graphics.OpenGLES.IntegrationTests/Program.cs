@@ -176,7 +176,13 @@ internal static class Program
     {
         using IGraphicsTexture color = device.CreateTexture(new GraphicsTextureDescription(
             GraphicsTextureDimension.Texture2D, GraphicsFormat.RGBA8UNorm,
-            64, 64, 1, 1, 1, 1, GraphicsTextureUsage.ColorAttachment | GraphicsTextureUsage.Sampled));
+            64, 64, 1, 1, 1, 1,
+            GraphicsTextureUsage.ColorAttachment | GraphicsTextureUsage.Sampled |
+            GraphicsTextureUsage.CopySource));
+        using IGraphicsTexture copyDestination = device.CreateTexture(new GraphicsTextureDescription(
+            GraphicsTextureDimension.Texture2D, GraphicsFormat.RGBA8UNorm,
+            64, 64, 1, 1, 1, 1,
+            GraphicsTextureUsage.ColorAttachment | GraphicsTextureUsage.CopyDestination));
         using IGraphicsTexture depthStencil = device.CreateTexture(new GraphicsTextureDescription(
             GraphicsTextureDimension.Texture2D, GraphicsFormat.D24UNormS8UInt,
             64, 64, 1, 1, 1, 1, GraphicsTextureUsage.DepthStencilAttachment));
@@ -259,6 +265,7 @@ internal static class Program
         commandList.SetRenderPipeline(pipeline);
         commandList.SetBindingSet(0, sampledSet);
         commandList.Draw(3);
+        commandList.CopyTexture(color, copyDestination);
         commandList.End();
 
         queue.Submit([commandList], fence, 1);
@@ -278,7 +285,7 @@ internal static class Program
             context.ReleaseCurrent();
         }
 
-        Console.WriteLine("PASS: GLES vertex/fragment compilation, graphics pipeline link, FBO attachments, viewport/scissor, color/depth/stencil clear, combined sampled-texture/sampler binding, and draw.");
+        Console.WriteLine("PASS: GLES vertex/fragment compilation, graphics pipeline link, FBO attachments, viewport/scissor, color/depth/stencil clear, combined sampled-texture/sampler binding, draw, and validated color-texture blit copy.");
     }
 
     private static void RunComputeDispatch(IGraphicsDevice device)
