@@ -85,7 +85,7 @@ public sealed class GraphicsDeviceCapabilities
             GraphicsFeature.DepthClamp | GraphicsFeature.FillModeNonSolid |
             GraphicsFeature.IndependentBlend | GraphicsFeature.DepthBiasClamp |
             GraphicsFeature.SpirVShaders | GraphicsFeature.BaseVertexDrawing |
-            GraphicsFeature.BaseInstanceDrawing;
+            GraphicsFeature.BaseInstanceDrawing | GraphicsFeature.TextureViews;
         const GraphicsQueueCapabilities allQueues =
             GraphicsQueueCapabilities.Graphics | GraphicsQueueCapabilities.Compute |
             GraphicsQueueCapabilities.Copy | GraphicsQueueCapabilities.Present;
