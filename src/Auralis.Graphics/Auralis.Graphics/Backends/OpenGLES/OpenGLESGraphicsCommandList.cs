@@ -886,11 +886,23 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
                         gl.BindBuffer(BufferTargetARB.DrawIndirectBuffer, ((OpenGLESGraphicsBuffer)command.Buffer0!).Handle);
                         PrimitiveType indirectPrimitive = GetPrimitive((activeRenderPipeline ?? throw new GraphicsValidationException(
                             "A render pipeline must be bound before drawing.")).Description.Topology);
-                        uint arrayStride = command.Stride == 0 ? 16u : command.Stride;
-                        for (uint drawIndex = 0; drawIndex < command.DrawCount; drawIndex++)
+                        ExtMultiDrawIndirect? multiDraw = _queue.GlesDevice.MultiDrawIndirectApi;
+                        if (command.DrawCount > 1 && multiDraw is not null)
                         {
-                            ulong argumentOffset = checked(command.Offset0 + checked((ulong)drawIndex * arrayStride));
-                            gl.DrawArraysIndirect(indirectPrimitive, (void*)checked((nint)argumentOffset));
+                            multiDraw.MultiDrawArraysIndirect(
+                                indirectPrimitive,
+                                (void*)checked((nint)command.Offset0),
+                                command.DrawCount,
+                                command.Stride);
+                        }
+                        else
+                        {
+                            uint arrayStride = command.Stride == 0 ? 16u : command.Stride;
+                            for (uint drawIndex = 0; drawIndex < command.DrawCount; drawIndex++)
+                            {
+                                ulong argumentOffset = checked(command.Offset0 + checked((ulong)drawIndex * arrayStride));
+                                gl.DrawArraysIndirect(indirectPrimitive, (void*)checked((nint)argumentOffset));
+                            }
                         }
                         gl.BindBuffer(BufferTargetARB.DrawIndirectBuffer, 0);
                         break;
@@ -900,17 +912,30 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
                         gl.BindBuffer(BufferTargetARB.DrawIndirectBuffer, ((OpenGLESGraphicsBuffer)command.Buffer0!).Handle);
                         PrimitiveType indexedIndirectPrimitive = GetPrimitive((activeRenderPipeline ?? throw new GraphicsValidationException(
                             "A render pipeline must be bound before drawing.")).Description.Topology);
-                        uint indexedStride = command.Stride == 0 ? 20u : command.Stride;
                         DrawElementsType indexedType = command.IndexFormat == (uint)GraphicsIndexFormat.UInt16
                             ? DrawElementsType.UnsignedShort
                             : DrawElementsType.UnsignedInt;
-                        for (uint drawIndex = 0; drawIndex < command.DrawCount; drawIndex++)
+                        ExtMultiDrawIndirect? indexedMultiDraw = _queue.GlesDevice.MultiDrawIndirectApi;
+                        if (command.DrawCount > 1 && indexedMultiDraw is not null)
                         {
-                            ulong argumentOffset = checked(command.Offset0 + checked((ulong)drawIndex * indexedStride));
-                            gl.DrawElementsIndirect(
+                            indexedMultiDraw.MultiDrawElementsIndirect(
                                 indexedIndirectPrimitive,
                                 indexedType,
-                                (void*)checked((nint)argumentOffset));
+                                (void*)checked((nint)command.Offset0),
+                                command.DrawCount,
+                                command.Stride);
+                        }
+                        else
+                        {
+                            uint indexedStride = command.Stride == 0 ? 20u : command.Stride;
+                            for (uint drawIndex = 0; drawIndex < command.DrawCount; drawIndex++)
+                            {
+                                ulong argumentOffset = checked(command.Offset0 + checked((ulong)drawIndex * indexedStride));
+                                gl.DrawElementsIndirect(
+                                    indexedIndirectPrimitive,
+                                    indexedType,
+                                    (void*)checked((nint)argumentOffset));
+                            }
                         }
                         gl.BindBuffer(BufferTargetARB.DrawIndirectBuffer, 0);
                         break;
