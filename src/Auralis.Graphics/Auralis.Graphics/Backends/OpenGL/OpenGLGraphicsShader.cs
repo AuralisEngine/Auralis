@@ -16,14 +16,17 @@ internal sealed unsafe class OpenGLGraphicsShader : OpenGLNativeDeviceObject, IG
     internal OpenGLGraphicsShader(
         OpenGLGraphicsDevice device,
         in GraphicsShaderDescription description,
-        uint handle) : base(device)
+        uint handle,
+        OpenGLMeshShaderDialect meshShaderDialect) : base(device)
     {
         _device = device;
         Description = description;
         _handle = handle;
+        MeshShaderDialect = meshShaderDialect;
     }
 
     public GraphicsShaderDescription Description { get; }
+    internal OpenGLMeshShaderDialect MeshShaderDialect { get; }
 
     public string? DebugName => null;
 
@@ -94,6 +97,26 @@ internal sealed unsafe class OpenGLGraphicsShader : OpenGLNativeDeviceObject, IG
                 throw new GraphicsValidationException("GLSL source cannot contain embedded null characters.");
         }
 
+        OpenGLMeshShaderDialect meshShaderDialect = OpenGLMeshShaderDialect.None;
+        if (description.Stage is GraphicsShaderStage.Mesh or GraphicsShaderStage.Task)
+        {
+            GraphicsFeature requiredFeature = description.Stage == GraphicsShaderStage.Task
+                ? GraphicsFeature.TaskShaders
+                : GraphicsFeature.MeshShaders;
+            if (isSpirV)
+            {
+                throw new GraphicsValidationException(
+                    "OpenGL mesh/task SPIR-V ingestion does not currently identify an EXT versus NV shader dialect. " +
+                    "Use GLSL source with an explicit mesh-shader extension directive.");
+            }
+
+            meshShaderDialect = OpenGLMeshShaderDialectValidation.ValidateGlslSource(
+                source!,
+                device.MeshShaderApi is not null,
+                device.NvMeshShaderApi is not null,
+                requiredFeature);
+        }
+
         GraphicsShaderDescription shaderDescription = description;
         GraphicsShaderStage stage = shaderDescription.Stage;
         return device.WithContext(gl =>
@@ -120,7 +143,7 @@ internal sealed unsafe class OpenGLGraphicsShader : OpenGLNativeDeviceObject, IG
                 }
 
                 device.LabelObject(ObjectIdentifier.Shader, handle, $"Auralis {stage} Shader");
-                OpenGLGraphicsShader resource = new(device, shaderDescription, handle);
+                OpenGLGraphicsShader resource = new(device, shaderDescription, handle, meshShaderDialect);
                 device.RegisterUnderContext(resource);
                 return resource;
             }
