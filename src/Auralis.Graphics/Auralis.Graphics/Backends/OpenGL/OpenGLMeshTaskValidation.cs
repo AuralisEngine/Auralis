@@ -2,7 +2,7 @@ using Auralis.Graphics.Abstractions;
 
 namespace Auralis.Graphics.Backends.OpenGL;
 
-/// <summary>Validates EXT_mesh_shader work-group counts against driver-reported limits.</summary>
+/// <summary>Validates mesh/task work-group counts against the active extension's driver-reported limits.</summary>
 internal static class OpenGLMeshTaskValidation
 {
     internal static bool IsSupported(
