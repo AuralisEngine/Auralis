@@ -101,31 +101,9 @@ internal sealed class OpenGLESGraphicsTexture : OpenGLESNativeDeviceObject, IGra
         GraphicsTextureViewDescription copy = description;
         copy.Validate(Description);
 
-        if (copy.BaseMipLevel != 0 || copy.MipLevelCount != Description.MipLevels ||
-            copy.BaseArrayLayer != 0 || copy.ArrayLayerCount != Description.ArrayLayers)
-        {
-            throw new GraphicsValidationException(
-                "OpenGL ES texture views currently support the identity/full-resource view only; texture-view extensions are not assumed.");
-        }
-
-        GraphicsTextureViewType expected = Description.SampleCount > 1
-            ? GraphicsTextureViewType.Texture2DMultisample
-            : Description.Dimension switch
-        {
-            GraphicsTextureDimension.Texture2D when Description.ArrayLayers > 1 => GraphicsTextureViewType.Texture2DArray,
-            GraphicsTextureDimension.Texture2D => GraphicsTextureViewType.Texture2D,
-            GraphicsTextureDimension.Texture3D => GraphicsTextureViewType.Texture3D,
-            GraphicsTextureDimension.Cube => GraphicsTextureViewType.Cube,
-            _ => throw new GraphicsValidationException("The source texture dimensionality has no GLES view mapping.")
-        };
-        if (copy.ViewType != expected ||
-            (copy.Format != GraphicsFormat.Unknown && copy.Format != Description.Format))
-        {
-            throw new GraphicsValidationException(
-                "OpenGL ES identity views cannot change texture dimensionality or reinterpret the resource format.");
-        }
-
-        return new OpenGLESGraphicsTextureView(this, copy);
+        return _device.WithContext(gl =>
+            OpenGLESGraphicsTextureView.CreateUnderContext(
+                _device, gl, _device.TextureViewApi, this, copy));
     }
 
     protected override void DisposeCore() => ReleaseOwnerReference();
@@ -167,30 +145,132 @@ internal sealed class OpenGLESGraphicsTexture : OpenGLESNativeDeviceObject, IGra
         };
 }
 
-internal sealed class OpenGLESGraphicsTextureView : GraphicsDeviceObject, IGraphicsTextureView
+internal sealed class OpenGLESGraphicsTextureView : OpenGLESNativeDeviceObject, IGraphicsTextureView
 {
-    private int _parentReferenceHeld;
+    private readonly OpenGLESGraphicsTexture _texture;
+    private readonly bool _ownsNativeHandle;
+    private uint _handle;
 
-    internal OpenGLESGraphicsTextureView(OpenGLESGraphicsTexture texture, in GraphicsTextureViewDescription description)
-        : base(texture.Device)
+    private OpenGLESGraphicsTextureView(
+        OpenGLESGraphicsDevice device,
+        OpenGLESGraphicsTexture texture,
+        in GraphicsTextureViewDescription description,
+        TextureTarget target,
+        uint handle,
+        bool ownsNativeHandle) : base(device)
     {
-        if (!texture.TryRetain())
-            throw new ObjectDisposedException(nameof(OpenGLESGraphicsTexture));
-
-        Texture = texture;
+        _texture = texture;
         Description = description;
-        _parentReferenceHeld = 1;
+        Target = target;
+        _handle = handle;
+        _ownsNativeHandle = ownsNativeHandle;
     }
 
-    public IGraphicsTexture Texture { get; }
+    public IGraphicsTexture Texture => _texture;
 
     public GraphicsTextureViewDescription Description { get; }
 
     public string? DebugName => null;
 
-    protected override void DisposeCore()
+    internal TextureTarget Target { get; }
+
+    internal uint Handle
     {
-        if (Interlocked.Exchange(ref _parentReferenceHeld, 0) != 0)
-            ((IOpenGLESNativeResource)Texture).ReleaseReference();
+        get
+        {
+            uint handle = Volatile.Read(ref _handle);
+            return handle != 0 ? handle : throw new ObjectDisposedException(nameof(OpenGLESGraphicsTextureView));
+        }
+    }
+
+    internal static OpenGLESGraphicsTextureView CreateUnderContext(
+        OpenGLESGraphicsDevice device,
+        GL gl,
+        ExtTextureView? textureViewApi,
+        OpenGLESGraphicsTexture texture,
+        in GraphicsTextureViewDescription description)
+    {
+        GraphicsTextureViewDescription copy = description;
+        GraphicsFormat viewFormat = copy.Format == GraphicsFormat.Unknown
+            ? texture.Description.Format
+            : copy.Format;
+        SizedInternalFormat nativeFormat = GetInternalFormat(viewFormat);
+        TextureTarget target = GetViewTarget(copy.ViewType);
+
+        bool isIdentity =
+            copy.BaseMipLevel == 0 &&
+            copy.MipLevelCount == texture.Description.MipLevels &&
+            copy.BaseArrayLayer == 0 &&
+            copy.ArrayLayerCount == texture.Description.ArrayLayers &&
+            target == texture.Target &&
+            viewFormat == texture.Description.Format;
+
+        if (!isIdentity && textureViewApi is null)
+            throw new GraphicsValidationException(
+                "Subresource or format-reinterpreted GLES texture views require GL_EXT_texture_view.");
+
+        if (!texture.TryRetain())
+            throw new ObjectDisposedException(nameof(OpenGLESGraphicsTexture));
+
+        uint handle = texture.Handle;
+        bool ownsHandle = false;
+        try
+        {
+            if (!isIdentity)
+            {
+                handle = gl.GenTexture();
+                if (handle == 0)
+                    throw new GraphicsException("OpenGL ES failed to allocate a texture-view name.");
+
+                ownsHandle = true;
+                textureViewApi!.TextureView(
+                    handle,
+                    target,
+                    texture.Handle,
+                    nativeFormat,
+                    copy.BaseMipLevel,
+                    copy.MipLevelCount,
+                    copy.BaseArrayLayer,
+                    copy.ArrayLayerCount);
+                device.LabelObject(ObjectIdentifier.Texture, handle, "Auralis GLES Texture View");
+            }
+
+            OpenGLESGraphicsTextureView view = new(
+                device, texture, copy, target, handle, ownsHandle);
+            device.RegisterUnderContext(view);
+            return view;
+        }
+        catch
+        {
+            if (ownsHandle && handle != 0)
+                gl.DeleteTexture(handle);
+            ((IOpenGLESNativeResource)texture).ReleaseReference();
+            throw;
+        }
+    }
+
+    private static TextureTarget GetViewTarget(GraphicsTextureViewType viewType) =>
+        viewType switch
+        {
+            GraphicsTextureViewType.Texture2D => TextureTarget.Texture2D,
+            GraphicsTextureViewType.Texture2DArray => TextureTarget.Texture2DArray,
+            GraphicsTextureViewType.Texture2DMultisample => TextureTarget.Texture2DMultisample,
+            GraphicsTextureViewType.Texture2DMultisampleArray => TextureTarget.Texture2DMultisampleArray,
+            GraphicsTextureViewType.Texture3D => TextureTarget.Texture3D,
+            GraphicsTextureViewType.Cube => TextureTarget.TextureCubeMap,
+            GraphicsTextureViewType.CubeArray => TextureTarget.TextureCubeMapArray,
+            _ => throw new GraphicsValidationException(
+                $"OpenGL ES does not support the requested texture-view type {viewType}.")
+        };
+
+    protected override void DisposeCore() => ReleaseOwnerReference();
+
+    public override void ReleaseNative(GL gl)
+    {
+        uint handle = Interlocked.Exchange(ref _handle, 0);
+        if (_ownsNativeHandle && handle != 0)
+            gl.DeleteTexture(handle);
+
+        ((IOpenGLESNativeResource)_texture).ReleaseReference();
     }
 }
