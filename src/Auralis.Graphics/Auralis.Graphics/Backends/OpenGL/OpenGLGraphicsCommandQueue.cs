@@ -153,42 +153,96 @@ internal sealed class OpenGLGraphicsCommandQueue : IGraphicsCommandQueue
                 }
             });
         }
-        catch
+        catch (Exception submissionException)
         {
             // Once queued, the pending-submission record owns the pooled list array and lifecycle
             // transitions. A later ReleaseCurrent failure must not roll back that accepted work
             // or complete/return the same entries twice.
+            Exception? cleanupFailure = null;
             if (!submissionQueued)
             {
-                if (commandsIssued && !_device.IsDisposed)
+                bool executionFinished = !commandsIssued;
+                if (commandsIssued)
                 {
-                    _device.WithContext(gl =>
+                    try
                     {
-                        gl.Finish();
-                        if (completionSync != 0)
-                            _device.SyncApi.DeleteSync(completionSync);
-                    });
+                        if (_device.IsDisposed)
+                        {
+                            // Device shutdown owns the context gate and performs Finish/drain before
+                            // releasing registered resources. Wait until that teardown is complete.
+                            _device.WaitForShutdownCompletion();
+                        }
+                        else
+                        {
+                            _device.WithContext(gl =>
+                            {
+                                gl.Finish();
+                                if (completionSync != 0)
+                                    _device.SyncApi.DeleteSync(completionSync);
+                            });
+                        }
+
+                        executionFinished = true;
+                    }
+                    catch (Exception exception)
+                    {
+                        cleanupFailure ??= exception;
+                    }
                 }
                 else if (completionSync != 0 && !_device.IsDisposed)
                 {
-                    _device.WithContext(gl => _device.SyncApi.DeleteSync(completionSync));
+                    try
+                    {
+                        _device.WithContext(gl => _device.SyncApi.DeleteSync(completionSync));
+                    }
+                    catch (Exception exception)
+                    {
+                        cleanupFailure ??= exception;
+                    }
                 }
 
-                // Roll back global submission accounting only after glFinish has guaranteed that
-                // any already-issued commands can no longer reference deferred native resources.
-                if (submissionCounted)
+                // Never decrement submission accounting or release a command list's resources
+                // unless issued GPU work is known to have finished.
+                if (executionFinished)
                 {
-                    _device.OnSubmissionCompleted();
-                    submissionCounted = false;
-                }
+                    if (submissionCounted)
+                    {
+                        try
+                        {
+                            _device.OnSubmissionCompleted();
+                            submissionCounted = false;
+                        }
+                        catch (Exception exception)
+                        {
+                            cleanupFailure ??= exception;
+                            submissionCounted = false;
+                        }
+                    }
 
-                for (int i = 0; i < submittedCount; i++)
-                {
-                    if (lists[i].Lifecycle.State == GraphicsCommandListState.Pending)
-                        lists[i].Complete();
+                    for (int i = 0; i < submittedCount; i++)
+                    {
+                        if (lists[i].Lifecycle.State != GraphicsCommandListState.Pending)
+                            continue;
+
+                        try
+                        {
+                            lists[i].Complete();
+                        }
+                        catch (Exception exception)
+                        {
+                            cleanupFailure ??= exception;
+                        }
+                    }
                 }
             }
 
+            if (cleanupFailure is not null)
+                throw new AggregateException(
+                    "OpenGL command submission failed and one or more cleanup operations also failed.",
+                    submissionException,
+                    cleanupFailure);
+
+            ExceptionDispatchInfo.Capture(submissionException).Throw();
             throw;
         }
         finally
