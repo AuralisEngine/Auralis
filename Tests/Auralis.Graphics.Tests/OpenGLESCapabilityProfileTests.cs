@@ -81,7 +81,8 @@ public sealed class OpenGLESCapabilityProfileTests
             "GL_EXT_draw_buffers_indexed",
             "GL_EXT_multi_draw_indirect",
             "GL_EXT_draw_elements_base_vertex",
-            "GL_EXT_base_instance"
+            "GL_EXT_base_instance",
+            "GL_EXT_texture_view"
         ];
 
         OpenGLESCapabilityProfile profile = OpenGLESCapabilityProfile.Create(
@@ -96,7 +97,37 @@ public sealed class OpenGLESCapabilityProfileTests
         Assert.True(profile.Features.Supports(GraphicsFeature.MultiDrawIndirect));
         Assert.True(profile.Features.Supports(GraphicsFeature.BaseVertexDrawing));
         Assert.True(profile.Features.Supports(GraphicsFeature.BaseInstanceDrawing));
+        Assert.True(profile.Features.Supports(GraphicsFeature.TextureViews));
         Assert.True(profile.Features.Supports(GraphicsFeature.TimelineSynchronization));
+    }
+
+    [Fact]
+    public void OptionalFeaturesAreNotReportedWhenNativeEntryPointsAreMissing()
+    {
+        string[] extensions =
+        [
+            "GL_EXT_multi_draw_indirect",
+            "GL_EXT_draw_buffers_indexed",
+            "GL_EXT_draw_elements_base_vertex",
+            "GL_EXT_base_instance",
+            "GL_EXT_texture_view"
+        ];
+
+        OpenGLESCapabilityProfile profile = OpenGLESCapabilityProfile.Create(
+            new OpenGLESVersion(3, 1),
+            extensions,
+            supportsPresentation: false,
+            multiDrawIndirectEntryPointsAvailable: false,
+            indexedBlendEntryPointsAvailable: false,
+            baseVertexEntryPointsAvailable: false,
+            baseInstanceEntryPointsAvailable: false,
+            textureViewEntryPointAvailable: false);
+
+        Assert.False(profile.Features.Supports(GraphicsFeature.MultiDrawIndirect));
+        Assert.False(profile.Features.Supports(GraphicsFeature.IndependentBlend));
+        Assert.False(profile.Features.Supports(GraphicsFeature.BaseVertexDrawing));
+        Assert.False(profile.Features.Supports(GraphicsFeature.BaseInstanceDrawing));
+        Assert.False(profile.Features.Supports(GraphicsFeature.TextureViews));
     }
 
     [Fact]
