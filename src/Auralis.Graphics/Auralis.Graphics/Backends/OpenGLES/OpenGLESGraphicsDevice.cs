@@ -482,25 +482,56 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
         if (Interlocked.Exchange(ref _disposed, 1) != 0)
             return;
 
-        Exception? failure = null;
+        List<Exception>? failures = null;
+        static void RecordFailure(ref List<Exception>? destination, Exception exception)
+        {
+            destination ??= new List<Exception>(4);
+            destination.Add(exception);
+        }
+
         lock (_contextGate)
         {
+            bool contextCurrent = false;
+            bool gpuIdle = false;
             try
             {
                 _contextProvider.MakeCurrent();
+                contextCurrent = true;
+
                 try
                 {
                     _gl.Finish();
-                    foreach (OpenGLESGraphicsCommandQueue? queue in _queues)
-                        queue?.DrainUnderContext(_gl);
+                    gpuIdle = true;
+                }
+                catch (Exception exception)
+                {
+                    RecordFailure(ref failures, exception);
+                }
 
-                    IOpenGLESNativeResource[] resources;
-                    lock (_resourceGate)
+                // Attempt every queue even when an individual queue reports a cleanup error.
+                for (int i = 0; i < _queues.Length; i++)
+                {
+                    try
                     {
-                        resources = new IOpenGLESNativeResource[_resources.Count];
-                        _resources.CopyTo(resources);
+                        _queues[i]?.DrainUnderContext(_gl);
                     }
+                    catch (Exception exception)
+                    {
+                        RecordFailure(ref failures, exception);
+                    }
+                }
 
+                IOpenGLESNativeResource[] resources;
+                lock (_resourceGate)
+                {
+                    resources = new IOpenGLESNativeResource[_resources.Count];
+                    _resources.CopyTo(resources);
+                }
+
+                // If Finish failed, native resources may still be referenced by the GPU. Leave them
+                // for host-context destruction rather than deleting them while work might be active.
+                if (gpuIdle)
+                {
                     for (int i = 0; i < resources.Length; i++)
                     {
                         try
@@ -509,25 +540,40 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
                         }
                         catch (Exception exception)
                         {
-                            failure ??= exception;
+                            RecordFailure(ref failures, exception);
                         }
                     }
 
                     lock (_resourceGate)
                         _resources.Clear();
                 }
-                finally
-                {
-                    _contextProvider.ReleaseCurrent();
-                }
             }
             catch (Exception exception)
             {
-                failure ??= exception;
+                RecordFailure(ref failures, exception);
             }
             finally
             {
-                _gl.Dispose();
+                if (contextCurrent)
+                {
+                    try
+                    {
+                        _contextProvider.ReleaseCurrent();
+                    }
+                    catch (Exception exception)
+                    {
+                        RecordFailure(ref failures, exception);
+                    }
+                }
+
+                try
+                {
+                    _gl.Dispose();
+                }
+                catch (Exception exception)
+                {
+                    RecordFailure(ref failures, exception);
+                }
             }
         }
 
@@ -539,11 +585,13 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
             }
             catch (Exception exception)
             {
-                failure ??= exception;
+                RecordFailure(ref failures, exception);
             }
         }
 
-        if (failure is not null)
-            System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
+        if (failures is { Count: > 0 })
+            throw new AggregateException(
+                "OpenGL ES device shutdown encountered one or more failures. Native resources are left for context destruction when GPU idleness could not be established.",
+                failures);
     }
 }
