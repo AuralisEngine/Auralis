@@ -87,7 +87,8 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
         TextureTarget.Texture2D,
         TextureTarget.Texture2DArray,
         TextureTarget.Texture3D,
-        TextureTarget.TextureCubeMap
+        TextureTarget.TextureCubeMap,
+        TextureTarget.Texture2DMultisample
     ];
 
     private readonly OpenGLESGraphicsCommandQueue _queue;
@@ -1146,7 +1147,7 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
                         BindTextureUnit(
                             gl,
                             slot,
-                            value.Texture is null ? null : (OpenGLESGraphicsTexture)value.Texture.Texture,
+                            value.Texture,
                             value.Sampler is null ? 0 : ((OpenGLESGraphicsSampler)value.Sampler).Handle);
                         break;
 
@@ -1156,17 +1157,17 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
                             gl.BindImageTexture(slot, 0, 0, false, 0, (GLEnum)BufferAccessARB.ReadWrite, (GLEnum)SizedInternalFormat.Rgba8);
                             break;
                         }
-                        OpenGLESGraphicsTexture storageTexture = (OpenGLESGraphicsTexture)value.Texture.Texture;
-                        bool layered = storageTexture.Target is
+                        OpenGLESGraphicsTextureView storageView = (OpenGLESGraphicsTextureView)value.Texture;
+                        bool layered = storageView.Target is
                             TextureTarget.Texture2DArray or TextureTarget.Texture3D or TextureTarget.TextureCubeMap;
                         gl.BindImageTexture(
                             slot,
-                            storageTexture.Handle,
+                            storageView.Handle,
                             0,
                             layered,
                             0,
                             (GLEnum)BufferAccessARB.ReadWrite,
-                            (GLEnum)OpenGLESGraphicsTexture.GetInternalFormat(storageTexture.Description.Format));
+                            (GLEnum)OpenGLESGraphicsTexture.GetInternalFormat(GetViewFormat(storageView)));
                         break;
 
                     default:
@@ -1179,14 +1180,15 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
     private static void BindTextureUnit(
         GL gl,
         uint slot,
-        OpenGLESGraphicsTexture? texture,
+        IGraphicsTextureView? texture,
         uint sampler)
     {
         gl.ActiveTexture((TextureUnit)(0x84C0 + slot));
+        OpenGLESGraphicsTextureView? view = texture as OpenGLESGraphicsTextureView;
         for (int i = 0; i < s_textureTargets.Length; i++)
         {
-            uint handle = texture is not null && texture.Target == s_textureTargets[i]
-                ? texture.Handle
+            uint handle = view is not null && view.Target == s_textureTargets[i]
+                ? view.Handle
                 : 0;
             gl.BindTexture(s_textureTargets[i], handle);
         }
@@ -1248,15 +1250,16 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
             Span<GLEnum> drawBuffers = stackalloc GLEnum[Math.Max(1, command.ColorCount)];
             for (int i = 0; i < command.ColorCount; i++)
             {
-                OpenGLESGraphicsTexture texture = (OpenGLESGraphicsTexture)_renderTargetViews[command.ViewOffset + i].Texture;
-                if (texture.Target is not (TextureTarget.Texture2D or TextureTarget.Texture2DMultisample))
-                    throw new GraphicsValidationException("GLES offscreen color attachments require 2D or 2D-multisample textures.");
+                OpenGLESGraphicsTextureView textureView =
+                    (OpenGLESGraphicsTextureView)_renderTargetViews[command.ViewOffset + i];
+                if (textureView.Target is not (TextureTarget.Texture2D or TextureTarget.Texture2DMultisample))
+                    throw new GraphicsValidationException("GLES framebuffer color views must be 2D or 2D-multisample.");
                 GLEnum attachment = (GLEnum)((uint)GLEnum.ColorAttachment0 + (uint)i);
                 gl.FramebufferTexture2D(
                     FramebufferTarget.Framebuffer,
                     attachment,
-                    texture.Target,
-                    texture.Handle,
+                    textureView.Target,
+                    textureView.Handle,
                     0);
                 drawBuffers[i] = attachment;
             }
@@ -1275,9 +1278,10 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
 
             if (command.DepthTarget is not null)
             {
-                OpenGLESGraphicsTexture texture = (OpenGLESGraphicsTexture)command.DepthTarget.Texture;
-                if (texture.Target is not (TextureTarget.Texture2D or TextureTarget.Texture2DMultisample))
-                    throw new GraphicsValidationException("GLES depth attachments require 2D or 2D-multisample textures.");
+                OpenGLESGraphicsTextureView depthView =
+                    (OpenGLESGraphicsTextureView)command.DepthTarget;
+                if (depthView.Target is not (TextureTarget.Texture2D or TextureTarget.Texture2DMultisample))
+                    throw new GraphicsValidationException("GLES framebuffer depth views must be 2D or 2D-multisample.");
                 GraphicsFormat format = GetViewFormat(command.DepthTarget);
                 GLEnum attachment = format == GraphicsFormat.D24UNormS8UInt
                     ? GLEnum.DepthStencilAttachment
@@ -1285,8 +1289,8 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
                 gl.FramebufferTexture2D(
                     FramebufferTarget.Framebuffer,
                     attachment,
-                    TextureTarget.Texture2D,
-                    texture.Handle,
+                    depthView.Target,
+                    depthView.Handle,
                     0);
             }
 
@@ -1370,9 +1374,10 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
     {
         ArgumentNullException.ThrowIfNull(view);
         EnsureOwned(view);
-        if (view.Texture is not OpenGLESGraphicsTexture texture)
-            throw new GraphicsValidationException("The render attachment is not an OpenGL ES texture.");
-        if (texture.Target is not (TextureTarget.Texture2D or TextureTarget.Texture2DMultisample))
+        if (view.Texture is not OpenGLESGraphicsTexture ||
+            view is not OpenGLESGraphicsTextureView textureView)
+            throw new GraphicsValidationException("The render attachment is not an OpenGL ES texture view.");
+        if (textureView.Target is not (TextureTarget.Texture2D or TextureTarget.Texture2DMultisample))
             throw new GraphicsValidationException(
                 "GLES framebuffer attachments require 2D or 2D-multisample textures.");
 
@@ -1493,15 +1498,6 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
 
         if (resource is IOpenGLESNativeResource native)
             Retain(native);
-        else if (resource is OpenGLESGraphicsTextureView view)
-        {
-            IOpenGLESNativeResource texture = (IOpenGLESNativeResource)view.Texture;
-            if (_retained.Add(texture) && !texture.TryRetainDependency())
-            {
-                _retained.Remove(texture);
-                throw new ObjectDisposedException(nameof(OpenGLESGraphicsTexture));
-            }
-        }
     }
 
     private void Retain(IOpenGLESNativeResource resource)
