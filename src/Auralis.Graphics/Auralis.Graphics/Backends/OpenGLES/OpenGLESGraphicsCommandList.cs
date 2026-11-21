@@ -610,6 +610,7 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
         uint readFramebuffer = 0;
         uint drawFramebuffer = 0;
         OpenGLESGraphicsRenderPipeline? activeRenderPipeline = null;
+        OpenGLESGraphicsPipelineLayout? activePipelineLayout = null;
         try
         {
             for (int i = 0; i < _commands.Count; i++)
@@ -706,13 +707,19 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
                         break;
 
                     case OpenGLESCmdKind.RenderPipeline:
+                        if (activePipelineLayout is not null)
+                            UnbindLayoutResources(gl, activePipelineLayout);
                         activeRenderPipeline = command.RenderPipeline!;
+                        activePipelineLayout = (OpenGLESGraphicsPipelineLayout)activeRenderPipeline.Layout;
                         activeRenderPipeline.BindPipelineState(gl);
                         break;
 
                     case OpenGLESCmdKind.ComputePipeline:
+                        if (activePipelineLayout is not null)
+                            UnbindLayoutResources(gl, activePipelineLayout);
                         activeRenderPipeline = null;
-                        command.ComputePipeline!.BindPipelineState(gl);
+                        activePipelineLayout = (OpenGLESGraphicsPipelineLayout)command.ComputePipeline!.Layout;
+                        command.ComputePipeline.BindPipelineState(gl);
                         break;
 
                     case OpenGLESCmdKind.BindingSet:
@@ -844,11 +851,11 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
                     case GraphicsDescriptorType.SampledTexture:
                     case GraphicsDescriptorType.Sampler:
                     case GraphicsDescriptorType.CombinedTextureSampler:
-                        gl.ActiveTexture((TextureUnit)(0x84C0 + slot));
-                        gl.BindTexture(
-                            value.Texture is null ? TextureTarget.Texture2D : ((OpenGLESGraphicsTexture)value.Texture.Texture).Target,
-                            value.Texture is null ? 0 : ((OpenGLESGraphicsTexture)value.Texture.Texture).Handle);
-                        gl.BindSampler(slot, value.Sampler is null ? 0 : ((OpenGLESGraphicsSampler)value.Sampler).Handle);
+                        BindTextureUnit(
+                            gl,
+                            slot,
+                            value.Texture is null ? null : (OpenGLESGraphicsTexture)value.Texture.Texture,
+                            value.Sampler is null ? 0 : ((OpenGLESGraphicsSampler)value.Sampler).Handle);
                         break;
 
                     case GraphicsDescriptorType.StorageTexture:
@@ -870,6 +877,75 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
 
                     default:
                         throw new GraphicsValidationException($"Unsupported GLES descriptor type {entry.Type}.");
+                }
+            }
+        }
+    }
+
+    private static void BindTextureUnit(
+        GL gl,
+        uint slot,
+        OpenGLESGraphicsTexture? texture,
+        uint sampler)
+    {
+        gl.ActiveTexture((TextureUnit)(0x84C0 + slot));
+        TextureTarget[] targets =
+        [
+            TextureTarget.Texture2D,
+            TextureTarget.Texture2DArray,
+            TextureTarget.Texture3D,
+            TextureTarget.TextureCubeMap
+        ];
+
+        for (int i = 0; i < targets.Length; i++)
+        {
+            uint handle = texture is not null && texture.Target == targets[i]
+                ? texture.Handle
+                : 0;
+            gl.BindTexture(targets[i], handle);
+        }
+
+        gl.BindSampler(slot, sampler);
+    }
+
+    private static void UnbindLayoutResources(GL gl, OpenGLESGraphicsPipelineLayout layout)
+    {
+        ReadOnlySpan<OpenGLESDescriptorMapping> mappings = layout.Mappings;
+        ReadOnlyMemory<IGraphicsBindingLayout> bindingLayouts = layout.BindingLayouts;
+        for (int i = 0; i < mappings.Length; i++)
+        {
+            OpenGLESDescriptorMapping mapping = mappings[i];
+            OpenGLESGraphicsBindingLayout bindingLayout =
+                (OpenGLESGraphicsBindingLayout)bindingLayouts.Span[(int)mapping.SetIndex];
+            if (!bindingLayout.TryGetEntry(mapping.Binding, out GraphicsBindingLayoutEntry entry, out _))
+                continue;
+
+            for (uint element = 0; element < entry.Count; element++)
+            {
+                uint slot = mapping.BaseSlot + element;
+                switch (mapping.Type)
+                {
+                    case GraphicsDescriptorType.UniformBuffer:
+                        gl.BindBufferBase(BufferTargetARB.UniformBuffer, slot, 0);
+                        break;
+                    case GraphicsDescriptorType.StorageBuffer:
+                        gl.BindBufferBase(BufferTargetARB.ShaderStorageBuffer, slot, 0);
+                        break;
+                    case GraphicsDescriptorType.SampledTexture:
+                    case GraphicsDescriptorType.Sampler:
+                    case GraphicsDescriptorType.CombinedTextureSampler:
+                        BindTextureUnit(gl, slot, null, 0);
+                        break;
+                    case GraphicsDescriptorType.StorageTexture:
+                        gl.BindImageTexture(
+                            slot,
+                            0,
+                            0,
+                            false,
+                            0,
+                            (GLEnum)BufferAccessARB.ReadWrite,
+                            (GLEnum)SizedInternalFormat.Rgba8);
+                        break;
                 }
             }
         }
