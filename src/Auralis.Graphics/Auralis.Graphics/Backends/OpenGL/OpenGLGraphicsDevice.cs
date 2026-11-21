@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Text;
 using System.Runtime.InteropServices;
@@ -26,7 +25,6 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
     private readonly IOpenGLContextProvider _contextProvider;
     private readonly object _contextGate = new();
     private readonly HashSet<IOpenGLNativeResource> _resources = new(ReferenceEqualityComparer.Instance);
-    private readonly ConcurrentQueue<IOpenGLNativeResource> _deferredResources = new();
     private readonly object _queueGate = new();
     private readonly OpenGLGraphicsCommandQueue?[] _queues = new OpenGLGraphicsCommandQueue?[3];
     private int _pendingSubmissionCount;
@@ -572,17 +570,18 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
     /// </summary>
     internal void ReleaseResource(IOpenGLNativeResource resource)
     {
+        // Some resources (currently directly mapped buffers) require user-owned pins to be
+        // released before their native storage can be unmapped. Perform that wait before taking
+        // the device-wide context gate so other GL operations are not blocked by a leaked pin.
+        if (IsDisposed)
+            return;
+        if (resource is IOpenGLNativeResourcePreparation preparation)
+            preparation.PrepareForNativeRelease();
+
         lock (_contextGate)
         {
             if (IsDisposed)
                 return;
-
-            if (Volatile.Read(ref _pendingSubmissionCount) != 0)
-            {
-                _deferredResources.Enqueue(resource);
-                _resources.Remove(resource);
-                return;
-            }
 
             _contextProvider.MakeCurrent();
             try
@@ -607,8 +606,10 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
     {
         lock (_contextGate)
         {
-            // Acquiring the gate after Dispose releases it means the context has been drained,
-            // native resources have been released, and an owned provider has been disposed.
+            // Dispose may temporarily release the gate while waiting for mapped-memory pins.
+            // Wait for its final state, not merely for an intermediate gate acquisition.
+            while (Volatile.Read(ref _disposeState) == 1)
+                Monitor.Wait(_contextGate);
         }
     }
 
@@ -620,28 +621,9 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
         if (remaining < 0)
             throw new InvalidOperationException("OpenGL submission lifetime accounting became unbalanced.");
 
-        // Device.Dispose owns the context gate, performs glFinish, drains every registered
-        // object, and releases deferred resources itself. A late completion must never issue GL
-        // deletion after that shutdown sequence has destroyed the dispatch/context.
-        if (IsDisposed || remaining != 0)
-            return;
-
-        Exception? failure = null;
-        while (_deferredResources.TryDequeue(out IOpenGLNativeResource? resource))
-        {
-            try
-            {
-                resource.ReleaseNative(_gl);
-            }
-            catch (Exception exception)
-            {
-                // Drain every queued deletion even when one driver/resource wrapper fails.
-                failure ??= exception;
-            }
-        }
-
-        if (failure is not null)
-            ExceptionDispatchInfo.Capture(failure).Throw();
+        // Native resource reference counts already prove when no recorded or submitted command
+        // list retains a resource. Reclamation is therefore independent of unrelated submissions.
+        // Device shutdown owns all still-registered resources once IsDisposed is published.
     }
 
     public IGraphicsCommandQueue GetQueue(GraphicsQueueType queueType, uint index = 0)
@@ -653,6 +635,7 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
             throw new ArgumentOutOfRangeException(nameof(queueType));
         lock (_queueGate)
         {
+            ObjectDisposedException.ThrowIf(IsDisposed, this);
             if (queueType == GraphicsQueueType.Compute &&
                 !Capabilities.QueueCapabilities.HasFlag(GraphicsQueueCapabilities.Compute))
                 throw new GraphicsFeatureNotSupportedException(
@@ -936,12 +919,41 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
 
     public void Dispose()
     {
+        IOpenGLNativeResource[] resourcesToPrepare;
         lock (_contextGate)
         {
-            if (Interlocked.Exchange(ref _disposeState, 1) != 0)
+            if (Volatile.Read(ref _disposeState) != 0)
+            {
+                while (Volatile.Read(ref _disposeState) == 1)
+                    Monitor.Wait(_contextGate);
                 return;
+            }
 
-            Exception? cleanupFailure = null;
+            // Publish shutdown before releasing the gate so no new operation/resource can enter.
+            Volatile.Write(ref _disposeState, 1);
+            resourcesToPrepare = _resources.ToArray();
+        }
+
+        try
+        {
+            // Invalidate mappings and wait for user pins without owning the shared GL context.
+            foreach (IOpenGLNativeResource resource in resourcesToPrepare)
+                if (resource is IOpenGLNativeResourcePreparation preparation)
+                    preparation.PrepareForNativeRelease();
+        }
+        catch
+        {
+            lock (_contextGate)
+            {
+                Volatile.Write(ref _disposeState, 2);
+                Monitor.PulseAll(_contextGate);
+            }
+            throw;
+        }
+
+        Exception? cleanupFailure = null;
+        lock (_contextGate)
+        {
             try
             {
                 using OpenGLContextLease contextLease = OpenGLContextLease.Acquire(_contextProvider);
@@ -955,18 +967,6 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
                     try
                     {
                         queue.DrainUnderContext(_gl);
-                    }
-                    catch (Exception exception)
-                    {
-                        cleanupFailure ??= exception;
-                    }
-                }
-
-                while (_deferredResources.TryDequeue(out IOpenGLNativeResource? deferred))
-                {
-                    try
-                    {
-                        deferred.ReleaseNative(_gl);
                     }
                     catch (Exception exception)
                     {
@@ -1019,6 +1019,10 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
                 DisposeNativeApi(_directStateAccess, ref cleanupFailure);
                 DisposeNativeApi(_gl, ref cleanupFailure);
             }
+            catch (Exception exception)
+            {
+                cleanupFailure ??= exception;
+            }
             finally
             {
                 if (_contextProvider.Ownership == OpenGLContextOwnership.Owned)
@@ -1032,11 +1036,14 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
                         cleanupFailure ??= exception;
                     }
                 }
-            }
 
-            if (cleanupFailure is not null)
-                ExceptionDispatchInfo.Capture(cleanupFailure).Throw();
+                Volatile.Write(ref _disposeState, 2);
+                Monitor.PulseAll(_contextGate);
+            }
         }
+
+        if (cleanupFailure is not null)
+            ExceptionDispatchInfo.Capture(cleanupFailure).Throw();
     }
 
     private static void DisposeNativeApi(IDisposable? api, ref Exception? failure)
