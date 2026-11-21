@@ -1358,7 +1358,16 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
 
     protected override void DisposeCore()
     {
-        _queue.WaitForCompletion(this);
+        try
+        {
+            _queue.WaitForCompletion(this);
+        }
+        catch (ObjectDisposedException) when (Device.IsDisposed)
+        {
+            // Device shutdown may acquire the context gate after WaitForCompletion's initial
+            // disposed check but before it activates the context. The shutdown barrier below waits
+            // for its Finish/drain pass before allowing this list to release any references.
+        }
 
         // Device shutdown drains queued submissions while the context is current. An exceptional
         // submission can have reached Pending before its completion record was enqueued; wait for
