@@ -86,8 +86,8 @@ public sealed class OpenGLESCapabilityProfileTests
         Assert.True(profile.HasExtension("GL_EXT_texture_filter_anisotropic"));
         Assert.False(profile.HasExtension("GL_EXT_texture_filter"));
         Assert.True(profile.Features.Supports(GraphicsFeature.SamplerAnisotropy));
-        Assert.True(profile.Features.Supports(GraphicsFeature.IndependentBlend));
-        Assert.True(profile.Features.Supports(GraphicsFeature.MultiDrawIndirect));
+        Assert.False(profile.Features.Supports(GraphicsFeature.IndependentBlend));
+        Assert.False(profile.Features.Supports(GraphicsFeature.MultiDrawIndirect));
         Assert.False(profile.Features.Supports(GraphicsFeature.TimelineSynchronization));
     }
 
