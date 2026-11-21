@@ -616,7 +616,15 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
             MaxSamplerAnisotropy: queried.MaxAnisotropy,
             MaxTessellationPatchSize: queried.MaxTessellationPatchSize,
             MaxColorAttachments: queried.MaxColorAttachments,
-            MaxColorDrawBuffers: queried.MaxColorDrawBuffers);
+            MaxColorDrawBuffers: queried.MaxColorDrawBuffers,
+            MaxMeshWorkGroupCountX: queried.MaxMeshWorkGroupCountX,
+            MaxMeshWorkGroupCountY: queried.MaxMeshWorkGroupCountY,
+            MaxMeshWorkGroupCountZ: queried.MaxMeshWorkGroupCountZ,
+            MaxMeshWorkGroupTotalCount: queried.MaxMeshWorkGroupTotalCount,
+            MaxTaskWorkGroupCountX: queried.MaxTaskWorkGroupCountX,
+            MaxTaskWorkGroupCountY: queried.MaxTaskWorkGroupCountY,
+            MaxTaskWorkGroupCountZ: queried.MaxTaskWorkGroupCountZ,
+            MaxTaskWorkGroupTotalCount: queried.MaxTaskWorkGroupTotalCount);
 
         GraphicsFormatSupport colorSupport =
             GraphicsFormatSupport.Sampled |
