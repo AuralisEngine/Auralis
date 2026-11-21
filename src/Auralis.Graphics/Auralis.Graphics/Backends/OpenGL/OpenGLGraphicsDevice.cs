@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Text;
 using System.Runtime.InteropServices;
+using System.Runtime.ExceptionServices;
 using Auralis.Graphics.Abstractions;
 using Auralis.Graphics.Commands;
 using Auralis.Graphics.Devices;
@@ -601,8 +602,22 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
         if (remaining != 0)
             return;
 
+        Exception? failure = null;
         while (_deferredResources.TryDequeue(out IOpenGLNativeResource? resource))
-            resource.ReleaseNative(_gl);
+        {
+            try
+            {
+                resource.ReleaseNative(_gl);
+            }
+            catch (Exception exception)
+            {
+                // Drain every queued deletion even when one driver/resource wrapper fails.
+                failure ??= exception;
+            }
+        }
+
+        if (failure is not null)
+            ExceptionDispatchInfo.Capture(failure).Throw();
     }
 
     public IGraphicsCommandQueue GetQueue(GraphicsQueueType queueType, uint index = 0)
