@@ -653,6 +653,7 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
             usesTaskStage ? device.MaxTaskWorkGroupCountX : device.MaxMeshWorkGroupCountX,
             usesTaskStage ? device.MaxTaskWorkGroupCountY : device.MaxMeshWorkGroupCountY,
             usesTaskStage ? device.MaxTaskWorkGroupCountZ : device.MaxMeshWorkGroupCountZ,
+            usesTaskStage ? device.MaxTaskWorkGroupTotalCount : device.MaxMeshWorkGroupTotalCount,
             usesTaskStage ? GraphicsFeature.TaskShaders : GraphicsFeature.MeshShaders);
 
         _commands.Add(new OpenGLRecordedCommand
