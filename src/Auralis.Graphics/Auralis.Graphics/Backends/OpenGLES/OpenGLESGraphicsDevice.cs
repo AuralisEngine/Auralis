@@ -30,7 +30,31 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
         GraphicsFormat.RGBA8UInt,
         GraphicsFormat.RGBA8SInt,
         GraphicsFormat.D16UNorm,
-        GraphicsFormat.D24UNormS8UInt
+        GraphicsFormat.D24UNormS8UInt,
+        GraphicsFormat.D32Float,
+        GraphicsFormat.D32FloatS8UInt,
+        GraphicsFormat.R8SNorm,
+        GraphicsFormat.RG8SNorm,
+        GraphicsFormat.RGBA8SNorm,
+        GraphicsFormat.R16Float,
+        GraphicsFormat.RG16Float,
+        GraphicsFormat.RGBA16Float,
+        GraphicsFormat.R32Float,
+        GraphicsFormat.RG32Float,
+        GraphicsFormat.RGB32Float,
+        GraphicsFormat.RGBA32Float,
+        GraphicsFormat.R16UInt,
+        GraphicsFormat.R16SInt,
+        GraphicsFormat.RG16UInt,
+        GraphicsFormat.RG16SInt,
+        GraphicsFormat.RGBA16UInt,
+        GraphicsFormat.RGBA16SInt,
+        GraphicsFormat.R32UInt,
+        GraphicsFormat.R32SInt,
+        GraphicsFormat.RG32UInt,
+        GraphicsFormat.RG32SInt,
+        GraphicsFormat.RGBA32UInt,
+        GraphicsFormat.RGBA32SInt
     ];
 
     [UnmanagedFunctionPointer(CallingConvention.Winapi)]
@@ -446,6 +470,29 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
             GraphicsFormatSupport.VertexBuffer |
             GraphicsFormatSupport.LinearFiltering;
 
+        GraphicsFormatSupport signedNormalizedSupport =
+            GraphicsFormatSupport.Sampled | GraphicsFormatSupport.LinearFiltering;
+        GraphicsFormatSupport floatingSampledSupport = GraphicsFormatSupport.Sampled;
+        if (profile.HasExtension("GL_OES_texture_float_linear"))
+            floatingSampledSupport |= GraphicsFormatSupport.LinearFiltering;
+
+        GraphicsFormatSupport halfFloatColorSupport = GraphicsFormatSupport.Sampled;
+        if (profile.HasExtension("GL_EXT_color_buffer_half_float") ||
+            profile.HasExtension("GL_EXT_color_buffer_float"))
+            halfFloatColorSupport |= GraphicsFormatSupport.ColorAttachment;
+
+        GraphicsFormatSupport fullFloatColorSupport = GraphicsFormatSupport.Sampled;
+        if (profile.HasExtension("GL_EXT_color_buffer_float"))
+            fullFloatColorSupport |= GraphicsFormatSupport.ColorAttachment;
+
+        GraphicsFormatSupport integerStorageSupport = GraphicsFormatSupport.Sampled;
+        if (profile.Version.IsAtLeast(3, 1))
+            integerStorageSupport |= GraphicsFormatSupport.Storage;
+
+        GraphicsFormatSupport floatStorageSupport = GraphicsFormatSupport.Sampled;
+        if (profile.Version.IsAtLeast(3, 1))
+            floatStorageSupport |= GraphicsFormatSupport.Storage;
+
         if (supportsImageCopy)
             normalizedSingleSupport |= GraphicsFormatSupport.CopySource | GraphicsFormatSupport.CopyDestination;
 
@@ -480,6 +527,14 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
         if (profile.Version.IsAtLeast(3, 1))
             rgba8Support |= GraphicsFormatSupport.Storage;
 
+        GraphicsFormatSupport halfFloatStorageSupport = halfFloatColorSupport;
+        GraphicsFormatSupport fullFloatStorageSupport = fullFloatColorSupport;
+        if (profile.Version.IsAtLeast(3, 1))
+        {
+            halfFloatStorageSupport |= GraphicsFormatSupport.Storage;
+            fullFloatStorageSupport |= GraphicsFormatSupport.Storage;
+        }
+
         GraphicsFormatCapabilities[] formats =
         [
             new(GraphicsFormat.R8UNorm, normalizedSingleSupport, SampleCounts(GraphicsFormat.R8UNorm)),
@@ -496,8 +551,32 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
                 GraphicsFormatSupport.Blend | GraphicsFormatSupport.CopySource |
                 GraphicsFormatSupport.CopyDestination | GraphicsFormatSupport.LinearFiltering,
                 SampleCounts(GraphicsFormat.RGBA8UNormSrgb)),
+            new(GraphicsFormat.R8SNorm, signedNormalizedSupport, SampleCounts(GraphicsFormat.R8SNorm)),
+            new(GraphicsFormat.RG8SNorm, signedNormalizedSupport, SampleCounts(GraphicsFormat.RG8SNorm)),
+            new(GraphicsFormat.RGBA8SNorm, signedNormalizedSupport, SampleCounts(GraphicsFormat.RGBA8SNorm)),
+            new(GraphicsFormat.R16Float, floatingSampledSupport, SampleCounts(GraphicsFormat.R16Float)),
+            new(GraphicsFormat.RG16Float, floatingSampledSupport, SampleCounts(GraphicsFormat.RG16Float)),
+            new(GraphicsFormat.RGBA16Float, halfFloatStorageSupport, SampleCounts(GraphicsFormat.RGBA16Float)),
+            new(GraphicsFormat.R32Float, floatStorageSupport, SampleCounts(GraphicsFormat.R32Float)),
+            new(GraphicsFormat.RG32Float, floatStorageSupport, SampleCounts(GraphicsFormat.RG32Float)),
+            new(GraphicsFormat.RGB32Float, floatingSampledSupport, SampleCounts(GraphicsFormat.RGB32Float)),
+            new(GraphicsFormat.RGBA32Float, fullFloatStorageSupport, SampleCounts(GraphicsFormat.RGBA32Float)),
+            new(GraphicsFormat.R16UInt, integerStorageSupport, SampleCounts(GraphicsFormat.R16UInt)),
+            new(GraphicsFormat.R16SInt, integerStorageSupport, SampleCounts(GraphicsFormat.R16SInt)),
+            new(GraphicsFormat.RG16UInt, integerStorageSupport, SampleCounts(GraphicsFormat.RG16UInt)),
+            new(GraphicsFormat.RG16SInt, integerStorageSupport, SampleCounts(GraphicsFormat.RG16SInt)),
+            new(GraphicsFormat.RGBA16UInt, integerStorageSupport, SampleCounts(GraphicsFormat.RGBA16UInt)),
+            new(GraphicsFormat.RGBA16SInt, integerStorageSupport, SampleCounts(GraphicsFormat.RGBA16SInt)),
+            new(GraphicsFormat.R32UInt, integerStorageSupport, SampleCounts(GraphicsFormat.R32UInt)),
+            new(GraphicsFormat.R32SInt, integerStorageSupport, SampleCounts(GraphicsFormat.R32SInt)),
+            new(GraphicsFormat.RG32UInt, integerStorageSupport, SampleCounts(GraphicsFormat.RG32UInt)),
+            new(GraphicsFormat.RG32SInt, integerStorageSupport, SampleCounts(GraphicsFormat.RG32SInt)),
+            new(GraphicsFormat.RGBA32UInt, integerStorageSupport, SampleCounts(GraphicsFormat.RGBA32UInt)),
+            new(GraphicsFormat.RGBA32SInt, integerStorageSupport, SampleCounts(GraphicsFormat.RGBA32SInt)),
             new(GraphicsFormat.D16UNorm, depthSupport, SampleCounts(GraphicsFormat.D16UNorm)),
-            new(GraphicsFormat.D24UNormS8UInt, depthSupport, SampleCounts(GraphicsFormat.D24UNormS8UInt))
+            new(GraphicsFormat.D24UNormS8UInt, depthSupport, SampleCounts(GraphicsFormat.D24UNormS8UInt)),
+            new(GraphicsFormat.D32Float, depthSupport, SampleCounts(GraphicsFormat.D32Float)),
+            new(GraphicsFormat.D32FloatS8UInt, depthSupport, SampleCounts(GraphicsFormat.D32FloatS8UInt))
         ];
 
         return new GraphicsDeviceCapabilities(
