@@ -221,7 +221,7 @@ internal sealed class OpenGLESGraphicsRenderPipeline : OpenGLESGraphicsPipeline,
 
         if (Description.Topology == GraphicsPrimitiveTopology.PatchList &&
             Description.Tessellation is { } tessellation)
-            gl.PatchParameteri(GLEnum.PatchVertices, checked((int)tessellation.PatchControlPoints));
+            gl.PatchParameteri(PatchParameterName.Vertices, checked((int)tessellation.PatchControlPoints));
 
         GraphicsDepthStencilState depth = Description.DepthStencil;
         SetEnabled(gl, GLEnum.DepthTest, depth.DepthTestEnabled);
