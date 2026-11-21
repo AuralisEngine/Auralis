@@ -62,7 +62,7 @@ internal static class Program
                 ref passed, ref skipped, ref failed);
             Run("compute descriptor categories, snapshots, and resource retention", session, ComputeDescriptorTypesAndSnapshots,
                 ref passed, ref skipped, ref failed);
-            Run("compute descriptor categories, snapshots, and resource retention", session, ComputeDescriptorTypesAndSnapshots,
+            Run("offscreen graphics draw and texture-copy readback", session, OffscreenGraphicsDrawAndTextureCopyReadback,
                 ref passed, ref skipped, ref failed);
             Run("conventional direct and indirect graphics draws", session, ConventionalDirectAndIndirectDraw,
                 ref passed, ref skipped, ref failed);
@@ -660,6 +660,154 @@ internal static class Program
 
         queue.Submit([commandList], fence, 1);
         WaitForGpu(fence, commandList, 1);
+    }
+
+    private static void OffscreenGraphicsDrawAndTextureCopyReadback(GlfwOpenGLHardwareSession session)
+    {
+        const uint width = 32;
+        const uint height = 32;
+        IGraphicsDevice device = session.Device;
+        RequireFormat(
+            device,
+            GraphicsFormat.RGBA8UNorm,
+            GraphicsFormatSupport.ColorAttachment |
+            GraphicsFormatSupport.CopySource |
+            GraphicsFormatSupport.CopyDestination);
+
+        using IGraphicsTexture renderedTexture = device.CreateTexture(new GraphicsTextureDescription(
+            GraphicsTextureDimension.Texture2D,
+            GraphicsFormat.RGBA8UNorm,
+            width, height, 1, 1, 1, 1,
+            GraphicsTextureUsage.ColorAttachment | GraphicsTextureUsage.CopySource));
+        using IGraphicsTexture copiedTexture = device.CreateTexture(new GraphicsTextureDescription(
+            GraphicsTextureDimension.Texture2D,
+            GraphicsFormat.RGBA8UNorm,
+            width, height, 1, 1, 1, 1,
+            GraphicsTextureUsage.CopyDestination | GraphicsTextureUsage.ColorAttachment));
+        using IGraphicsTextureView renderTarget = renderedTexture.CreateView(new GraphicsTextureViewDescription(
+            GraphicsFormat.Unknown, GraphicsTextureViewType.Texture2D, 0, 1, 0, 1));
+
+        using IGraphicsShader vertexShader = CreateShader(
+            device,
+            GraphicsShaderStage.Vertex,
+            """
+            #version 450 core
+            const vec2 positions[3] = vec2[3](
+                vec2(-0.6, -0.5),
+                vec2( 0.6, -0.5),
+                vec2( 0.0,  0.6));
+            void main() { gl_Position = vec4(positions[gl_VertexID], 0.0, 1.0); }
+            """);
+        using IGraphicsShader fragmentShader = CreateShader(
+            device,
+            GraphicsShaderStage.Fragment,
+            """
+            #version 450 core
+            layout(location = 0) out vec4 outputColor;
+            void main() { outputColor = vec4(0.1, 0.7, 0.3, 1.0); }
+            """);
+        using IGraphicsPipelineLayout pipelineLayout = device.CreatePipelineLayout([]);
+        IGraphicsShader[] shaders = [vertexShader, fragmentShader];
+        GraphicsFormat[] colorFormats = [GraphicsFormat.RGBA8UNorm];
+        using IGraphicsRenderPipeline pipeline = device.CreateRenderPipeline(
+            new GraphicsRenderPipelineDescription(
+                pipelineLayout,
+                shaders,
+                GraphicsPrimitiveTopology.TriangleList,
+                colorFormats));
+
+        IGraphicsCommandQueue graphicsQueue = device.GetQueue(GraphicsQueueType.Graphics);
+        using (IGraphicsCommandList graphicsCommands = graphicsQueue.CreateCommandList())
+        using (IGraphicsFence graphicsFence = device.CreateFence())
+        {
+            IGraphicsTextureView[] targets = [renderTarget];
+            graphicsCommands.Begin();
+            graphicsCommands.SetRenderTargets(targets);
+            graphicsCommands.SetViewport(new GraphicsViewport(0, 0, width, height));
+            graphicsCommands.SetScissor(new GraphicsScissorRect(0, 0, width, height));
+            graphicsCommands.ClearColor(0, new GraphicsClearColor(0, 0, 0, 1));
+            graphicsCommands.SetRenderPipeline(pipeline);
+            graphicsCommands.Draw(3);
+            graphicsCommands.End();
+
+            graphicsQueue.Submit([graphicsCommands], graphicsFence, 1);
+            WaitForGpu(graphicsFence, graphicsCommands, 1);
+        }
+
+        IGraphicsCommandQueue copyQueue = device.GetQueue(GraphicsQueueType.Copy);
+        using (IGraphicsCommandList copyCommands = copyQueue.CreateCommandList())
+        using (IGraphicsFence copyFence = device.CreateFence())
+        {
+            copyCommands.Begin();
+            copyCommands.CopyTexture(renderedTexture, copiedTexture);
+            copyCommands.End();
+
+            copyQueue.Submit([copyCommands], copyFence, 1);
+            WaitForGpu(copyFence, copyCommands, 1);
+        }
+
+        byte[] renderedPixels = ReadTexturePixels(session, renderedTexture, width, height);
+        byte[] copiedPixels = ReadTexturePixels(session, copiedTexture, width, height);
+        if (!renderedPixels.AsSpan().SequenceEqual(copiedPixels))
+            throw new InvalidOperationException("The GPU texture copy did not preserve the rendered image byte-for-byte.");
+
+        AssertPixelNear(renderedPixels, width, x: 16, y: 16, red: 26, green: 179, blue: 77, alpha: 255);
+        AssertPixelNear(renderedPixels, width, x: 0, y: 0, red: 0, green: 0, blue: 0, alpha: 255);
+    }
+
+    private static unsafe byte[] ReadTexturePixels(
+        GlfwOpenGLHardwareSession session,
+        IGraphicsTexture texture,
+        uint width,
+        uint height)
+    {
+        OpenGLGraphicsTexture nativeTexture = (OpenGLGraphicsTexture)texture;
+        byte[] pixels = new byte[checked((int)(width * height * 4))];
+        session.ContextProvider.MakeCurrent();
+        try
+        {
+            using GL gl = GL.GetApi(session.ContextProvider.GetProcAddress);
+            fixed (byte* destination = pixels)
+            {
+                gl.GetTextureImage(
+                    nativeTexture.Handle,
+                    0,
+                    PixelFormat.Rgba,
+                    PixelType.UnsignedByte,
+                    checked((uint)pixels.Length),
+                    destination);
+            }
+        }
+        finally
+        {
+            session.ContextProvider.ReleaseCurrent();
+        }
+
+        return pixels;
+    }
+
+    private static void AssertPixelNear(
+        byte[] pixels,
+        uint width,
+        uint x,
+        uint y,
+        byte red,
+        byte green,
+        byte blue,
+        byte alpha)
+    {
+        int offset = checked((int)((y * width + x) * 4));
+        AssertChannelNear(pixels[offset], red, x, y, "red");
+        AssertChannelNear(pixels[offset + 1], green, x, y, "green");
+        AssertChannelNear(pixels[offset + 2], blue, x, y, "blue");
+        AssertChannelNear(pixels[offset + 3], alpha, x, y, "alpha");
+    }
+
+    private static void AssertChannelNear(byte actual, byte expected, uint x, uint y, string channel)
+    {
+        if (Math.Abs(actual - expected) > 1)
+            throw new InvalidOperationException(
+                $"Unexpected {channel} value at pixel ({x}, {y}): expected {expected} ± 1, received {actual}.");
     }
 
     private static void MeshShaderDirectAndIndirectDraw(GlfwOpenGLHardwareSession session)
