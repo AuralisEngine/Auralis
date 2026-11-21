@@ -876,4 +876,66 @@ public sealed class OpenGLBackendTests
         }
         public void Dispose() { }
     }
+    [Fact]
+    public void MappedMemoryRejectsUnmapWhilePinnedAndInvalidatesNewPins()
+    {
+        nint nativeMemory = Marshal.AllocHGlobal(32);
+        try
+        {
+            var manager = new OpenGLMappedMemoryManager(nativeMemory, 32);
+            Memory<byte> memory = manager.Memory;
+            memory.Span[0] = 0x2A;
+            var firstPin = memory.Pin();
+            var secondPin = memory.Pin();
+
+            Assert.Throws<InvalidOperationException>(manager.ValidateCanUnmap);
+            manager.Invalidate();
+
+            Assert.Throws<ObjectDisposedException>(() => memory.Pin());
+            Assert.Throws<ObjectDisposedException>(() => _ = memory.Span[0]);
+            Assert.Throws<InvalidOperationException>(manager.ValidateNoPins);
+
+            // Handles acquired before invalidation remain releasable and keep the native pin count
+            // alive until both have been disposed.
+            firstPin.Dispose();
+            Assert.Throws<InvalidOperationException>(manager.ValidateNoPins);
+            secondPin.Dispose();
+
+            manager.ValidateNoPins();
+            manager.WaitForPins();
+        }
+        finally
+        {
+            Marshal.FreeHGlobal(nativeMemory);
+        }
+    }
+
+    [Fact]
+    public async Task MappedMemoryPinWaitCompletesAfterConcurrentUnpin()
+    {
+        nint nativeMemory = Marshal.AllocHGlobal(16);
+        try
+        {
+            var manager = new OpenGLMappedMemoryManager(nativeMemory, 16);
+            MemoryHandle pin = manager.Memory.Pin();
+            manager.Invalidate();
+
+            using var waiting = new ManualResetEventSlim();
+            Task waitTask = Task.Run(() =>
+            {
+                waiting.Set();
+                manager.WaitForPins();
+            });
+            waiting.Wait();
+
+            pin.Dispose();
+            await waitTask;
+            manager.ValidateNoPins();
+        }
+        finally
+        {
+            Marshal.FreeHGlobal(nativeMemory);
+        }
+    }
+
 }
