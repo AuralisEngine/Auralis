@@ -258,15 +258,6 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
             gl.GetFloat(GLEnum.AliasedLineWidthRange, out System.Numerics.Vector2 nativeLineWidths);
             OpenGLLineWidthRange supportedLineWidths = OpenGLLineWidthRange.FromNative(
                 nativeLineWidths.X, nativeLineWidths.Y);
-            GraphicsDeviceCapabilities capabilities = QueryCapabilities(
-                gl, major, minor, internalFormatQuery, uniformBufferObjectApi!,
-                contextProvider.SupportsPresentation,
-                indexedDrawBuffersApi is not null,
-                depthBoundsApi is not null,
-                polygonOffsetClampApi is not null,
-                spirvApi is not null,
-                meshShaderApi is not null,
-                supportedLineWidths);
             uint maxUniformBufferBindings = ToUInt(gl.GetInteger(GLEnum.MaxUniformBufferBindings));
             uint maxStorageBufferBindings = ToUInt(gl.GetInteger(GLEnum.MaxShaderStorageBufferBindings));
             uint maxTextureUnits = ToUInt(gl.GetInteger(GLEnum.MaxCombinedTextureImageUnits));
@@ -297,6 +288,20 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
                 maxMeshWorkGroupCountY = ToUInt(countY);
                 maxMeshWorkGroupCountZ = ToUInt(countZ);
             }
+
+            bool supportsMeshShaders = meshShaderApi is not null &&
+                maxMeshWorkGroupCountX != 0 &&
+                maxMeshWorkGroupCountY != 0 &&
+                maxMeshWorkGroupCountZ != 0;
+            GraphicsDeviceCapabilities capabilities = QueryCapabilities(
+                gl, major, minor, internalFormatQuery!, uniformBufferObjectApi!,
+                contextProvider.SupportsPresentation,
+                indexedDrawBuffersApi is not null,
+                depthBoundsApi is not null,
+                polygonOffsetClampApi is not null,
+                spirvApi is not null,
+                supportsMeshShaders,
+                supportedLineWidths);
 
             cancellationToken.ThrowIfCancellationRequested();
 
