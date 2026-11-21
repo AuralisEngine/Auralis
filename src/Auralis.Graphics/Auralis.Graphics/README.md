@@ -239,7 +239,7 @@ The ordinary graphics test suite includes hardware-independent tests for provide
 ### Allocation and performance notes
 
 - Buffer mappings use `glMapNamedBufferRange`/`glUnmapNamedBuffer` and an invalidatable `MemoryManager<byte>` over the native mapping; the normal path no longer uses a per-map staging array and DSA readback/writeback copies.
-- Command recording reuses command-list-owned `List<T>` storage for commands, barrier resource references, render-target views, and binding snapshots. Snapshot values are copied into command-list storage so later descriptor-set mutation does not rewrite recorded values.
+- Command recording reuses command-list-owned `List<T>` storage for commands, barrier resource references, render-target views, and binding snapshots. Snapshot values are copied into command-list storage so later descriptor-set mutation does not rewrite recorded values. These are managed references/snapshots; explicit native-resource retention for the interval between recording and submission/reset is not yet established and remains a correctness follow-up.
 - Submission rents command-list reference arrays from `ArrayPool<T>` and retains them until the completion sync is observed. Pending entries are value types held in a reusable list.
 - Fence sync points use a FIFO `Queue<T>` because values are monotonic; completed syncs are deleted from the head without a temporary cleanup collection.
 - Context activation no longer allocates an `OpenGLContextLease` per `WithContext` call, and the `Action<GL>` overload no longer routes through an intermediate `Func<GL, T>`. Callback-based call sites can still allocate delegates/closures; zero-allocation context execution has not been established.
