@@ -102,8 +102,11 @@ internal sealed class OpenGLESGraphicsPipelineLayout : GraphicsDeviceObject, IGr
         for (uint set = 0; set < (uint)_bindingLayouts.Length; set++)
         {
             OpenGLESGraphicsBindingLayout layout = (OpenGLESGraphicsBindingLayout)_bindingLayouts[(int)set];
-            foreach (GraphicsBindingLayoutEntry entry in layout.Entries)
+            GraphicsBindingLayoutEntry[] ordered = layout.Entries.ToArray();
+            Array.Sort(ordered, static (left, right) => left.Binding.CompareTo(right.Binding));
+            for (int i = 0; i < ordered.Length; i++)
             {
+                GraphicsBindingLayoutEntry entry = ordered[i];
                 ref uint nextSlot = ref GetNextSlot(entry.Type, ref uniformSlot, ref storageSlot, ref textureSlot, ref imageSlot);
                 uint baseSlot = nextSlot;
                 nextSlot = checked(nextSlot + entry.Count);
@@ -122,6 +125,8 @@ internal sealed class OpenGLESGraphicsPipelineLayout : GraphicsDeviceObject, IGr
     }
 
     public ReadOnlyMemory<IGraphicsBindingLayout> BindingLayouts { get; }
+
+    internal ReadOnlySpan<OpenGLESDescriptorMapping> Mappings => _mappings;
 
     internal bool TryGetMapping(
         uint set,
