@@ -106,6 +106,7 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
     private readonly List<IGraphicsTextureView> _renderTargetViews = new(8);
     private readonly List<OpenGLBindingValue> _bindingSnapshotValues = new(32);
     private readonly OpenGLResourceRetention _resourceRetention = new();
+    private int _disposedCleanup;
     private uint _recordedColorTargetCount;
     private int _recordedTargetViewOffset;
     private GraphicsRenderTargetExtent _recordedTargetExtent;
@@ -1172,17 +1173,14 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
         }
         finally
         {
-            gl.BindBuffer(
-                BufferTargetARB.DispatchIndirectBuffer,
-                unchecked((uint)previousDispatchIndirectBuffer));
-            gl.BindBuffer(
-                BufferTargetARB.DrawIndirectBuffer,
-                unchecked((uint)previousIndirectBuffer));
-            gl.BindFramebuffer(
-                FramebufferTarget.DrawFramebuffer,
-                unchecked((uint)previousDrawFramebuffer));
+            // This backend requires exclusive context-state ownership. Leave transient state at a
+            // documented baseline rather than restoring arbitrary host bindings.
+            gl.BindBuffer(BufferTargetARB.DispatchIndirectBuffer, 0);
+            gl.BindBuffer(BufferTargetARB.DrawIndirectBuffer, 0);
+            gl.BindFramebuffer(FramebufferTarget.Framebuffer, 0);
             if (framebuffer != 0)
                 gl.DeleteFramebuffer(framebuffer);
+            gl.Disable(EnableCap.ScissorTest);
         }
     }
 
@@ -1344,14 +1342,23 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
         }
     }
 
+    internal void MarkCompletedAfterGpu() => _lifecycle.MarkCompleted();
+
+    internal void ReleaseCompletedResourcesIfDisposed()
+    {
+        if (!IsDisposed || Interlocked.Exchange(ref _disposedCleanup, 1) != 0)
+            return;
+
+        if (_lifecycle.State != GraphicsCommandListState.Disposed)
+            _lifecycle.MarkDisposed();
+        ClearRecordedState();
+    }
+
     internal void Complete()
     {
-        _lifecycle.MarkCompleted();
-        if (IsDisposed)
-        {
-            _lifecycle.MarkDisposed();
-            ClearRecordedState();
-        }
+        if (_lifecycle.State == GraphicsCommandListState.Pending)
+            _lifecycle.MarkCompleted();
+        ReleaseCompletedResourcesIfDisposed();
     }
 
     internal void MarkSubmitted() => _lifecycle.MarkSubmitted();
@@ -1404,9 +1411,6 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
         // Disposing a recording abandons it; it must never become executable after Dispose.
         if (_lifecycle.State == GraphicsCommandListState.Recording)
             _lifecycle.End();
-        if (_lifecycle.State != GraphicsCommandListState.Disposed)
-            _lifecycle.MarkDisposed();
-
-        ClearRecordedState();
+        ReleaseCompletedResourcesIfDisposed();
     }
 }
