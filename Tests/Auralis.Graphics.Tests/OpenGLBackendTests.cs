@@ -377,26 +377,35 @@ public sealed class OpenGLBackendTests
             device,
             new GraphicsBindingLayoutDescription(
             [
-                new(0, GraphicsDescriptorType.UniformBuffer, 3,
-                    GraphicsShaderStages.Vertex, GraphicsBindingFlags.PartiallyBound)
+                new(0, GraphicsDescriptorType.SampledTexture, 3,
+                    GraphicsShaderStages.Fragment, GraphicsBindingFlags.PartiallyBound)
             ]));
         var partialSet = new OpenGLGraphicsBindingSet(partialLayout);
-        var buffer = new TranslationTestBuffer(
+        var texture = new SnapshotTestTexture(
             device,
-            new GraphicsBufferDescription(256, GraphicsBufferUsage.Constant));
+            new GraphicsTextureDescription(
+                GraphicsTextureDimension.Texture2D,
+                GraphicsFormat.RGBA8UNorm,
+                64, 64, 1, 1, 1, 1,
+                GraphicsTextureUsage.Sampled));
+        var view = new SnapshotTestTextureView(
+            texture,
+            new GraphicsTextureViewDescription(
+                GraphicsFormat.Unknown, GraphicsTextureViewType.Texture2D, 0, 1, 0, 1));
 
-        partialSet.SetBuffer(0, 1, buffer);
+        partialSet.SetTexture(0, 1, view);
 
         List<OpenGLBindingValue> snapshot = new();
         Assert.Equal(0, partialSet.SnapshotTo(snapshot));
         Assert.Equal(3, snapshot.Count);
-        Assert.Null(snapshot[0].Buffer);
-        Assert.Same(buffer, snapshot[1].Buffer);
-        Assert.Null(snapshot[2].Buffer);
+        Assert.Null(snapshot[0].Texture);
+        Assert.Same(view, snapshot[1].Texture);
+        Assert.Null(snapshot[2].Texture);
 
         partialSet.Dispose();
         partialLayout.Dispose();
-        buffer.Dispose();
+        view.Dispose();
+        texture.Dispose();
         device.Dispose();
     }
 
@@ -715,6 +724,30 @@ public sealed class OpenGLBackendTests
         {
             Marshal.FreeHGlobal(memoryPointer);
         }
+    }
+
+    private sealed class SnapshotTestTexture(
+        IGraphicsDevice device,
+        GraphicsTextureDescription description) : GraphicsDeviceObject(device), IGraphicsTexture
+    {
+        public string? DebugName => null;
+        public GraphicsTextureDescription Description { get; } = description;
+
+        public IGraphicsTextureView CreateView(in GraphicsTextureViewDescription viewDescription) =>
+            new SnapshotTestTextureView(this, viewDescription);
+
+        protected override void DisposeCore() { }
+    }
+
+    private sealed class SnapshotTestTextureView(
+        IGraphicsTexture texture,
+        GraphicsTextureViewDescription description) : GraphicsDeviceObject(texture.Device), IGraphicsTextureView
+    {
+        public string? DebugName => null;
+        public IGraphicsTexture Texture { get; } = texture;
+        public GraphicsTextureViewDescription Description { get; } = description;
+
+        protected override void DisposeCore() { }
     }
 
     private sealed class TestContextProvider(
