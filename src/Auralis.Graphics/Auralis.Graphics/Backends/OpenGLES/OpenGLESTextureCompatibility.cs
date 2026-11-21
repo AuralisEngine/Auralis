@@ -27,7 +27,7 @@ internal static class OpenGLESTextureCompatibility
     internal static void ValidateCopy(
         in GraphicsTextureDescription source,
         in GraphicsTextureDescription destination,
-        bool supportsImageCopy)
+        bool supportsImageCopy = false)
     {
         source.Validate();
         destination.Validate();
