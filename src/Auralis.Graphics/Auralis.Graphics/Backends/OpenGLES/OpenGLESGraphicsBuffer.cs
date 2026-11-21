@@ -134,7 +134,7 @@ internal sealed unsafe class OpenGLESGraphicsBuffer : OpenGLESNativeDeviceObject
                     gl.BindBuffer(BufferTargetARB.CopyReadBuffer, 0);
                     if (!valid)
                     {
-                        manager.Invalidate()
+                        manager.Invalidate();
                         throw new GraphicsException("OpenGL ES reported corrupted buffer contents while unmapping a read range.");
                     }
                 }
