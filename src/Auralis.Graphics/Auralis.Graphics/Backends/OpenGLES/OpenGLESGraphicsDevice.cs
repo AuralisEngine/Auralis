@@ -443,13 +443,14 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
         if (supportsImageCopy)
             depthSupport |= GraphicsFormatSupport.CopySource | GraphicsFormatSupport.CopyDestination;
 
+        GraphicsSampleCountFlags[]? formatSampleCounts = queried.FormatSampleCounts;
         GraphicsSampleCountFlags SampleCounts(GraphicsFormat format)
         {
-            GraphicsSampleCountFlags[]? values = queried.FormatSampleCounts;
             int index = (int)format;
-            return values is not null && (uint)index < (uint)values.Length &&
-                values[index] != GraphicsSampleCountFlags.None
-                ? values[index]
+            return formatSampleCounts is not null &&
+                (uint)index < (uint)formatSampleCounts.Length &&
+                formatSampleCounts[index] != GraphicsSampleCountFlags.None
+                ? formatSampleCounts[index]
                 : GraphicsSampleCountFlags.One;
         }
 
