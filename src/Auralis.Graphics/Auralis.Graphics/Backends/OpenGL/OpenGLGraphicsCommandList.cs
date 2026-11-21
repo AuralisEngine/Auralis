@@ -647,11 +647,13 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
         EnsureDrawReady();
 
         OpenGLGraphicsDevice device = (OpenGLGraphicsDevice)Device;
+        bool usesTaskStage = _recordedPipeline!.IsTaskPipeline;
         OpenGLMeshTaskValidation.Validate(
             groupCountX, groupCountY, groupCountZ,
-            device.MaxMeshWorkGroupCountX,
-            device.MaxMeshWorkGroupCountY,
-            device.MaxMeshWorkGroupCountZ);
+            usesTaskStage ? device.MaxTaskWorkGroupCountX : device.MaxMeshWorkGroupCountX,
+            usesTaskStage ? device.MaxTaskWorkGroupCountY : device.MaxMeshWorkGroupCountY,
+            usesTaskStage ? device.MaxTaskWorkGroupCountZ : device.MaxMeshWorkGroupCountZ,
+            usesTaskStage ? GraphicsFeature.TaskShaders : GraphicsFeature.MeshShaders);
 
         _commands.Add(new OpenGLRecordedCommand
         {
