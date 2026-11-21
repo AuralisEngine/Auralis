@@ -257,6 +257,7 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
         ArgumentNullException.ThrowIfNull(destination);
         EnsureOwned(source);
         EnsureOwned(destination);
+        GraphicsCommandValidation.ValidateTextureCopyNotAliased(source, destination);
 
         GraphicsTextureDescription sourceDescription = source.Description;
         GraphicsTextureDescription destinationDescription = destination.Description;
@@ -642,6 +643,7 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
         ValidateVertexBindings();
         if (_recordedIndexBuffer is null)
             throw new GraphicsValidationException("An index buffer must be set before an indexed indirect draw.");
+        GraphicsCommandValidation.ValidateIndexedIndirectIndexBufferOffset(_recordedIndexOffset);
         ValidateIndirectBuffer(arguments, offset, drawCount, ref stride, 20);
         if (drawCount > 1 && !Device.Capabilities.Features.Supports(GraphicsFeature.MultiDrawIndirect))
             throw new GraphicsFeatureNotSupportedException(GraphicsFeature.MultiDrawIndirect, GraphicsFeature.MultiDrawIndirect);
