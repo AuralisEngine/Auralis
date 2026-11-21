@@ -627,7 +627,7 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
 
     internal void MarkSubmitted() => _lifecycle.MarkSubmitted();
 
-    internal void MarkCompletedAfterGpu() => _lifecycle.MarkCompleted();
+    internal void MarkCompletedAfterGpu() => _lifecycle.TryMarkCompleted();
 
     internal void ReleaseCompletedResourcesIfDisposed()
     {
@@ -641,8 +641,7 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
 
     internal void Complete()
     {
-        if (_lifecycle.State == GraphicsCommandListState.Pending)
-            _lifecycle.MarkCompleted();
+        _lifecycle.TryMarkCompleted();
         ReleaseCompletedResourcesIfDisposed();
     }
 
@@ -1334,8 +1333,7 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
                 // Device shutdown owns the registered native resources until GPU idleness has
                 // been established (or the host context is destroyed after a failed Finish).
                 // Releasing this list's managed references cannot delete those native resources.
-                if (_lifecycle.State == GraphicsCommandListState.Pending)
-                    _lifecycle.MarkCompleted();
+                _lifecycle.TryMarkCompleted();
             }
         }
 
