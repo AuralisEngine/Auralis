@@ -6,6 +6,7 @@ using Auralis.Graphics.Presentation;
 using Auralis.Graphics.Resources;
 using Auralis.Graphics.Synchronization;
 using Silk.NET.OpenGLES;
+using Silk.NET.OpenGLES.Extensions.EXT;
 
 namespace Auralis.Graphics.Backends.OpenGLES;
 
@@ -17,6 +18,8 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
 {
     private readonly IOpenGLESContextProvider _contextProvider;
     private readonly GL _gl;
+    private readonly ExtMultiDrawIndirect? _multiDrawIndirectApi;
+    private readonly ExtDrawBuffersIndexed? _drawBuffersIndexedApi;
     private readonly object _contextGate = new();
     private readonly object _resourceGate = new();
     private readonly HashSet<IOpenGLESNativeResource> _resources = new(ReferenceEqualityComparer.Instance);
@@ -28,6 +31,8 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
     private OpenGLESGraphicsDevice(
         IOpenGLESContextProvider contextProvider,
         GL gl,
+        ExtMultiDrawIndirect? multiDrawIndirectApi,
+        ExtDrawBuffersIndexed? drawBuffersIndexedApi,
         OpenGLESVersion version,
         string versionString,
         string vendor,
@@ -38,6 +43,8 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
     {
         _contextProvider = contextProvider;
         _gl = gl;
+        _multiDrawIndirectApi = multiDrawIndirectApi;
+        _drawBuffersIndexedApi = drawBuffersIndexedApi;
         Version = version;
         VersionString = versionString;
         Vendor = vendor;
@@ -95,6 +102,8 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
     public OpenGLESCapabilityProfile Profile { get; }
 
     internal GL Api => _gl;
+    internal ExtMultiDrawIndirect? MultiDrawIndirectApi => _multiDrawIndirectApi;
+    internal ExtDrawBuffersIndexed? DrawBuffersIndexedApi => _drawBuffersIndexedApi;
 
     internal uint MaxUniformBufferBindings { get; }
     internal uint MaxStorageBufferBindings { get; }
@@ -115,6 +124,8 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
         cancellationToken.ThrowIfCancellationRequested();
 
         GL? gl = null;
+        ExtMultiDrawIndirect? multiDrawIndirectApi = null;
+        ExtDrawBuffersIndexed? drawBuffersIndexedApi = null;
         contextProvider.MakeCurrent();
         try
         {
@@ -128,6 +139,13 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
             OpenGLESCapabilityProfile profile = QueryProfile(gl, version, contextProvider.SupportsPresentation);
             profile.EnsureRequiredBaseline();
 
+            // Construct only wrappers for extensions actually advertised by this current context.
+            // The wrappers resolve their entry points through the context that supplied the core GL API.
+            if (profile.HasExtension(ExtMultiDrawIndirect.ExtensionName))
+                multiDrawIndirectApi = new ExtMultiDrawIndirect(gl.Context);
+            if (profile.HasExtension(ExtDrawBuffersIndexed.ExtensionName))
+                drawBuffersIndexedApi = new ExtDrawBuffersIndexed(gl.Context);
+
             string vendor = gl.GetStringS(StringName.Vendor);
             string renderer = gl.GetStringS(StringName.Renderer);
             OpenGLESQueriedLimits queriedLimits = QueryLimits(gl, profile);
@@ -136,12 +154,17 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
             cancellationToken.ThrowIfCancellationRequested();
 
             OpenGLESGraphicsDevice device = new(
-                contextProvider, gl, version, versionString, vendor, renderer, profile, capabilities, queriedLimits);
+                contextProvider, gl, multiDrawIndirectApi, drawBuffersIndexedApi,
+                version, versionString, vendor, renderer, profile, capabilities, queriedLimits);
             gl = null;
+            multiDrawIndirectApi = null;
+            drawBuffersIndexedApi = null;
             return device;
         }
         catch
         {
+            drawBuffersIndexedApi?.Dispose();
+            multiDrawIndirectApi?.Dispose();
             gl?.Dispose();
             throw;
         }
@@ -628,6 +651,24 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
             }
             finally
             {
+                try
+                {
+                    _drawBuffersIndexedApi?.Dispose();
+                }
+                catch (Exception exception)
+                {
+                    RecordFailure(ref failures, exception);
+                }
+
+                try
+                {
+                    _multiDrawIndirectApi?.Dispose();
+                }
+                catch (Exception exception)
+                {
+                    RecordFailure(ref failures, exception);
+                }
+
                 if (contextCurrent)
                 {
                     try
