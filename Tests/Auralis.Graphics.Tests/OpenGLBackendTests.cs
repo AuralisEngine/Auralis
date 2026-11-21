@@ -547,18 +547,50 @@ public sealed class OpenGLBackendTests
     }
 
 
-    [Fact]
-    public void ComputeDispatchValidationHonorsIndexedGroupCountLimits()
+    [Theory]
+    [InlineData(0u, 1u, 1u)]
+    [InlineData(1u, 0u, 1u)]
+    [InlineData(1u, 1u, 0u)]
+    public void ComputeDispatch_ZeroCountOnAnyAxisRecordsNoGpuCommand(uint x, uint y, uint z)
     {
-        OpenGLComputeDispatchValidation.Validate(8, 4, 2, 65535, 65535, 65535);
-        OpenGLComputeDispatchValidation.Validate(1, 1, 1, 0, 0, 0);
+        Assert.False(OpenGLGraphicsCommandList.TryCreateDispatchCommand(
+            x, y, z, 0, 0, 0, out _));
+    }
 
+    [Theory]
+    [InlineData(65_535u, 1u, 1u)]
+    [InlineData(1u, 65_535u, 1u)]
+    [InlineData(1u, 1u, 65_535u)]
+    public void ComputeDispatch_CountEqualToEachAxisMaximumIsAccepted(uint x, uint y, uint z)
+    {
+        Assert.True(OpenGLGraphicsCommandList.TryCreateDispatchCommand(
+            x, y, z, 65_535, 65_535, 65_535, out OpenGLRecordedCommand command));
+        Assert.Equal(OpenGLCommandKind.Dispatch, command.Kind);
+        Assert.Equal(x, command.GroupCountX);
+        Assert.Equal(y, command.GroupCountY);
+        Assert.Equal(z, command.GroupCountZ);
+    }
+
+    [Theory]
+    [InlineData(65_536u, 1u, 1u)]
+    [InlineData(1u, 65_536u, 1u)]
+    [InlineData(1u, 1u, 65_536u)]
+    public void ComputeDispatch_CountOneAboveEachAxisMaximumIsRejected(uint x, uint y, uint z)
+    {
         Assert.Throws<GraphicsValidationException>(() =>
-            OpenGLComputeDispatchValidation.Validate(0, 1, 1, 65535, 65535, 65535));
+            OpenGLGraphicsCommandList.TryCreateDispatchCommand(
+                x, y, z, 65_535, 65_535, 65_535, out _));
+    }
+
+    [Theory]
+    [InlineData(0u, 65_535u, 65_535u)]
+    [InlineData(65_535u, 0u, 65_535u)]
+    [InlineData(65_535u, 65_535u, 0u)]
+    public void ComputeDispatch_NonZeroCountsRequireEveryQueriedAxisLimit(uint maxX, uint maxY, uint maxZ)
+    {
         Assert.Throws<GraphicsValidationException>(() =>
-            OpenGLComputeDispatchValidation.Validate(1, 65536, 1, 65535, 65535, 65535));
-        Assert.Throws<GraphicsValidationException>(() =>
-            OpenGLComputeDispatchValidation.Validate(1, 1, 8, 65535, 65535, 7));
+            OpenGLGraphicsCommandList.TryCreateDispatchCommand(
+                1, 1, 1, maxX, maxY, maxZ, out _));
     }
 
 
