@@ -42,6 +42,10 @@ internal sealed class OpenGLESGraphicsFence : OpenGLESNativeDeviceObject, IGraph
             lock (_gate)
             {
                 EnsureMonotonic(value);
+                Poll(gl, 0);
+                GraphicsCommandValidation.ValidateCpuFenceSignalDoesNotOvertakeGpu(
+                    value,
+                    _syncs.TryPeek(out SyncPoint pending) ? pending.Value : null);
                 _lastSignaledValue = value;
                 _completedValue = value;
                 DeleteCompleted(gl, value);
