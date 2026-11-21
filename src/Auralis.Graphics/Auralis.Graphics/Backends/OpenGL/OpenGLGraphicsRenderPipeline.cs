@@ -15,6 +15,7 @@ namespace Auralis.Graphics.Backends.OpenGL;
 internal sealed class OpenGLGraphicsRenderPipeline : GraphicsDeviceObject, IGraphicsRenderPipeline, IOpenGLNativeResource
 {
     private readonly OpenGLGraphicsDevice _device;
+    private readonly bool _isMeshPipeline;
     private uint _program;
     private uint _vertexArray;
 
@@ -29,6 +30,14 @@ internal sealed class OpenGLGraphicsRenderPipeline : GraphicsDeviceObject, IGrap
         Layout = description.Layout;
         _program = program;
         _vertexArray = vertexArray;
+        foreach (IGraphicsShader shader in description.Shaders)
+        {
+            if (shader.Description.Stage == GraphicsShaderStage.Mesh)
+            {
+                _isMeshPipeline = true;
+                break;
+            }
+        }
     }
 
     public IGraphicsPipelineLayout Layout { get; }
@@ -54,6 +63,7 @@ internal sealed class OpenGLGraphicsRenderPipeline : GraphicsDeviceObject, IGrap
     }
 
     internal PrimitiveType Topology => OpenGLPipelineMapping.ToPrimitiveType(Description.Topology);
+    internal bool IsMeshPipeline => _isMeshPipeline;
 
     internal static OpenGLGraphicsRenderPipeline Create(
         OpenGLGraphicsDevice device,
@@ -69,10 +79,16 @@ internal sealed class OpenGLGraphicsRenderPipeline : GraphicsDeviceObject, IGrap
         for (int i = 0; i < description.Shaders.Length; i++)
         {
             GraphicsShaderStage stage = description.Shaders[i].Description.Stage;
-            if (stage is GraphicsShaderStage.Mesh or GraphicsShaderStage.Task)
+            if (stage == GraphicsShaderStage.Mesh &&
+                !device.Capabilities.Features.Supports(GraphicsFeature.MeshShaders))
                 throw new GraphicsFeatureNotSupportedException(
-                    GraphicsFeature.MeshShaders | GraphicsFeature.TaskShaders,
-                    stage == GraphicsShaderStage.Mesh ? GraphicsFeature.MeshShaders : GraphicsFeature.TaskShaders);
+                    GraphicsFeature.MeshShaders,
+                    GraphicsFeature.MeshShaders);
+            if (stage == GraphicsShaderStage.Task &&
+                !device.Capabilities.Features.Supports(GraphicsFeature.TaskShaders))
+                throw new GraphicsFeatureNotSupportedException(
+                    GraphicsFeature.TaskShaders,
+                    GraphicsFeature.TaskShaders);
             if (description.Shaders[i] is not OpenGLGraphicsShader)
                 throw new GraphicsValidationException("All pipeline shaders must belong to this OpenGL backend.");
         }
