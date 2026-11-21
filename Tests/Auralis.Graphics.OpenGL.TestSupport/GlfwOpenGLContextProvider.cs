@@ -2,6 +2,7 @@ using Auralis.Graphics.Abstractions;
 using Auralis.Graphics.Backends.OpenGL;
 using Auralis.Graphics.Presentation;
 using Silk.NET.GLFW;
+using Silk.NET.OpenGL;
 
 namespace Auralis.Graphics.OpenGL.TestSupport;
 
@@ -107,6 +108,33 @@ public sealed unsafe class GlfwOpenGLContextProvider : IOpenGLContextProvider
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
         ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
         return _glfw.GetProcAddress(name);
+    }
+
+    /// <summary>
+    /// Drains only the GL error flag after a completed test operation. It does not mutate GL state
+    /// and is intentionally exposed only by this opt-in test-support provider.
+    /// </summary>
+    public IReadOnlyList<GLEnum> DrainErrors()
+    {
+        MakeCurrent();
+        try
+        {
+            using GL gl = GL.GetApi(GetProcAddress);
+            List<GLEnum> errors = new(2);
+            for (int i = 0; i < 32; i++)
+            {
+                GLEnum error = gl.GetError();
+                if (error == GLEnum.NoError)
+                    break;
+                errors.Add(error);
+            }
+
+            return errors;
+        }
+        finally
+        {
+            ReleaseCurrent();
+        }
     }
 
     public void SwapBuffers() =>
