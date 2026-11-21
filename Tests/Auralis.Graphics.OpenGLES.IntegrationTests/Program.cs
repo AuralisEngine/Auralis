@@ -52,6 +52,7 @@ internal static class Program
 
             RunBufferCopyAndFence(device);
             RunComputeDispatch(device);
+            RunComputeDescriptorTypesAndSnapshots(device, context);
             RunTextureAndSamplerResources(device);
             RunResourceRetentionAfterRecording(device);
             RunOffscreenGraphicsPipeline(device, context);
@@ -286,6 +287,272 @@ internal static class Program
         }
 
         Console.WriteLine("PASS: GLES vertex/fragment compilation, graphics pipeline link, FBO attachments, viewport/scissor, color/depth/stencil clear, combined sampled-texture/sampler binding, draw, and validated color-texture blit copy.");
+    }
+
+
+    private static void RunComputeDescriptorTypesAndSnapshots(
+        IGraphicsDevice device,
+        GlfwOpenGLESContextProvider context)
+    {
+        // Two explicitly-cleared texels make the linear sampler's interpolation observable through SSBO readback.
+        using IGraphicsTexture sampledTexture = device.CreateTexture(new GraphicsTextureDescription(
+            GraphicsTextureDimension.Texture2D,
+            GraphicsFormat.RGBA8UNorm,
+            2, 1, 1, 1, 1, 1,
+            GraphicsTextureUsage.Sampled | GraphicsTextureUsage.ColorAttachment));
+        using IGraphicsTextureView sampledView = sampledTexture.CreateView(new GraphicsTextureViewDescription(
+            GraphicsFormat.Unknown, GraphicsTextureViewType.Texture2D, 0, 1, 0, 1));
+        ClearTwoTexelTexture(device, sampledView);
+
+        using IGraphicsTexture alternativeSampledTexture = device.CreateTexture(new GraphicsTextureDescription(
+            GraphicsTextureDimension.Texture2D,
+            GraphicsFormat.RGBA8UNorm,
+            2, 1, 1, 1, 1, 1,
+            GraphicsTextureUsage.Sampled | GraphicsTextureUsage.ColorAttachment));
+        using IGraphicsTextureView alternativeSampledView = alternativeSampledTexture.CreateView(new GraphicsTextureViewDescription(
+            GraphicsFormat.Unknown, GraphicsTextureViewType.Texture2D, 0, 1, 0, 1));
+        ClearTexture(device, alternativeSampledView, 2, 1, new GraphicsClearColor(0, 1, 0, 1));
+
+        using IGraphicsTexture storageTexture = device.CreateTexture(new GraphicsTextureDescription(
+            GraphicsTextureDimension.Texture2D,
+            GraphicsFormat.RGBA8UNorm,
+            1, 1, 1, 1, 1, 1,
+            GraphicsTextureUsage.Storage));
+        using IGraphicsTextureView storageView = storageTexture.CreateView(new GraphicsTextureViewDescription(
+            GraphicsFormat.Unknown, GraphicsTextureViewType.Texture2D, 0, 1, 0, 1));
+        using IGraphicsTexture alternativeStorageTexture = device.CreateTexture(new GraphicsTextureDescription(
+            GraphicsTextureDimension.Texture2D,
+            GraphicsFormat.RGBA8UNorm,
+            1, 1, 1, 1, 1, 1,
+            GraphicsTextureUsage.Storage));
+        using IGraphicsTextureView alternativeStorageView = alternativeStorageTexture.CreateView(new GraphicsTextureViewDescription(
+            GraphicsFormat.Unknown, GraphicsTextureViewType.Texture2D, 0, 1, 0, 1));
+
+        using IGraphicsBuffer parameters = device.CreateBuffer(new GraphicsBufferDescription(
+            4 * sizeof(uint), GraphicsBufferUsage.Constant, GraphicsMemoryAccess.CpuReadWrite));
+        using IGraphicsBuffer alternativeParameters = device.CreateBuffer(new GraphicsBufferDescription(
+            4 * sizeof(uint), GraphicsBufferUsage.Constant, GraphicsMemoryAccess.CpuReadWrite));
+        using IGraphicsBuffer output = device.CreateBuffer(new GraphicsBufferDescription(
+            sizeof(uint), GraphicsBufferUsage.Storage, GraphicsMemoryAccess.CpuReadWrite));
+        using IGraphicsBuffer alternativeOutput = device.CreateBuffer(new GraphicsBufferDescription(
+            sizeof(uint), GraphicsBufferUsage.Storage, GraphicsMemoryAccess.CpuReadWrite));
+        using IGraphicsBuffer partialOutput = device.CreateBuffer(new GraphicsBufferDescription(
+            sizeof(uint), GraphicsBufferUsage.Storage, GraphicsMemoryAccess.CpuReadWrite));
+        using IGraphicsBuffer alternativePartialOutput = device.CreateBuffer(new GraphicsBufferDescription(
+            sizeof(uint), GraphicsBufferUsage.Storage, GraphicsMemoryAccess.CpuReadWrite));
+
+        WriteUInts(parameters, 7u, 0x00A11CEu, 0, 0);
+        WriteUInts(alternativeParameters, 0x22u, 0xBADu, 0, 0);
+        WriteUInts(output, 0xDEADBEEFu);
+        WriteUInts(alternativeOutput, 0xDEADBEEFu);
+        WriteUInts(partialOutput, 0xDEADBEEFu);
+        WriteUInts(alternativePartialOutput, 0xDEADBEEFu);
+
+        using IGraphicsSampler linearSampler = device.CreateSampler(new GraphicsSamplerDescription(
+            GraphicsFilter.Linear, GraphicsFilter.Linear, GraphicsFilter.Linear,
+            GraphicsAddressMode.ClampToEdge, GraphicsAddressMode.ClampToEdge, GraphicsAddressMode.ClampToEdge,
+            0, 0));
+        using IGraphicsSampler nearestSampler = device.CreateSampler(new GraphicsSamplerDescription(
+            GraphicsFilter.Nearest, GraphicsFilter.Nearest, GraphicsFilter.Nearest,
+            GraphicsAddressMode.ClampToEdge, GraphicsAddressMode.ClampToEdge, GraphicsAddressMode.ClampToEdge,
+            0, 0));
+
+        using IGraphicsBindingLayout bindingLayout = device.CreateBindingLayout(new GraphicsBindingLayoutDescription(
+        [
+            new GraphicsBindingLayoutEntry(0, GraphicsDescriptorType.UniformBuffer, 1, GraphicsShaderStages.Compute),
+            new GraphicsBindingLayoutEntry(1, GraphicsDescriptorType.StorageBuffer, 1, GraphicsShaderStages.Compute),
+            new GraphicsBindingLayoutEntry(2, GraphicsDescriptorType.SampledTexture, 1, GraphicsShaderStages.Compute),
+            new GraphicsBindingLayoutEntry(3, GraphicsDescriptorType.Sampler, 1, GraphicsShaderStages.Compute),
+            new GraphicsBindingLayoutEntry(4, GraphicsDescriptorType.CombinedTextureSampler, 1, GraphicsShaderStages.Compute),
+            new GraphicsBindingLayoutEntry(5, GraphicsDescriptorType.StorageTexture, 1, GraphicsShaderStages.Compute),
+            new GraphicsBindingLayoutEntry(
+                6, GraphicsDescriptorType.StorageBuffer, 2, GraphicsShaderStages.Compute,
+                GraphicsBindingFlags.PartiallyBound)
+        ]));
+        using IGraphicsBindingSet bindingSet = device.CreateBindingSet(bindingLayout);
+        bindingSet.SetBuffer(0, 0, parameters, 0, 4 * sizeof(uint));
+        bindingSet.SetBuffer(1, 0, output, 0, sizeof(uint));
+        bindingSet.SetTexture(2, 0, sampledView);
+        bindingSet.SetSampler(3, 0, linearSampler);
+        bindingSet.SetTexture(4, 0, sampledView);
+        bindingSet.SetSampler(4, 0, linearSampler);
+        bindingSet.SetTexture(5, 0, storageView);
+        // Array element zero remains unbound; element one is the only populated element.
+        bindingSet.SetBuffer(6, 1, partialOutput, 0, sizeof(uint));
+
+        IGraphicsBindingLayout[] bindingLayouts = [bindingLayout];
+        using IGraphicsPipelineLayout pipelineLayout = device.CreatePipelineLayout(bindingLayouts);
+        using IGraphicsShader shader = device.CreateShader(new GraphicsShaderDescription
+        {
+            Stage = GraphicsShaderStage.Compute,
+            Format = GraphicsShaderFormat.GlslSource,
+            Code = Encoding.UTF8.GetBytes(
+                """
+                #version 310 es
+                layout(local_size_x = 1) in;
+                layout(std140, binding = 0) uniform Parameters { uvec4 values; } parameters;
+                layout(std430, binding = 0) buffer Result { uint value; } resultBuffer;
+                layout(binding = 0) uniform highp sampler2D sampledOnly;
+                layout(binding = 2) uniform highp sampler2D sampledWithSampler;
+                layout(rgba8, binding = 0) coherent uniform highp image2D storageOutput;
+                layout(std430, binding = 1) buffer PartialResult { uint marker; } partialResults[2];
+
+                void main()
+                {
+                    vec4 exactTexel = texelFetch(sampledOnly, ivec2(0, 0), 0);
+                    vec4 filteredTexel = texture(sampledWithSampler, vec2(0.375, 0.5));
+                    imageStore(storageOutput, ivec2(0, 0), filteredTexel);
+                    memoryBarrierImage();
+                    vec4 imageReadback = imageLoad(storageOutput, ivec2(0, 0));
+
+                    resultBuffer.value =
+                        (uint(round(exactTexel.r * 255.0)) << 24u) |
+                        (uint(round(imageReadback.r * 255.0)) << 16u) |
+                        (uint(round(imageReadback.b * 255.0)) << 8u) |
+                        parameters.values.x;
+                    partialResults[1].marker = parameters.values.y;
+                }
+                """)
+        });
+        using IGraphicsComputePipeline pipeline = device.CreateComputePipeline(
+            new GraphicsComputePipelineDescription(pipelineLayout, shader));
+
+        IGraphicsCommandQueue queue = device.GetQueue(GraphicsQueueType.Compute);
+        using IGraphicsCommandList commandList = queue.CreateCommandList();
+        using IGraphicsFence fence = device.CreateFence();
+
+        commandList.Begin();
+        commandList.SetComputePipeline(pipeline);
+        commandList.SetBindingSet(0, bindingSet);
+        commandList.Dispatch(1);
+        commandList.End();
+
+        // Mutate every descriptor category after recording. The executable command list must keep
+        // the original UBO, SSBOs, sampled view, sampler, storage image, and partially-bound slot snapshot.
+        bindingSet.SetBuffer(0, 0, alternativeParameters, 0, 4 * sizeof(uint));
+        bindingSet.SetBuffer(1, 0, alternativeOutput, 0, sizeof(uint));
+        bindingSet.SetTexture(2, 0, alternativeSampledView);
+        bindingSet.SetSampler(3, 0, nearestSampler);
+        bindingSet.SetTexture(4, 0, alternativeSampledView);
+        bindingSet.SetSampler(4, 0, nearestSampler);
+        bindingSet.SetTexture(5, 0, alternativeStorageView);
+        bindingSet.SetBuffer(6, 1, alternativePartialOutput, 0, sizeof(uint));
+        bindingSet.Dispose();
+
+        // Dispose the original texture, sampler, UBO and image owners before submission. The
+        // recorded descriptor snapshot must still keep the native handles alive through execution.
+        sampledTexture.Dispose();
+        linearSampler.Dispose();
+        parameters.Dispose();
+        storageTexture.Dispose();
+
+        OpenGLESGraphicsDevice glesDevice = (OpenGLESGraphicsDevice)device;
+        context.MakeCurrent();
+        uint sentinelBuffer;
+        try
+        {
+            sentinelBuffer = glesDevice.Api.GenBuffer();
+            if (sentinelBuffer == 0)
+                throw new GraphicsException("Could not allocate the GLES sentinel buffer used to verify partially-bound unbinding.");
+            glesDevice.Api.BindBufferBase(BufferTargetARB.ShaderStorageBuffer, 1, sentinelBuffer);
+            glesDevice.Api.GetInteger(GLEnum.ShaderStorageBufferBinding, 1, out int seededBinding);
+            if (seededBinding != (int)sentinelBuffer)
+                throw new GraphicsException("Could not seed the GLES partially-bound SSBO slot with the sentinel buffer.");
+        }
+        finally
+        {
+            context.ReleaseCurrent();
+        }
+
+        queue.Submit([commandList], fence, 1);
+        if (!fence.Wait(1, TimeSpan.FromSeconds(10)))
+            throw new TimeoutException("The GLES full-descriptor integration fence did not complete within 10 seconds.");
+
+        context.MakeCurrent();
+        try
+        {
+            glesDevice.Api.GetInteger(GLEnum.ShaderStorageBufferBinding, 1, out int missingArrayElementBinding);
+            if (missingArrayElementBinding != 0)
+                throw new InvalidOperationException(
+                    $"Partially-bound GLES SSBO array element zero was not explicitly unbound (binding={missingArrayElementBinding}).");
+            glesDevice.Api.DeleteBuffer(sentinelBuffer);
+        }
+        finally
+        {
+            context.ReleaseCurrent();
+        }
+
+        uint expectedResult = (0xFFu << 24) | (191u << 16) | (64u << 8) | 7u;
+        uint actualResult = ReadUInt(output);
+        if (actualResult != expectedResult)
+            throw new InvalidOperationException(
+                $"GLES descriptor snapshot result was 0x{actualResult:X8}, expected 0x{expectedResult:X8}.");
+        AssertUInt(ReadUInt(partialOutput), 0x00A11CEu);
+        AssertUInt(ReadUInt(alternativeOutput), 0xDEADBEEFu);
+        AssertUInt(ReadUInt(alternativePartialOutput), 0xDEADBEEFu);
+
+        Console.WriteLine(
+            "PASS: GLES UBO, SSBO, sampled texture, sampler, combined texture/sampler, storage image, partially-bound SSBO array unbinding, descriptor-set mutation snapshots, texture/sampler disposal-after-recording, and GPU readback.");
+    }
+
+    private static void ClearTwoTexelTexture(IGraphicsDevice device, IGraphicsTextureView textureView) =>
+        ClearTexture(
+            device,
+            textureView,
+            2,
+            1,
+            new GraphicsClearColor(1, 0, 0, 1),
+            new GraphicsClearColor(0, 0, 1, 1));
+
+    private static void ClearTexture(
+        IGraphicsDevice device,
+        IGraphicsTextureView textureView,
+        uint width,
+        uint height,
+        GraphicsClearColor firstColor,
+        GraphicsClearColor? secondColor = null)
+    {
+        IGraphicsCommandQueue queue = device.GetQueue(GraphicsQueueType.Graphics);
+        using IGraphicsCommandList commandList = queue.CreateCommandList();
+        using IGraphicsFence fence = device.CreateFence();
+        IGraphicsTextureView[] targets = [textureView];
+
+        commandList.Begin();
+        commandList.SetRenderTargets(targets);
+        commandList.SetViewport(new GraphicsViewport(0, 0, width, height));
+        if (secondColor is { } nextColor)
+        {
+            commandList.SetScissor(new GraphicsScissorRect(0, 0, 1, height));
+            commandList.ClearColor(0, firstColor);
+            commandList.SetScissor(new GraphicsScissorRect(1, 0, width - 1, height));
+            commandList.ClearColor(0, nextColor);
+        }
+        else
+        {
+            commandList.SetScissor(new GraphicsScissorRect(0, 0, width, height));
+            commandList.ClearColor(0, firstColor);
+        }
+        commandList.End();
+
+        queue.Submit([commandList], fence, 1);
+        if (!fence.Wait(1, TimeSpan.FromSeconds(10)))
+            throw new TimeoutException("The GLES texture-initialization fence did not complete within 10 seconds.");
+    }
+
+    private static void WriteUInts(IGraphicsBuffer buffer, params uint[] values)
+    {
+        Memory<byte> memory = buffer.Map(GraphicsMapMode.Write, 0, checked((ulong)(values.Length * sizeof(uint))));
+        for (int i = 0; i < values.Length; i++)
+            BitConverter.TryWriteBytes(memory.Span.Slice(i * sizeof(uint), sizeof(uint)), values[i]);
+        buffer.Unmap();
+    }
+
+    private static uint ReadUInt(IGraphicsBuffer buffer)
+    {
+        Memory<byte> memory = buffer.Map(GraphicsMapMode.Read, 0, sizeof(uint));
+        uint value = BitConverter.ToUInt32(memory.Span);
+        buffer.Unmap();
+        return value;
     }
 
     private static void RunComputeDispatch(IGraphicsDevice device)
