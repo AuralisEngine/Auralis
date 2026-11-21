@@ -50,10 +50,6 @@ internal static class OpenGLESShaderCompatibility
                 throw new GraphicsFeatureNotSupportedException(GraphicsFeature.GeometryShaders, GraphicsFeature.GeometryShaders),
             GraphicsShaderStage.TessellationControl or GraphicsShaderStage.TessellationEvaluation =>
                 throw new GraphicsFeatureNotSupportedException(GraphicsFeature.TessellationShaders, GraphicsFeature.TessellationShaders),
-            GraphicsShaderStage.Mesh when deviceMeshShadersAvailable =>
-                (ShaderType)0x9559, // GL_MESH_SHADER_EXT
-            GraphicsShaderStage.Task when deviceMeshShadersAvailable =>
-                (ShaderType)0x955A, // GL_TASK_SHADER_EXT
             GraphicsShaderStage.Mesh or GraphicsShaderStage.Task =>
                 throw new GraphicsFeatureNotSupportedException(
                     GraphicsFeature.MeshShaders | GraphicsFeature.TaskShaders,
