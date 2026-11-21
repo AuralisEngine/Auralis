@@ -155,6 +155,17 @@ internal sealed class OpenGLESGraphicsTexture : OpenGLESNativeDeviceObject, IGra
         GraphicsFormat.D24UNormS8UInt => SizedInternalFormat.Depth24Stencil8,
         GraphicsFormat.D32Float => SizedInternalFormat.DepthComponent32f,
         GraphicsFormat.D32FloatS8UInt => SizedInternalFormat.Depth32fStencil8,
+        // Compressed internal-format tokens are extension-defined and are advertised only
+        // when the matching extension is present in the device capability snapshot.
+        GraphicsFormat.BC1UNorm => (SizedInternalFormat)0x83F1, // COMPRESSED_RGBA_S3TC_DXT1_EXT
+        GraphicsFormat.BC1UNormSrgb => (SizedInternalFormat)0x8C4D, // COMPRESSED_SRGB_ALPHA_S3TC_DXT1_EXT
+        GraphicsFormat.BC3UNorm => (SizedInternalFormat)0x83F3, // COMPRESSED_RGBA_S3TC_DXT5_EXT
+        GraphicsFormat.BC3UNormSrgb => (SizedInternalFormat)0x8C4F, // COMPRESSED_SRGB_ALPHA_S3TC_DXT5_EXT
+        GraphicsFormat.BC5UNorm => (SizedInternalFormat)0x8DBD, // COMPRESSED_RG_RGTC2
+        GraphicsFormat.BC7UNorm => (SizedInternalFormat)0x8E8C, // COMPRESSED_RGBA_BPTC_UNORM
+        GraphicsFormat.BC7UNormSrgb => (SizedInternalFormat)0x8E8D, // COMPRESSED_SRGB_ALPHA_BPTC_UNORM
+        GraphicsFormat.ASTC4x4UNorm => (SizedInternalFormat)0x93B0, // COMPRESSED_RGBA_ASTC_4x4_KHR
+        GraphicsFormat.ASTC4x4UNormSrgb => (SizedInternalFormat)0x93D0, // COMPRESSED_SRGB8_ALPHA8_ASTC_4x4_KHR
         _ => throw new GraphicsValidationException($"OpenGL ES has no implemented storage mapping for format {format}.")
     };
 
