@@ -11,6 +11,7 @@ using Auralis.Graphics.Resources;
 using Auralis.Graphics.Synchronization;
 using Silk.NET.OpenGL;
 using Silk.NET.OpenGL.Extensions.ARB;
+using Silk.NET.OpenGL.Extensions.NV;
 using Silk.NET.OpenGL.Legacy.Extensions.EXT;
 using OpenGLExtMeshShader = Silk.NET.OpenGL.Extensions.EXT.ExtMeshShader;
 
@@ -45,6 +46,7 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
     private readonly ExtDepthBoundsTest? _depthBoundsApi;
     private readonly ArbPolygonOffsetClamp? _polygonOffsetClampApi;
     private readonly OpenGLExtMeshShader? _meshShaderApi;
+    private readonly NVMeshShader? _nvMeshShaderApi;
     private readonly ArbES2Compatibility _shaderBinaryApi;
     private readonly ArbGlSpirv? _spirvApi;
     private readonly ArbComputeShader _computeShaderApi;
@@ -72,6 +74,7 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
     internal ExtDepthBoundsTest? DepthBoundsApi => _depthBoundsApi;
     internal ArbPolygonOffsetClamp? PolygonOffsetClampApi => _polygonOffsetClampApi;
     internal OpenGLExtMeshShader? MeshShaderApi => _meshShaderApi;
+    internal NVMeshShader? NvMeshShaderApi => _nvMeshShaderApi;
     internal ArbES2Compatibility ShaderBinaryApi => _shaderBinaryApi;
     internal ArbGlSpirv? SpirVApi => _spirvApi;
     internal bool DebugLayerEnabled => _debugLayerEnabled;
@@ -99,6 +102,7 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
         ExtDepthBoundsTest? depthBoundsApi,
         ArbPolygonOffsetClamp? polygonOffsetClampApi,
         OpenGLExtMeshShader? meshShaderApi,
+        NVMeshShader? nvMeshShaderApi,
         ArbES2Compatibility shaderBinaryApi,
         ArbGlSpirv? spirvApi,
         OpenGLLineWidthRange supportedLineWidths,
@@ -146,6 +150,7 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
         _depthBoundsApi = depthBoundsApi;
         _polygonOffsetClampApi = polygonOffsetClampApi;
         _meshShaderApi = meshShaderApi;
+        _nvMeshShaderApi = nvMeshShaderApi;
         _shaderBinaryApi = shaderBinaryApi;
         _spirvApi = spirvApi;
         SupportedLineWidths = supportedLineWidths;
@@ -205,6 +210,7 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
         ExtDepthBoundsTest? depthBoundsApi = null;
         ArbPolygonOffsetClamp? polygonOffsetClampApi = null;
         OpenGLExtMeshShader? meshShaderApi = null;
+        NVMeshShader? nvMeshShaderApi = null;
         ArbES2Compatibility? shaderBinaryApi = null;
         ArbGlSpirv? spirvApi = null;
         ArbComputeShader? computeShaderApi = null;
@@ -259,6 +265,11 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
                 polygonOffsetClampApi = new ArbPolygonOffsetClamp(gl.Context);
             if (gl.IsExtensionPresent(OpenGLExtMeshShader.ExtensionName))
                 meshShaderApi = new OpenGLExtMeshShader(gl.Context);
+            if (gl.IsExtensionPresent(NVMeshShader.ExtensionName) &&
+                contextProvider.GetProcAddress("glDrawMeshTasksNV") != 0)
+            {
+                nvMeshShaderApi = new NVMeshShader(gl.Context);
+            }
             shaderBinaryApi = new ArbES2Compatibility(gl.Context);
             if (gl.IsExtensionPresent(ArbGlSpirv.ExtensionName))
                 spirvApi = new ArbGlSpirv(gl.Context);
@@ -315,15 +326,31 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
                 maxMeshWorkGroupTotalCount = ToUInt(gl.GetInteger(GetPName.MaxMeshWorkGroupTotalCountExt));
                 maxTaskWorkGroupTotalCount = ToUInt(gl.GetInteger(GetPName.MaxTaskWorkGroupTotalCountExt));
             }
+            else if (nvMeshShaderApi is not null)
+            {
+                uint maxNvDrawCount = ToUInt(gl.GetInteger((GLEnum)0x953D)); // GL_MAX_DRAW_MESH_TASKS_COUNT_NV
+                maxMeshWorkGroupCountX = maxNvDrawCount;
+                maxMeshWorkGroupCountY = 1;
+                maxMeshWorkGroupCountZ = 1;
+                maxMeshWorkGroupTotalCount = maxNvDrawCount;
+                maxTaskWorkGroupCountX = maxNvDrawCount;
+                maxTaskWorkGroupCountY = 1;
+                maxTaskWorkGroupCountZ = 1;
+                maxTaskWorkGroupTotalCount = maxNvDrawCount;
+                if (maxNvDrawCount == 0)
+                    throw new GraphicsBackendUnavailableException(
+                        GraphicsBackend.OpenGL,
+                        "GL_NV_mesh_shader was advertised but GL_MAX_DRAW_MESH_TASKS_COUNT_NV is zero.");
+            }
 
             bool supportsMeshShaders = OpenGLMeshTaskValidation.IsSupported(
-                meshShaderApi is not null,
+                meshShaderApi is not null || nvMeshShaderApi is not null,
                 maxMeshWorkGroupCountX,
                 maxMeshWorkGroupCountY,
                 maxMeshWorkGroupCountZ,
                 maxMeshWorkGroupTotalCount);
             bool supportsTaskShaders = supportsMeshShaders && OpenGLMeshTaskValidation.IsSupported(
-                meshShaderApi is not null,
+                meshShaderApi is not null || nvMeshShaderApi is not null,
                 maxTaskWorkGroupCountX,
                 maxTaskWorkGroupCountY,
                 maxTaskWorkGroupCountZ,
@@ -354,7 +381,7 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
                 internalFormatQuery, syncApi, copyImageApi, viewportApi,
                 baseInstanceApi, drawIndirectApi, multiDrawIndirectApi, imageLoadStoreApi,
                 drawBuffersBlendApi, indexedDrawBuffersApi, depthBoundsApi, polygonOffsetClampApi,
-                meshShaderApi, shaderBinaryApi!, spirvApi, supportedLineWidths, computeShaderApi!, uniformBufferObjectApi!,
+                meshShaderApi, nvMeshShaderApi, shaderBinaryApi!, spirvApi, supportedLineWidths, computeShaderApi!, uniformBufferObjectApi!,
                 maxComputeWorkGroupCountX, maxComputeWorkGroupCountY, maxComputeWorkGroupCountZ,
                 maxMeshWorkGroupCountX, maxMeshWorkGroupCountY, maxMeshWorkGroupCountZ,
                 maxMeshWorkGroupTotalCount,
@@ -382,6 +409,7 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
             depthBoundsApi = null;
             polygonOffsetClampApi = null;
             meshShaderApi = null;
+            nvMeshShaderApi = null;
             shaderBinaryApi = null;
             spirvApi = null;
             computeShaderApi = null;
@@ -395,6 +423,7 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
             spirvApi?.Dispose();
             shaderBinaryApi?.Dispose();
             polygonOffsetClampApi?.Dispose();
+            nvMeshShaderApi?.Dispose();
             meshShaderApi?.Dispose();
             depthBoundsApi?.Dispose();
             indexedDrawBuffersApi?.Dispose();
