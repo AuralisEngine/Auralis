@@ -155,6 +155,20 @@ public sealed class OpenGLESCapabilityProfileTests
         Assert.False(baseline.TryGetFormatCapabilities(GraphicsFormat.BC1UNorm, out _));
         Assert.False(baseline.TryGetFormatCapabilities(GraphicsFormat.ASTC4x4UNorm, out _));
 
+        Assert.True(baseline.TryGetFormatCapabilities(GraphicsFormat.RGBA8UNorm, out GraphicsFormatCapabilities rgba8));
+        Assert.True(rgba8.Supports(
+            GraphicsFormatSupport.Sampled |
+            GraphicsFormatSupport.ColorAttachment |
+            GraphicsFormatSupport.Blend |
+            GraphicsFormatSupport.LinearFiltering));
+        Assert.True(baseline.TryGetFormatCapabilities(GraphicsFormat.RGBA8UInt, out GraphicsFormatCapabilities rgba8UInt));
+        Assert.True(rgba8UInt.Supports(GraphicsFormatSupport.Sampled | GraphicsFormatSupport.ColorAttachment));
+        Assert.False(rgba8UInt.Supports(GraphicsFormatSupport.Blend));
+        Assert.False(rgba8UInt.Supports(GraphicsFormatSupport.LinearFiltering));
+        Assert.True(baseline.TryGetFormatCapabilities(GraphicsFormat.R8SNorm, out GraphicsFormatCapabilities r8SNorm));
+        Assert.True(r8SNorm.Supports(GraphicsFormatSupport.Sampled | GraphicsFormatSupport.LinearFiltering));
+        Assert.False(r8SNorm.Supports(GraphicsFormatSupport.ColorAttachment));
+
         Assert.Throws<GraphicsValidationException>(() =>
             OpenGLESGraphicsTexture.GetInternalFormat(GraphicsFormat.BGRA8UNorm));
         Assert.Throws<GraphicsValidationException>(() =>
@@ -193,8 +207,13 @@ public sealed class OpenGLESCapabilityProfileTests
 
         Assert.True(capabilities.TryGetFormatCapabilities(GraphicsFormat.D32Float, out _));
         Assert.True(capabilities.TryGetFormatCapabilities(GraphicsFormat.D32FloatS8UInt, out _));
-        Assert.True(capabilities.TryGetFormatCapabilities(GraphicsFormat.BC1UNorm, out _));
+        Assert.True(capabilities.TryGetFormatCapabilities(GraphicsFormat.BC1UNorm, out GraphicsFormatCapabilities bc1));
+        Assert.True(bc1.Supports(GraphicsFormatSupport.Sampled | GraphicsFormatSupport.LinearFiltering |
+                                GraphicsFormatSupport.CopySource | GraphicsFormatSupport.CopyDestination));
+        Assert.False(bc1.Supports(GraphicsFormatSupport.ColorAttachment | GraphicsFormatSupport.Blend));
         Assert.True(capabilities.TryGetFormatCapabilities(GraphicsFormat.BC1UNormSrgb, out _));
+        Assert.True(capabilities.TryGetFormatCapabilities(GraphicsFormat.BC3UNorm, out _));
+        Assert.True(capabilities.TryGetFormatCapabilities(GraphicsFormat.BC3UNormSrgb, out _));
         Assert.True(capabilities.TryGetFormatCapabilities(GraphicsFormat.BC5UNorm, out _));
         Assert.True(capabilities.TryGetFormatCapabilities(GraphicsFormat.BC7UNorm, out _));
         Assert.True(capabilities.TryGetFormatCapabilities(GraphicsFormat.BC7UNormSrgb, out _));
@@ -203,6 +222,18 @@ public sealed class OpenGLESCapabilityProfileTests
 
         Assert.False(capabilities.TryGetFormatCapabilities(GraphicsFormat.BGRA8UNorm, out _));
         Assert.False(capabilities.TryGetFormatCapabilities(GraphicsFormat.BGRA8UNormSrgb, out _));
+        Assert.True(capabilities.TryGetFormatCapabilities(GraphicsFormat.RGBA16Float, out GraphicsFormatCapabilities rgba16Float));
+        Assert.True(rgba16Float.Supports(GraphicsFormatSupport.ColorAttachment | GraphicsFormatSupport.Storage));
+        Assert.True(capabilities.TryGetFormatCapabilities(GraphicsFormat.RGBA32Float, out GraphicsFormatCapabilities rgba32Float));
+        Assert.True(rgba32Float.Supports(GraphicsFormatSupport.ColorAttachment | GraphicsFormatSupport.Storage));
+
+        GraphicsDeviceCapabilities compressedWithoutImageCopy = OpenGLESGraphicsDevice.QueryCapabilities(
+            profile,
+            default,
+            supportsImageCopy: false);
+        Assert.True(compressedWithoutImageCopy.TryGetFormatCapabilities(GraphicsFormat.BC1UNorm, out GraphicsFormatCapabilities bc1WithoutCopy));
+        Assert.True(bc1WithoutCopy.Supports(GraphicsFormatSupport.Sampled | GraphicsFormatSupport.LinearFiltering));
+        Assert.False(bc1WithoutCopy.Supports(GraphicsFormatSupport.CopySource | GraphicsFormatSupport.CopyDestination));
     }
 
     [Fact]
