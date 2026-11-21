@@ -49,3 +49,45 @@ internal static class OpenGLMeshTaskValidation
         }
     }
 }
+
+internal enum OpenGLMeshShaderDialect : byte
+{
+    None,
+    Ext,
+    Nv
+}
+
+/// <summary>
+/// Identifies and validates the GLSL mesh/task extension dialect selected by a shader source.
+/// The EXT and NV stages have distinct GLSL contracts even though their OpenGL shader-stage
+/// tokens use the same numeric values.
+/// </summary>
+internal static class OpenGLMeshShaderDialectValidation
+{
+    internal static OpenGLMeshShaderDialect ValidateGlslSource(
+        string source,
+        bool extAvailable,
+        bool nvAvailable,
+        GraphicsFeature requiredFeature)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        bool requestsExt = source.Contains("GL_EXT_mesh_shader", StringComparison.Ordinal);
+        bool requestsNv = source.Contains("GL_NV_mesh_shader", StringComparison.Ordinal);
+        if (requestsExt == requestsNv)
+        {
+            throw new GraphicsValidationException(
+                "A GLSL mesh/task shader must enable exactly one of GL_EXT_mesh_shader or GL_NV_mesh_shader.");
+        }
+
+        if (requestsExt)
+        {
+            if (!extAvailable)
+                throw new GraphicsFeatureNotSupportedException(requiredFeature, requiredFeature);
+            return OpenGLMeshShaderDialect.Ext;
+        }
+
+        if (!nvAvailable)
+            throw new GraphicsFeatureNotSupportedException(requiredFeature, requiredFeature);
+        return OpenGLMeshShaderDialect.Nv;
+    }
+}
