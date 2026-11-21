@@ -37,7 +37,9 @@ internal static class OpenGLESTextureCompatibility
             (description.ArrayLayers < 6 || description.ArrayLayers % 6 != 0))
             throw new GraphicsValidationException("Cube-map textures require a multiple of six layers.");
         if (description.Dimension == GraphicsTextureDimension.Cube &&
-            description.ArrayLayers > 6 && !supportsCubeMapArray)
+            description.ArrayLayers > 6 &&
+            !supportsCubeMapArray &&
+            !version.IsAtLeast(3, 2))
             throw new GraphicsValidationException(
                 "Cube-map arrays require OpenGL ES 3.2 or GL_OES_texture_cube_map_array.");
         _ = OpenGLESGraphicsTexture.GetInternalFormat(description.Format);
