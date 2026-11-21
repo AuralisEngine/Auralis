@@ -89,7 +89,7 @@ Current work in the branch includes:
 
 **Concurrency boundary:** command recording is multi-producer, but World access, queries, structural mutation, and playback remain owner-thread-only. This PR does not implement a parallel ECS scheduler or work stealing.
 
-**Validation:** the latest reported ECS validation workflow for the current PR head succeeded (restore, build, and ECS test steps). The PR reports 24 passing tests. No before/after benchmark results or numerical performance gains are claimed.
+**Validation:** the latest reported ECS validation workflow for the implementation commit succeeded (restore, build, and ECS test steps). The PR reports 24 passing tests. A README-only synchronization commit follows that validated implementation commit. No before/after benchmark results or numerical performance gains are claimed.
 
 ### [PR #9 — Add pure-managed FBX parser and scene importer](https://github.com/mahdikshk/Auralis/pull/9)
 
@@ -108,7 +108,7 @@ Current work in the branch includes:
 
 **Scope boundaries:** the imported scene is an intermediate representation, not runtime components. The PR does not implement `.AuraAsset` serialization, FBX export, camera/light import, or external texture resolution/copying. Animation curves are currently sampled into linear key tracks; FBX interpolation modes and animation-layer blending are not yet translated.
 
-**Validation:** the latest reported FBX validation workflow for the current PR head succeeded (restore, solution build, and FBX test steps). The PR's earlier validation notes report five passing parser/importer tests; consult the current workflow for the latest run details.
+**Validation:** the latest reported FBX validation workflow for the implementation commit succeeded (restore, solution build, and FBX test steps). A README-only synchronization commit follows that validated implementation commit.
 
 ### [PR #11 — Implement and expand the OpenGL graphics backend](https://github.com/mahdikshk/Auralis/pull/11)
 
@@ -123,7 +123,7 @@ The branch currently covers:
 - Buffer and texture resources, samplers, shader compilation/linking, descriptors, graphics/compute pipelines, and command recording.
 - Direct, indexed, indirect, compute, and extension-dependent mesh/task commands, plus resource copies and memory barriers.
 - GL synchronization, deferred native-resource deletion, offscreen swapchain images, blit presentation, resize, and KHR_debug integration.
-- Hardware-independent regression tests, a hardware integration harness, and a separate benchmark project.
+- Hardware-independent regression tests, an opt-in hardware integration runner using a hidden GLFW context, and a separate BenchmarkDotNet project.
 
 **Platform and backend boundaries:**
 
@@ -131,9 +131,9 @@ The branch currently covers:
 - The host/platform layer must create and provide the native context and drawable through `IOpenGLContextProvider`.
 - Graphics, compute, and copy queues are logical roles over one serialized GL context stream, not independent physical queues.
 - The new mesh/task, partially-bound descriptor, indirect-command, and full live-device resource-lifetime paths still need actual-driver verification.
-- The integration harness and benchmarks are built by CI but are not executed there. No measured throughput or allocation improvements are claimed.
+- CI builds the hardware integration runner and benchmark project but does not execute either one. No measured throughput or allocation improvements are claimed.
 
-**Validation status:** the latest Graphics validation workflow for the current PR head failed while building the OpenGL benchmark project; the hardware-independent test step was skipped as a result. The PR description records an earlier run with 92 passing graphics tests, but that earlier result does not replace validation of the current head. See [the latest workflow run](https://github.com/mahdikshk/Auralis/actions/runs/44876487875).
+**Validation:** the latest Graphics validation workflow for the current PR head, [run #229](https://github.com/mahdikshk/Auralis/actions/runs/44876564791), completed successfully. It built the graphics tests, hardware integration runner, and benchmark project, then ran the hardware-independent graphics test suite successfully. The PR reports 92 passing tests in the preceding run #228. The opt-in actual-driver runner has **not** been executed in this environment, so no hardware pass/fail result or driver name is claimed.
 
 ## Planned areas
 
