@@ -105,6 +105,7 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
     private readonly List<IGraphicsDeviceObject> _barrierResourceReferences = new(16);
     private readonly List<IGraphicsTextureView> _renderTargetViews = new(8);
     private readonly List<OpenGLBindingValue> _bindingSnapshotValues = new(32);
+    private readonly OpenGLResourceRetention _resourceRetention = new();
     private uint _recordedColorTargetCount;
     private int _recordedTargetViewOffset;
     private GraphicsRenderTargetExtent _recordedTargetExtent;
@@ -160,6 +161,11 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
     {
         ThrowIfDisposed();
         _lifecycle.Reset();
+        ClearRecordedState();
+    }
+
+    private void ClearRecordedState()
+    {
         _commands.Clear();
         _barrierResourceReferences.Clear();
         _renderTargetViews.Clear();
@@ -178,6 +184,7 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
         _hasRecordedViewport = false;
         _recordedIndexBuffer = null;
         _recordedIndexOffset = 0;
+        _resourceRetention.ReleaseAll();
     }
 
     public void MemoryBarrier(ReadOnlySpan<GraphicsResourceBarrier> barriers)
@@ -461,6 +468,17 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
             throw new GraphicsValidationException($"Binding set {setIndex} does not match the active pipeline layout.");
 
         int snapshotOffset = openGlSet.SnapshotTo(_bindingSnapshotValues);
+        for (int i = 0; i < openGlSet.ValueCount; i++)
+        {
+            OpenGLBindingValue value = _bindingSnapshotValues[snapshotOffset + i];
+            if (value.Buffer is not null)
+                EnsureOwned(value.Buffer);
+            if (value.Texture is not null)
+                EnsureOwned(value.Texture);
+            if (value.Sampler is not null)
+                EnsureOwned(value.Sampler);
+        }
+
         _commands.Add(new OpenGLRecordedCommand
         {
             Kind = OpenGLCommandKind.SetBindingSet,
@@ -1304,7 +1322,15 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
         }
     }
 
-    internal void Complete() => _lifecycle.MarkCompleted();
+    internal void Complete()
+    {
+        _lifecycle.MarkCompleted();
+        if (IsDisposed)
+        {
+            _lifecycle.MarkDisposed();
+            ClearRecordedState();
+        }
+    }
 
     internal void MarkSubmitted() => _lifecycle.MarkSubmitted();
 
@@ -1322,6 +1348,9 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
             throw new ObjectDisposedException(resource.GetType().Name);
         if (!ReferenceEquals(resource.Device, Device))
             throw new GraphicsValidationException("Command resources must belong to the command list's device.");
+
+        if (resource is IOpenGLNativeResource nativeResource)
+            _resourceRetention.Retain(nativeResource);
     }
 
     private static NotSupportedException Unsupported(string operation) =>
@@ -1330,11 +1359,13 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
     protected override void DisposeCore()
     {
         _queue.WaitForCompletion(this);
+
+        // Disposing a recording abandons it; it must never become executable after Dispose.
+        if (_lifecycle.State == GraphicsCommandListState.Recording)
+            _lifecycle.End();
         if (_lifecycle.State != GraphicsCommandListState.Disposed)
             _lifecycle.MarkDisposed();
-        _commands.Clear();
-        _barrierResourceReferences.Clear();
-        _renderTargetViews.Clear();
-        _bindingSnapshotValues.Clear();
+
+        ClearRecordedState();
     }
 }
