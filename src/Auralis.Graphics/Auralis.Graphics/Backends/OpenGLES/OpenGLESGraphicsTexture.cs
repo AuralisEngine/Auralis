@@ -75,7 +75,7 @@ internal sealed class OpenGLESGraphicsTexture : OpenGLESNativeDeviceObject, IGra
                 gl.TexStorage3D(target, copy.MipLevels, format, copy.Width, copy.Height, depth);
             }
 
-            gl.TexParameteri(target, TextureParameterName.TextureBaseLevel, 0);
+            gl.TexParameter(target, TextureParameterName.TextureBaseLevel, 0);
             gl.TexParameteri(target, TextureParameterName.TextureMaxLevel, checked((int)copy.MipLevels - 1));
             gl.BindTexture(target, 0);
 
