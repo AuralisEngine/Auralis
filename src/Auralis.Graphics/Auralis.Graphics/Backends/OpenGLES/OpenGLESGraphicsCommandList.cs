@@ -625,7 +625,11 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
         });
     }
 
-    internal void MarkSubmitted() => _lifecycle.MarkSubmitted();
+    internal void MarkSubmitted()
+    {
+        ThrowIfDisposed();
+        _lifecycle.MarkSubmitted();
+    }
 
     internal void MarkCompletedAfterGpu() => _lifecycle.TryMarkCompleted();
 
