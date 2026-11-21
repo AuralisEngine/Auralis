@@ -136,7 +136,7 @@ This project provides backend-neutral graphics descriptors, validation, device/c
 
 ## OpenGL backend
 
-The backend is implemented in `Backends/OpenGL` in the existing `Auralis.Graphics` assembly. It uses the official Silk.NET packages `Silk.NET.OpenGL` and `Silk.NET.OpenGL.Extensions.ARB`, both version **2.23.0**. No OpenTK, alternative GL binding, handwritten P/Invoke entry points, or Silk.NET.Windowing dependency is used. The supported baseline is **desktop OpenGL 4.5 Core Profile**. OpenGL ES contexts are not supported.
+The backend is implemented in `Backends/OpenGL` in the existing `Auralis.Graphics` assembly. It uses the official Silk.NET packages `Silk.NET.OpenGL`, `Silk.NET.OpenGL.Extensions.ARB`, `Silk.NET.OpenGL.Legacy.Extensions.EXT`, and `Silk.NET.OpenGL.Extensions.EXT`, all pinned to version **2.23.0**. No OpenTK, alternative GL binding, handwritten P/Invoke entry points, or Silk.NET.Windowing dependency is used. The supported baseline is **desktop OpenGL 4.5 Core Profile**. OpenGL ES contexts are not supported.
 
 ### Registration and context integration
 
@@ -181,8 +181,8 @@ The context provider owns the meaning of its context identity and must guarantee
 | Samplers | Sampler objects with filtering, addressing, compare, LOD, border color, and extension-gated anisotropy |
 | Shaders | GLSL source compilation and extension-gated SPIR-V ingestion/specialization through Silk.NET; driver compile/specialization logs surfaced; requested SPIR-V entry point and specialization constants are passed to the driver |
 | Descriptors | Uniform/storage buffers, sampled/storage textures, samplers, and combined texture/sampler sets; explicit deterministic binding-point mapping |
-| Graphics/compute pipelines | Linked monolithic graphics or compute program; DSA vertex-array object for conventional graphics pipelines; supported geometry/tessellation stages; fixed raster/depth/stencil/blend state |
-| Rendering/compute commands | Deferred render-target binding, viewport/scissor, typed clears, vertex/index binding, direct/indexed/indirect draws, direct/indirect compute dispatch |
+| Graphics/compute pipelines | Linked monolithic graphics or compute program; DSA vertex-array object for conventional pipelines; geometry/tessellation stages; conditional mesh/task stages through `GL_EXT_mesh_shader`; fixed raster/depth/stencil/blend state |
+| Rendering/compute commands | Deferred render-target binding, viewport/scissor, typed clears, vertex/index binding, direct/indexed/indirect draws, direct/indirect mesh-task draws, and direct/indirect compute dispatch |
 | Copy/barriers | Deferred buffer and whole-texture copies plus destination-access-based OpenGL memory barriers |
 | Synchronization | GL sync objects, allocation-efficient FIFO fence tracking, CPU wait/polling, and non-blocking GPU-side waits for already-created fence values |
 | Presentation | Acquired images are offscreen color textures; present blits to the provider-verified default drawable and swaps buffers |
@@ -217,7 +217,7 @@ Resource barriers are translated into GL memory-barrier bits based on destinatio
 - The backend does not expose the native default framebuffer as an `IGraphicsTexture`. Swapchain images are Auralis-owned offscreen textures; presentation blits one to framebuffer 0 and then calls the provider's swap operation.
 - The injected provider/platform integration must correctly identify the exact drawable, support and apply the requested present mode, and implement buffer swapping. No WGL/GLX/EGL/native Apple context or window creation code is included.
 - The current swapchain presents a color-only offscreen image ring; it does not expose default framebuffer depth/stencil attachments or native swapchain image handles.
-- No mesh/task shader pipeline support: optional mesh-shader extensions are not sufficient without the complete stage, pipeline, validation, and draw path.
+- Mesh/task shader pipelines and direct/indirect mesh-task drawing are conditionally supported through `GL_EXT_mesh_shader` using the official `Silk.NET.OpenGL.Extensions.EXT` wrapper. The feature bits are reported only when the extension is present and the driver reports non-zero mesh work-group-count limits. The `GL_NV_mesh_shader` variant is not currently integrated; no NV support is claimed.
 - No separate native compute/transfer queue. Compute work is serialized on the same context stream as graphics and copies.
 - Descriptor indexing, update-after-bind, and variable-count descriptors are unsupported. `PartiallyBound` is implemented for fixed descriptor counts: missing UBO/SSBO slots are cleared with `glBindBufferBase(..., 0)`, texture/sampler slots with zero texture/sampler bindings, and storage-image slots with a zero image binding. A partially populated combined texture/sampler element is rejected; an element must be either fully populated or entirely empty.
 - Independent blend enable and color-write masks use optional `GL_EXT_draw_buffers2` entry points; per-attachment blend factors/equations use the official Silk.NET ARB draw-buffers-blend wrapper. Independent state is reported only when indexed-state entry points are available.
@@ -225,6 +225,7 @@ Resource barriers are translated into GL memory-barrier bits based on destinatio
 - Depth-bounds testing is optional and requires `GL_EXT_depth_bounds_test`.
 - Depth-bias clamping is optional and requires `GL_ARB_polygon_offset_clamp`; non-zero clamps remain rejected without it.
 - SPIR-V ingestion is optional and requires `GL_ARB_gl_spirv`; GLSL source compilation remains available independently.
+- Mesh/task stages and mesh-task draws are optional and require `GL_EXT_mesh_shader` plus the Silk.NET `Silk.NET.OpenGL.Extensions.EXT` package; mesh work-group counts are checked against `GL_MAX_MESH_WORK_GROUP_COUNT_EXT`. `GL_NV_mesh_shader` is not supported by this implementation.
 - Debug output uses `GL_KHR_debug` (core in modern desktop OpenGL); it is diagnostic output, not GPU-based validation. Callback output, notification filtering, and command debug groups are implemented. Object labels are applied to buffers, textures, texture views, samplers, shaders, and graphics/compute pipeline program objects (plus graphics vertex arrays).
 - Sparse resources, timestamp-query reporting, and multi-viewport are not advertised: they require complete resource residency/query-result/common-command contracts, not just extension detection.
 - Shared host GL-state preservation is not implemented; exclusive GL-state ownership is required.
@@ -232,7 +233,7 @@ Resource barriers are translated into GL memory-barrier bits based on destinatio
 
 ### Tests and verification
 
-The ordinary graphics test suite includes hardware-independent tests for provider registration/availability, presentation drawable/present-mode validation, texture targets, sampler translations, descriptor slot allocation, pipeline enum/vertex-format mappings, compute dispatch limit validation, resource barriers, render-target validation, mapped-memory lifetime, SPIR-V validation, debug-option validation, line-width validation, blend-state validation, partially-bound descriptor snapshots, unsupported descriptor-flag rejection, and optional pipeline-feature validation. GitHub Actions **Graphics validation run #141** completed successfully for the current PR head (`3eaaa7839329deec9e5a2d6cd854c963fc8d55d5`). This is a CI result; it is not an actual-driver run.
+The ordinary graphics test suite includes hardware-independent tests for provider registration/availability, presentation drawable/present-mode validation, texture targets, sampler translations, descriptor slot allocation, pipeline enum/vertex-format mappings, compute dispatch limit validation, resource barriers, render-target validation, mapped-memory lifetime, SPIR-V validation, debug-option validation, line-width validation, blend-state validation, partially-bound descriptor snapshots, unsupported descriptor-flag rejection, mesh/task shader stage token mapping, mesh work-group count validation, and optional pipeline-feature validation. GitHub Actions validation is reported in the pull-request description; it is hardware-independent CI, not an actual-driver run.
 
 **Actual-driver baseline (maintainer-verified before this capability-expansion continuation):** the OpenGL smoke test, device creation, shader compilation, GPU resource allocation, offscreen drawing, GPU resource copying, fence completion, presentation, swapchain resizing, and graphics-resource/device disposal have all successfully passed against an actual OpenGL driver. These are established results and are not described as untested. This documentation update does not claim that the current editing environment reran those tests. The backend has no mandatory windowing package; the host supplies the OpenGL 4.5 Core context provider.
 
