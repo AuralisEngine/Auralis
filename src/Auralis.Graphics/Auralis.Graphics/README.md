@@ -245,6 +245,13 @@ Run it on a machine with a working desktop session, GLFW native library, and an 
 AURALIS_RUN_OPENGL_HARDWARE_TESTS=1 dotnet run --project Tests/Auralis.Graphics.OpenGL.IntegrationTests/Auralis.Graphics.OpenGL.IntegrationTests.csproj --configuration Release
 ```
 
+On Windows PowerShell, use:
+
+```powershell
+$env:AURALIS_RUN_OPENGL_HARDWARE_TESTS = "1"
+dotnet run --project Tests/Auralis.Graphics.OpenGL.IntegrationTests/Auralis.Graphics.OpenGL.IntegrationTests.csproj --configuration Release
+```
+
 The runner reports each case as `PASS`, `SKIP`, or `FAIL`. It returns exit code **77** when the explicit opt-in is absent or a usable 4.5 Core context cannot be created; unsupported optional extensions and unsupported format/features are reported as individual skips. The current cases exercise dispose-before-submit buffer/texture references, disposal after a GPU submission has been queued, reusable command-list re-submission after source-owner disposal, GPU copy plus fence completion/readback, partially-bound storage-buffer descriptor switching across compute pipelines, indirect compute dispatch, conventional direct, instanced, indexed and indexed-indirect drawing plus non-indexed indirect drawing, and conditional EXT mesh/task direct/indirect drawing. A separate offscreen graphics case compiles and links GLSL shaders, renders a deterministic triangle into an RGBA8 texture, copies that texture through the graphics command API, reads both images back with OpenGL 4.5 texture readback, compares the copied image byte-for-byte, and checks both a covered pixel and the cleared background pixel. A descriptor integration case additionally exercises UBO, SSBO, sampled-texture, standalone-sampler, combined texture/sampler, and storage-image bindings; a partially-bound SSBO array; descriptor-set mutation after recording; original-resource disposal before submission; explicit missing-slot unbinding; driver binding-state checks; and GPU-visible SSBO readback. The harness checks the GL error queue after each case. Mesh/task cases are skipped when the driver does not expose the required extension and valid limits.
 
 These hardware tests are intentionally **not executed by CI**. The workflow only restores and builds the harness; it never invokes `dotnet run` or `dotnet test` for it. The existing hardware-independent unit test project remains the only test suite executed by CI.
