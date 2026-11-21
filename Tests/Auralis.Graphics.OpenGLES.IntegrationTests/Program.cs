@@ -53,7 +53,7 @@ internal static class Program
             RunBufferCopyAndFence(device);
             RunComputeDispatch(device);
             RunComputeDescriptorTypesAndSnapshots(device, context);
-            RunComputeDescriptorTypesAndSnapshots(device, context);
+            RunComputePipelineLayoutSwitch(device);
             RunTextureAndSamplerResources(device);
             RunResourceRetentionAfterRecording(device);
             RunOffscreenGraphicsPipeline(device, context);
@@ -829,6 +829,89 @@ internal static class Program
         uint value = BitConverter.ToUInt32(memory.Span);
         buffer.Unmap();
         return value;
+    }
+
+
+    private static void RunComputePipelineLayoutSwitch(IGraphicsDevice device)
+    {
+        using IGraphicsBuffer firstOutput = device.CreateBuffer(new GraphicsBufferDescription(
+            sizeof(uint), GraphicsBufferUsage.Storage, GraphicsMemoryAccess.CpuReadWrite));
+        using IGraphicsBuffer secondOutput = device.CreateBuffer(new GraphicsBufferDescription(
+            sizeof(uint), GraphicsBufferUsage.Storage, GraphicsMemoryAccess.CpuReadWrite));
+
+        using IGraphicsBindingLayout firstBindingLayout = device.CreateBindingLayout(
+            new GraphicsBindingLayoutDescription(
+            [
+                new GraphicsBindingLayoutEntry(0, GraphicsDescriptorType.StorageBuffer, 1, GraphicsShaderStages.Compute)
+            ]));
+        using IGraphicsBindingLayout secondBindingLayout = device.CreateBindingLayout(
+            new GraphicsBindingLayoutDescription(
+            [
+                new GraphicsBindingLayoutEntry(7, GraphicsDescriptorType.StorageBuffer, 1, GraphicsShaderStages.Compute)
+            ]));
+        using IGraphicsBindingSet firstSet = device.CreateBindingSet(firstBindingLayout);
+        using IGraphicsBindingSet secondSet = device.CreateBindingSet(secondBindingLayout);
+        firstSet.SetBuffer(0, 0, firstOutput, 0, sizeof(uint));
+        secondSet.SetBuffer(7, 0, secondOutput, 0, sizeof(uint));
+
+        IGraphicsBindingLayout[] firstLayouts = [firstBindingLayout];
+        IGraphicsBindingLayout[] secondLayouts = [secondBindingLayout];
+        using IGraphicsPipelineLayout firstPipelineLayout = device.CreatePipelineLayout(firstLayouts);
+        using IGraphicsPipelineLayout secondPipelineLayout = device.CreatePipelineLayout(secondLayouts);
+
+        using IGraphicsShader firstShader = device.CreateShader(new GraphicsShaderDescription
+        {
+            Stage = GraphicsShaderStage.Compute,
+            Format = GraphicsShaderFormat.GlslSource,
+            Code = Encoding.UTF8.GetBytes(
+                """
+                #version 310 es
+                layout(local_size_x = 1) in;
+                layout(std430, binding = 0) buffer FirstResult { uint value; } resultBuffer;
+                void main() { resultBuffer.value = 0x13572468u; }
+                """)
+        });
+        using IGraphicsShader secondShader = device.CreateShader(new GraphicsShaderDescription
+        {
+            Stage = GraphicsShaderStage.Compute,
+            Format = GraphicsShaderFormat.GlslSource,
+            Code = Encoding.UTF8.GetBytes(
+                """
+                #version 310 es
+                layout(local_size_x = 1) in;
+                layout(std430, binding = 0) buffer SecondResult { uint value; } resultBuffer;
+                void main() { resultBuffer.value = 0x24681357u; }
+                """)
+        });
+        using IGraphicsComputePipeline firstPipeline = device.CreateComputePipeline(
+            new GraphicsComputePipelineDescription(firstPipelineLayout, firstShader));
+        using IGraphicsComputePipeline secondPipeline = device.CreateComputePipeline(
+            new GraphicsComputePipelineDescription(secondPipelineLayout, secondShader));
+
+        IGraphicsCommandQueue queue = device.GetQueue(GraphicsQueueType.Compute);
+        using IGraphicsCommandList commandList = queue.CreateCommandList();
+        using IGraphicsFence fence = device.CreateFence();
+
+        commandList.Begin();
+        commandList.SetComputePipeline(firstPipeline);
+        commandList.SetBindingSet(0, firstSet);
+        commandList.Dispatch(1);
+        commandList.SetComputePipeline(secondPipeline);
+        commandList.SetBindingSet(0, secondSet);
+        commandList.Dispatch(1);
+        commandList.End();
+
+        queue.Submit([commandList], fence, 1);
+        if (!fence.Wait(1, TimeSpan.FromSeconds(10)))
+            throw new TimeoutException("The GLES pipeline-layout-switch fence did not complete within 10 seconds.");
+
+        uint firstValue = ReadUInt(firstOutput);
+        uint secondValue = ReadUInt(secondOutput);
+        if (firstValue != 0x13572468u || secondValue != 0x24681357u)
+            throw new InvalidOperationException(
+                $"GLES pipeline-layout switch returned 0x{firstValue:X8}/0x{secondValue:X8} instead of 0x13572468/0x24681357.");
+
+        Console.WriteLine("PASS: GLES compute pipeline switching between distinct descriptor layouts and GPU-visible SSBO results.");
     }
 
     private static void RunComputeDispatch(IGraphicsDevice device)
