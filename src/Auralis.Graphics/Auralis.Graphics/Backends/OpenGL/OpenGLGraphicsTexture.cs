@@ -212,9 +212,9 @@ internal sealed class OpenGLGraphicsTextureView : OpenGLNativeDeviceObject, IGra
         }
     }
 
-    protected override void DisposeCore() => _device.ReleaseResource(this);
+    protected override void DisposeCore() => ReleaseOwnerReference();
 
-    public void ReleaseNative(GL gl)
+    public override void ReleaseNative(GL gl)
     {
         uint handle = Interlocked.Exchange(ref _handle, 0);
         if (handle != 0)
