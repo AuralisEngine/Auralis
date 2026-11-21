@@ -173,15 +173,8 @@ public sealed class OpenGLESCapabilityProfile
             features |= GraphicsFeature.GeometryShaders | GraphicsFeature.TessellationShaders;
         }
 
-        if (Contains(extensionCopy, "GL_EXT_multi_draw_indirect"))
-            features |= GraphicsFeature.MultiDrawIndirect;
-
         if (Contains(extensionCopy, "GL_EXT_texture_filter_anisotropic"))
             features |= GraphicsFeature.SamplerAnisotropy;
-
-        // Independent indexed blend state is only reported when the exact GLES extension is present.
-        if (Contains(extensionCopy, "GL_EXT_draw_buffers_indexed"))
-            features |= GraphicsFeature.IndependentBlend;
 
         GraphicsQueueCapabilities queues =
             GraphicsQueueCapabilities.Graphics | GraphicsQueueCapabilities.Copy;
