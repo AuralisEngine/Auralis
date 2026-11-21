@@ -106,6 +106,7 @@ internal sealed class OpenGLESGraphicsTexture : OpenGLESNativeDeviceObject, IGra
 
         GraphicsTextureViewType expected = Description.Dimension switch
         {
+            GraphicsTextureDimension.Texture2D when Description.ArrayLayers > 1 => GraphicsTextureViewType.Texture2DArray,
             GraphicsTextureDimension.Texture2D => GraphicsTextureViewType.Texture2D,
             GraphicsTextureDimension.Texture3D => GraphicsTextureViewType.Texture3D,
             GraphicsTextureDimension.Cube => GraphicsTextureViewType.Cube,
@@ -156,16 +157,26 @@ internal sealed class OpenGLESGraphicsTexture : OpenGLESNativeDeviceObject, IGra
 
 internal sealed class OpenGLESGraphicsTextureView : GraphicsDeviceObject, IGraphicsTextureView
 {
+    private int _parentReferenceHeld;
+
     internal OpenGLESGraphicsTextureView(OpenGLESGraphicsTexture texture, in GraphicsTextureViewDescription description)
         : base(texture.Device)
     {
+        if (!texture.TryRetain())
+            throw new ObjectDisposedException(nameof(OpenGLESGraphicsTexture));
+
         Texture = texture;
         Description = description;
+        _parentReferenceHeld = 1;
     }
 
     public IGraphicsTexture Texture { get; }
 
     public GraphicsTextureViewDescription Description { get; }
 
-    protected override void DisposeCore() { }
+    protected override void DisposeCore()
+    {
+        if (Interlocked.Exchange(ref _parentReferenceHeld, 0) != 0)
+            ((IOpenGLESNativeResource)Texture).ReleaseReference();
+    }
 }
