@@ -125,7 +125,7 @@ internal sealed unsafe class OpenGLESGraphicsBuffer : OpenGLESNativeDeviceObject
                     if (pointer == null)
                     {
                         gl.BindBuffer(BufferTargetARB.CopyReadBuffer, 0);
-                        manager.Dispose();
+                        manager.Invalidate();
                         throw new GraphicsException("OpenGL ES failed to map the requested buffer range for reading.");
                     }
 
@@ -182,7 +182,7 @@ internal sealed unsafe class OpenGLESGraphicsBuffer : OpenGLESNativeDeviceObject
     {
         lock (_mapGate)
         {
-            _mapped?.Dispose();
+            _mapped?.Invalidate();
             _mapped = null;
         }
         ReleaseOwnerReference();
@@ -203,7 +203,7 @@ internal sealed unsafe class OpenGLESGraphicsBuffer : OpenGLESNativeDeviceObject
 }
 
 /// <summary>Managed staging memory whose views throw after Unmap or resource disposal.</summary>
-internal sealed class OpenGLESMappedStagingMemoryManager : MemoryManager<byte>
+internal sealed unsafe class OpenGLESMappedStagingMemoryManager : MemoryManager<byte>
 {
     private byte[]? _buffer;
 
@@ -225,6 +225,8 @@ internal sealed class OpenGLESMappedStagingMemoryManager : MemoryManager<byte>
     }
 
     public override void Unpin() { }
+
+    internal void Invalidate() => Dispose(true);
 
     protected override void Dispose(bool disposing) => Interlocked.Exchange(ref _buffer, null);
 }
