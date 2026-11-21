@@ -164,6 +164,23 @@ internal static class Program
             GraphicsAddressMode.ClampToEdge, GraphicsAddressMode.ClampToEdge, GraphicsAddressMode.ClampToEdge,
             0, 16));
 
+        if (device.Capabilities.Features.Supports(GraphicsFeature.TextureViews))
+        {
+            using IGraphicsTexture viewSource = device.CreateTexture(new GraphicsTextureDescription(
+                GraphicsTextureDimension.Texture2D, GraphicsFormat.RGBA8UNorm,
+                64, 64, 1, 4, 4, 1, GraphicsTextureUsage.Sampled));
+            using IGraphicsTextureView subresourceView = viewSource.CreateView(
+                new GraphicsTextureViewDescription(
+                    GraphicsFormat.Unknown,
+                    GraphicsTextureViewType.Texture2DArray,
+                    1, 2, 1, 2));
+            Console.WriteLine("PASS: GL_EXT_texture_view creates a mip- and layer-restricted 2D-array view.");
+        }
+        else
+        {
+            Console.WriteLine("SKIP: GL_EXT_texture_view or glTextureViewEXT is unavailable.");
+        }
+
         Console.WriteLine("PASS: GLES 2D, 2D-array, 3D and cube texture allocation plus sampler creation/disposal.");
     }
 
