@@ -31,6 +31,8 @@ internal enum OpenGLCommandKind : byte
     DrawIndexed,
     DrawIndirect,
     DrawIndexedIndirect,
+    DrawMeshTasks,
+    DrawMeshTasksIndirect,
     Dispatch,
     DispatchIndirect
 }
@@ -518,6 +520,8 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
         EnsureOwned(buffer);
         if (!Enum.IsDefined(format))
             throw new ArgumentOutOfRangeException(nameof(format));
+        if (_recordedPipeline?.IsMeshPipeline == true)
+            throw new GraphicsValidationException("Mesh pipelines do not consume an index buffer.");
         if ((buffer.Description.Usage & GraphicsBufferUsage.Index) == 0)
             throw new GraphicsValidationException("The buffer was not created with index usage.");
 
@@ -541,6 +545,7 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
     public void Draw(uint vertexCount, uint instanceCount = 1, uint firstVertex = 0, uint firstInstance = 0)
     {
         EnsureRecording();
+        EnsureConventionalPipeline();
         EnsureDrawReady();
         ValidateVertexBindings(firstVertex, vertexCount, firstInstance, instanceCount);
         if (firstVertex > int.MaxValue)
@@ -564,6 +569,7 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
         uint firstInstance = 0)
     {
         EnsureRecording();
+        EnsureConventionalPipeline();
         EnsureDrawReady();
         ValidateVertexBindings(0, 0, firstInstance, instanceCount);
         if (_recordedIndexBuffer is null)
@@ -592,6 +598,7 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
     public void DrawIndirect(IGraphicsBuffer arguments, ulong offset, uint drawCount = 1, uint stride = 0)
     {
         EnsureRecording();
+        EnsureConventionalPipeline();
         EnsureDrawReady();
         ValidateVertexBindings();
         ValidateIndirectBuffer(arguments, offset, drawCount, ref stride, 16);
@@ -611,6 +618,7 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
     public void DrawIndexedIndirect(IGraphicsBuffer arguments, ulong offset, uint drawCount = 1, uint stride = 0)
     {
         EnsureRecording();
+        EnsureConventionalPipeline();
         EnsureDrawReady();
         ValidateVertexBindings();
         if (_recordedIndexBuffer is null)
@@ -628,6 +636,49 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
             Stride = stride,
             IndexBuffer = _recordedIndexBuffer,
             IndexFormat = _recordedIndexFormat
+        });
+    }
+
+    public void DrawMeshTasks(uint groupCountX, uint groupCountY = 1, uint groupCountZ = 1)
+    {
+        EnsureRecording();
+        EnsureMeshPipeline();
+        EnsureDrawReady();
+
+        OpenGLGraphicsDevice device = (OpenGLGraphicsDevice)Device;
+        OpenGLMeshTaskValidation.Validate(
+            groupCountX, groupCountY, groupCountZ,
+            device.MaxMeshWorkGroupCountX,
+            device.MaxMeshWorkGroupCountY,
+            device.MaxMeshWorkGroupCountZ);
+
+        _commands.Add(new OpenGLRecordedCommand
+        {
+            Kind = OpenGLCommandKind.DrawMeshTasks,
+            GroupCountX = groupCountX,
+            GroupCountY = groupCountY,
+            GroupCountZ = groupCountZ
+        });
+    }
+
+    public void DrawMeshTasksIndirect(
+        IGraphicsBuffer arguments,
+        ulong offset,
+        uint drawCount = 1,
+        uint stride = 0)
+    {
+        EnsureRecording();
+        EnsureMeshPipeline();
+        EnsureDrawReady();
+        ValidateIndirectBuffer(arguments, offset, drawCount, ref stride, 12);
+
+        _commands.Add(new OpenGLRecordedCommand
+        {
+            Kind = OpenGLCommandKind.DrawMeshTasksIndirect,
+            SourceBuffer = arguments,
+            BufferOffset = offset,
+            DrawCount = drawCount,
+            Stride = stride
         });
     }
 
@@ -652,6 +703,24 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
         if (offset > arguments.Description.SizeInBytes ||
             byteCount > arguments.Description.SizeInBytes - offset)
             throw new GraphicsValidationException("Indirect arguments exceed the buffer range.");
+    }
+
+    private void EnsureConventionalPipeline()
+    {
+        if (_recordedPipeline is null)
+            throw new GraphicsValidationException("A render pipeline must be set before drawing.");
+        if (_recordedPipeline.IsMeshPipeline)
+            throw new GraphicsValidationException(
+                "Conventional draw commands cannot be used with a mesh-shader pipeline; use DrawMeshTasks.");
+    }
+
+    private void EnsureMeshPipeline()
+    {
+        if (_recordedPipeline is null || !_recordedPipeline.IsMeshPipeline)
+            throw new GraphicsValidationException("A mesh-shader pipeline must be set before drawing mesh tasks.");
+        if (!Device.Capabilities.Features.Supports(GraphicsFeature.MeshShaders))
+            throw new GraphicsFeatureNotSupportedException(
+                GraphicsFeature.MeshShaders, GraphicsFeature.MeshShaders);
     }
 
     private void EnsureDrawReady()
@@ -818,7 +887,8 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
         ArbMultiDrawIndirect multiDrawIndirectApi,
         ArbShaderImageLoadStore imageLoadStoreApi,
         ArbDrawBuffersBlend drawBuffersBlendApi,
-        ArbComputeShader computeShaderApi)
+        ArbComputeShader computeShaderApi,
+        ExtMeshShader? meshShaderApi)
     {
         ReadOnlySpan<OpenGLRecordedCommand> commands = Commands;
         uint framebuffer = 0;
@@ -1005,6 +1075,32 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
                                 activePipeline.Topology,
                                 indexType,
                                 (void*)command.BufferOffset,
+                                command.DrawCount,
+                                command.Stride);
+                        }
+                        break;
+                    case OpenGLCommandKind.DrawMeshTasks:
+                        if (activePipeline is null || !activePipeline.IsMeshPipeline || meshShaderApi is null)
+                            throw new GraphicsValidationException("A supported mesh-shader pipeline must be active before mesh-task drawing.");
+                        meshShaderApi.DrawMeshTask(
+                            command.GroupCountX,
+                            command.GroupCountY,
+                            command.GroupCountZ);
+                        break;
+                    case OpenGLCommandKind.DrawMeshTasksIndirect:
+                        if (activePipeline is null || !activePipeline.IsMeshPipeline || meshShaderApi is null)
+                            throw new GraphicsValidationException("A supported mesh-shader pipeline must be active before indirect mesh-task drawing.");
+                        gl.BindBuffer(
+                            BufferTargetARB.DrawIndirectBuffer,
+                            ((OpenGLGraphicsBuffer)command.SourceBuffer!).Handle);
+                        if (command.DrawCount == 1)
+                        {
+                            meshShaderApi.DrawMeshTasksIndirect(checked((nint)command.BufferOffset));
+                        }
+                        else
+                        {
+                            meshShaderApi.MultiDrawMeshTasksIndirect(
+                                checked((nint)command.BufferOffset),
                                 command.DrawCount,
                                 command.Stride);
                         }
