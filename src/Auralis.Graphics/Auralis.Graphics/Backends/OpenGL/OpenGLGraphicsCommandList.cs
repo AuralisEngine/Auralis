@@ -833,19 +833,49 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
             }
         }
     }
-    public void Dispatch(uint groupCountX, uint groupCountY = 1, uint groupCountZ = 1)
+    internal static bool TryCreateDispatchCommand(
+        uint groupCountX,
+        uint groupCountY,
+        uint groupCountZ,
+        uint maxGroupCountX,
+        uint maxGroupCountY,
+        uint maxGroupCountZ,
+        out OpenGLRecordedCommand command)
     {
-        EnsureRecording();
-        EnsureComputeQueue();
-        EnsureComputeReady();
-        ValidateComputeGroupCount(groupCountX, groupCountY, groupCountZ);
-        _commands.Add(new OpenGLRecordedCommand
+        OpenGLComputeDispatchValidation.Validate(
+            groupCountX, groupCountY, groupCountZ,
+            maxGroupCountX, maxGroupCountY, maxGroupCountZ);
+
+        command = default;
+        if (groupCountX == 0 || groupCountY == 0 || groupCountZ == 0)
+            return false;
+
+        command = new OpenGLRecordedCommand
         {
             Kind = OpenGLCommandKind.Dispatch,
             GroupCountX = groupCountX,
             GroupCountY = groupCountY,
             GroupCountZ = groupCountZ
-        });
+        };
+        return true;
+    }
+
+    public void Dispatch(uint groupCountX, uint groupCountY = 1, uint groupCountZ = 1)
+    {
+        EnsureRecording();
+        EnsureComputeQueue();
+        EnsureComputeReady();
+
+        OpenGLGraphicsDevice device = (OpenGLGraphicsDevice)Device;
+        if (TryCreateDispatchCommand(
+            groupCountX, groupCountY, groupCountZ,
+            device.MaxComputeWorkGroupCountX,
+            device.MaxComputeWorkGroupCountY,
+            device.MaxComputeWorkGroupCountZ,
+            out OpenGLRecordedCommand command))
+        {
+            _commands.Add(command);
+        }
     }
 
     public void DispatchIndirect(IGraphicsBuffer arguments, ulong offset)
@@ -869,16 +899,6 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
             SourceBuffer = arguments,
             BufferOffset = offset
         });
-    }
-
-    private void ValidateComputeGroupCount(uint x, uint y, uint z)
-    {
-        OpenGLGraphicsDevice device = (OpenGLGraphicsDevice)Device;
-        OpenGLComputeDispatchValidation.Validate(
-            x, y, z,
-            device.MaxComputeWorkGroupCountX,
-            device.MaxComputeWorkGroupCountY,
-            device.MaxComputeWorkGroupCountZ);
     }
 
     private void EnsureComputeReady()
