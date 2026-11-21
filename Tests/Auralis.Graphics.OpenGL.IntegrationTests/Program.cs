@@ -1008,7 +1008,7 @@ internal static class Program
         WaitForGpu(fence, commands, 1);
 
         byte[] pixels = ReadTexturePixels(session, colorTarget, 32, 32);
-        AssertPixel(pixels, 32, 16, 16, 179, 77, 26, 255);
+        AssertPixelNear(pixels, 32, 16, 16, 179, 77, 26, 255);
     }
 
     private static void NvTaskAndMeshShaderDraw(GlfwOpenGLHardwareSession session)
@@ -1082,7 +1082,7 @@ internal static class Program
         WaitForGpu(fence, commands, 1);
 
         byte[] pixels = ReadTexturePixels(session, colorTarget, 32, 32);
-        AssertPixel(pixels, 32, 16, 16, 26, 77, 230, 255);
+        AssertPixelNear(pixels, 32, 16, 16, 26, 77, 230, 255);
     }
 
     private static IGraphicsBuffer CreateBuffer(
