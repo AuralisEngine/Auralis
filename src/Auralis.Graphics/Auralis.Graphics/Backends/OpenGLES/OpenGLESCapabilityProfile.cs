@@ -143,7 +143,9 @@ public sealed class OpenGLESCapabilityProfile
         ReadOnlySpan<string> extensions,
         bool supportsPresentation,
         bool multiDrawIndirectEntryPointsAvailable = true,
-        bool indexedBlendEntryPointsAvailable = true)
+        bool indexedBlendEntryPointsAvailable = true,
+        bool baseVertexEntryPointsAvailable = true,
+        bool baseInstanceEntryPointsAvailable = true)
     {
         if (version.Major < 1 || version.Minor < 0)
             throw new ArgumentOutOfRangeException(nameof(version));
@@ -188,6 +190,14 @@ public sealed class OpenGLESCapabilityProfile
         if (indexedBlendEntryPointsAvailable &&
             Contains(extensionCopy, "GL_EXT_draw_buffers_indexed"))
             features |= GraphicsFeature.IndependentBlend;
+
+        if (baseVertexEntryPointsAvailable &&
+            Contains(extensionCopy, "GL_EXT_draw_elements_base_vertex"))
+            features |= GraphicsFeature.BaseVertexDrawing;
+        if (baseInstanceEntryPointsAvailable &&
+            Contains(extensionCopy, "GL_EXT_base_instance") &&
+            Contains(extensionCopy, "GL_EXT_draw_elements_base_vertex"))
+            features |= GraphicsFeature.BaseInstanceDrawing;
 
         GraphicsQueueCapabilities queues =
             GraphicsQueueCapabilities.Graphics | GraphicsQueueCapabilities.Copy;
