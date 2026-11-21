@@ -917,46 +917,115 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
             if (Interlocked.Exchange(ref _disposeState, 1) != 0)
                 return;
 
+            Exception? cleanupFailure = null;
             try
             {
                 using OpenGLContextLease contextLease = OpenGLContextLease.Acquire(_contextProvider);
                 _gl.Finish();
+
                 foreach (OpenGLGraphicsCommandQueue? queue in _queues)
-                    queue?.DrainUnderContext(_gl);
+                {
+                    if (queue is null)
+                        continue;
+
+                    try
+                    {
+                        queue.DrainUnderContext(_gl);
+                    }
+                    catch (Exception exception)
+                    {
+                        cleanupFailure ??= exception;
+                    }
+                }
+
                 while (_deferredResources.TryDequeue(out IOpenGLNativeResource? deferred))
-                    deferred.ReleaseNative(_gl);
+                {
+                    try
+                    {
+                        deferred.ReleaseNative(_gl);
+                    }
+                    catch (Exception exception)
+                    {
+                        cleanupFailure ??= exception;
+                    }
+                }
 
                 foreach (IOpenGLNativeResource resource in _resources)
-                    resource.ReleaseNative(_gl);
+                {
+                    try
+                    {
+                        resource.ReleaseNative(_gl);
+                    }
+                    catch (Exception exception)
+                    {
+                        cleanupFailure ??= exception;
+                    }
+                }
 
-                _uniformBufferObjectApi.Dispose();
-                _meshShaderApi?.Dispose();
-                _computeShaderApi?.Dispose();
-                _spirvApi?.Dispose();
-                _shaderBinaryApi.Dispose();
-                _polygonOffsetClampApi?.Dispose();
-                _depthBoundsApi?.Dispose();
-                _indexedDrawBuffersApi?.Dispose();
-                _drawBuffersBlendApi.Dispose();
-                _imageLoadStoreApi.Dispose();
-                _multiDrawIndirectApi.Dispose();
-                _drawIndirectApi.Dispose();
-                _baseInstanceApi.Dispose();
-                _viewportApi.Dispose();
-                _copyImageApi.Dispose();
-                _syncApi.Dispose();
-                _internalFormatQuery.Dispose();
-                _samplerObjects.Dispose();
-                _textureViewApi.Dispose();
-                DisableDebugOutput();
-                _directStateAccess.Dispose();
-                _gl.Dispose();
+                DisposeNativeApi(_uniformBufferObjectApi, ref cleanupFailure);
+                DisposeNativeApi(_meshShaderApi, ref cleanupFailure);
+                DisposeNativeApi(_computeShaderApi, ref cleanupFailure);
+                DisposeNativeApi(_spirvApi, ref cleanupFailure);
+                DisposeNativeApi(_shaderBinaryApi, ref cleanupFailure);
+                DisposeNativeApi(_polygonOffsetClampApi, ref cleanupFailure);
+                DisposeNativeApi(_depthBoundsApi, ref cleanupFailure);
+                DisposeNativeApi(_indexedDrawBuffersApi, ref cleanupFailure);
+                DisposeNativeApi(_drawBuffersBlendApi, ref cleanupFailure);
+                DisposeNativeApi(_imageLoadStoreApi, ref cleanupFailure);
+                DisposeNativeApi(_multiDrawIndirectApi, ref cleanupFailure);
+                DisposeNativeApi(_drawIndirectApi, ref cleanupFailure);
+                DisposeNativeApi(_baseInstanceApi, ref cleanupFailure);
+                DisposeNativeApi(_viewportApi, ref cleanupFailure);
+                DisposeNativeApi(_copyImageApi, ref cleanupFailure);
+                DisposeNativeApi(_syncApi, ref cleanupFailure);
+                DisposeNativeApi(_internalFormatQuery, ref cleanupFailure);
+                DisposeNativeApi(_samplerObjects, ref cleanupFailure);
+                DisposeNativeApi(_textureViewApi, ref cleanupFailure);
+
+                try
+                {
+                    DisableDebugOutput();
+                }
+                catch (Exception exception)
+                {
+                    cleanupFailure ??= exception;
+                }
+
+                DisposeNativeApi(_directStateAccess, ref cleanupFailure);
+                DisposeNativeApi(_gl, ref cleanupFailure);
             }
             finally
             {
                 if (_contextProvider.Ownership == OpenGLContextOwnership.Owned)
-                    _contextProvider.Dispose();
+                {
+                    try
+                    {
+                        _contextProvider.Dispose();
+                    }
+                    catch (Exception exception)
+                    {
+                        cleanupFailure ??= exception;
+                    }
+                }
             }
+
+            if (cleanupFailure is not null)
+                ExceptionDispatchInfo.Capture(cleanupFailure).Throw();
+        }
+    }
+
+    private static void DisposeNativeApi(IDisposable? api, ref Exception? failure)
+    {
+        if (api is null)
+            return;
+
+        try
+        {
+            api.Dispose();
+        }
+        catch (Exception exception)
+        {
+            failure ??= exception;
         }
     }
 }
