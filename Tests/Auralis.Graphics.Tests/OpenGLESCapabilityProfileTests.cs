@@ -131,6 +131,81 @@ public sealed class OpenGLESCapabilityProfileTests
     }
 
     [Fact]
+    public void FormatCapabilitiesNeverAdvertiseAnUnmappedOrExtensionUnavailableFormat()
+    {
+        OpenGLESCapabilityProfile baselineProfile = OpenGLESCapabilityProfile.Create(
+            new OpenGLESVersion(3, 1),
+            ReadOnlySpan<string>.Empty,
+            supportsPresentation: false);
+        GraphicsDeviceCapabilities baseline = OpenGLESGraphicsDevice.QueryCapabilities(
+            baselineProfile,
+            default);
+
+        foreach (GraphicsFormatCapabilities format in baseline.Formats)
+        {
+            Assert.NotEqual(GraphicsFormat.Unknown, format.Format);
+            _ = OpenGLESGraphicsTexture.GetInternalFormat(format.Format);
+            Assert.True(format.SupportsSampleCount(1));
+        }
+
+        Assert.False(baseline.TryGetFormatCapabilities(GraphicsFormat.BGRA8UNorm, out _));
+        Assert.False(baseline.TryGetFormatCapabilities(GraphicsFormat.BGRA8UNormSrgb, out _));
+        Assert.False(baseline.TryGetFormatCapabilities(GraphicsFormat.D32Float, out _));
+        Assert.False(baseline.TryGetFormatCapabilities(GraphicsFormat.D32FloatS8UInt, out _));
+        Assert.False(baseline.TryGetFormatCapabilities(GraphicsFormat.BC1UNorm, out _));
+        Assert.False(baseline.TryGetFormatCapabilities(GraphicsFormat.ASTC4x4UNorm, out _));
+
+        Assert.Throws<GraphicsValidationException>(() =>
+            OpenGLESGraphicsTexture.GetInternalFormat(GraphicsFormat.BGRA8UNorm));
+        Assert.Throws<GraphicsValidationException>(() =>
+            OpenGLESGraphicsTexture.GetInternalFormat(GraphicsFormat.BGRA8UNormSrgb));
+    }
+
+    [Fact]
+    public void FormatCapabilitiesExposeExtensionBackedFormatsOnlyWhenTheirRequirementsExist()
+    {
+        string[] extensions =
+        [
+            "GL_EXT_color_buffer_half_float",
+            "GL_EXT_color_buffer_float",
+            "GL_OES_texture_float_linear",
+            "GL_EXT_texture_compression_s3tc",
+            "GL_EXT_texture_compression_s3tc_srgb",
+            "GL_EXT_texture_compression_rgtc",
+            "GL_EXT_texture_compression_bptc",
+            "GL_KHR_texture_compression_astc_ldr"
+        ];
+        OpenGLESCapabilityProfile profile = OpenGLESCapabilityProfile.Create(
+            new OpenGLESVersion(3, 2),
+            extensions,
+            supportsPresentation: false);
+        GraphicsDeviceCapabilities capabilities = OpenGLESGraphicsDevice.QueryCapabilities(
+            profile,
+            default,
+            supportsImageCopy: true);
+
+        foreach (GraphicsFormatCapabilities format in capabilities.Formats)
+        {
+            Assert.NotEqual(GraphicsFormat.Unknown, format.Format);
+            _ = OpenGLESGraphicsTexture.GetInternalFormat(format.Format);
+            Assert.True(format.SupportsSampleCount(1));
+        }
+
+        Assert.True(capabilities.TryGetFormatCapabilities(GraphicsFormat.D32Float, out _));
+        Assert.True(capabilities.TryGetFormatCapabilities(GraphicsFormat.D32FloatS8UInt, out _));
+        Assert.True(capabilities.TryGetFormatCapabilities(GraphicsFormat.BC1UNorm, out _));
+        Assert.True(capabilities.TryGetFormatCapabilities(GraphicsFormat.BC1UNormSrgb, out _));
+        Assert.True(capabilities.TryGetFormatCapabilities(GraphicsFormat.BC5UNorm, out _));
+        Assert.True(capabilities.TryGetFormatCapabilities(GraphicsFormat.BC7UNorm, out _));
+        Assert.True(capabilities.TryGetFormatCapabilities(GraphicsFormat.BC7UNormSrgb, out _));
+        Assert.True(capabilities.TryGetFormatCapabilities(GraphicsFormat.ASTC4x4UNorm, out _));
+        Assert.True(capabilities.TryGetFormatCapabilities(GraphicsFormat.ASTC4x4UNormSrgb, out _));
+
+        Assert.False(capabilities.TryGetFormatCapabilities(GraphicsFormat.BGRA8UNorm, out _));
+        Assert.False(capabilities.TryGetFormatCapabilities(GraphicsFormat.BGRA8UNormSrgb, out _));
+    }
+
+    [Fact]
     public void ExtensionNames_AreValidatedAndDuplicatesAreRejected()
     {
         Assert.Throws<ArgumentException>(() => OpenGLESCapabilityProfile.Create(
