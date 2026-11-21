@@ -669,14 +669,29 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
         EnsureDrawReady();
 
         OpenGLGraphicsDevice device = (OpenGLGraphicsDevice)Device;
-        bool usesTaskStage = _recordedPipeline!.IsTaskPipeline;
-        OpenGLMeshTaskValidation.Validate(
-            groupCountX, groupCountY, groupCountZ,
-            usesTaskStage ? device.MaxTaskWorkGroupCountX : device.MaxMeshWorkGroupCountX,
-            usesTaskStage ? device.MaxTaskWorkGroupCountY : device.MaxMeshWorkGroupCountY,
-            usesTaskStage ? device.MaxTaskWorkGroupCountZ : device.MaxMeshWorkGroupCountZ,
-            usesTaskStage ? device.MaxTaskWorkGroupTotalCount : device.MaxMeshWorkGroupTotalCount,
-            usesTaskStage ? GraphicsFeature.TaskShaders : GraphicsFeature.MeshShaders);
+        OpenGLGraphicsRenderPipeline pipeline = _recordedPipeline!;
+        bool usesTaskStage = pipeline.IsTaskPipeline;
+        GraphicsFeature requiredFeature = usesTaskStage
+            ? GraphicsFeature.TaskShaders
+            : GraphicsFeature.MeshShaders;
+        if (pipeline.MeshShaderDialect == OpenGLMeshShaderDialect.Nv)
+        {
+            OpenGLMeshTaskValidation.Validate(
+                groupCountX, groupCountY, groupCountZ,
+                device.MaxNvDrawMeshTasksCount, 1, 1,
+                device.MaxNvDrawMeshTasksCount,
+                requiredFeature);
+        }
+        else
+        {
+            OpenGLMeshTaskValidation.Validate(
+                groupCountX, groupCountY, groupCountZ,
+                usesTaskStage ? device.MaxTaskWorkGroupCountX : device.MaxMeshWorkGroupCountX,
+                usesTaskStage ? device.MaxTaskWorkGroupCountY : device.MaxMeshWorkGroupCountY,
+                usesTaskStage ? device.MaxTaskWorkGroupCountZ : device.MaxMeshWorkGroupCountZ,
+                usesTaskStage ? device.MaxTaskWorkGroupTotalCount : device.MaxMeshWorkGroupTotalCount,
+                requiredFeature);
+        }
 
         _commands.Add(new OpenGLRecordedCommand
         {
@@ -697,7 +712,7 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
         EnsureMeshPipeline();
         EnsureDrawReady();
         OpenGLGraphicsDevice device = (OpenGLGraphicsDevice)Device;
-        if (device.MeshShaderApi is null && device.NvMeshShaderApi is not null)
+        if (_recordedPipeline!.MeshShaderDialect == OpenGLMeshShaderDialect.Nv)
         {
             throw new GraphicsValidationException(
                 "GL_NV_mesh_shader indirect commands use a two-field { count, first } layout, " +
@@ -1133,32 +1148,35 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
                     case OpenGLCommandKind.DrawMeshTasks:
                         if (activePipeline is null || !activePipeline.IsMeshPipeline)
                             throw new GraphicsValidationException("A supported mesh-shader pipeline must be active before mesh-task drawing.");
-                        if (meshShaderApi is not null)
+                        if (activePipeline.MeshShaderDialect == OpenGLMeshShaderDialect.Ext)
                         {
-                            meshShaderApi.DrawMeshTask(
-                                command.GroupCountX,
-                                command.GroupCountY,
-                                command.GroupCountZ);
+                            (meshShaderApi ?? throw new GraphicsFeatureNotSupportedException(
+                                GraphicsFeature.MeshShaders, GraphicsFeature.MeshShaders)).DrawMeshTask(
+                                    command.GroupCountX,
+                                    command.GroupCountY,
+                                    command.GroupCountZ);
                         }
-                        else if (nvMeshShaderApi is not null)
+                        else if (activePipeline.MeshShaderDialect == OpenGLMeshShaderDialect.Nv)
                         {
-                            // NV exposes only a one-dimensional (first, count) draw. The
-                            // recording-side limit validation restricts Y/Z to one.
                             if (command.GroupCountY != 1 || command.GroupCountZ != 1)
                                 throw new GraphicsValidationException(
                                     "GL_NV_mesh_shader supports one-dimensional mesh-task dispatch only.");
-                            nvMeshShaderApi.DrawMeshTask(0, command.GroupCountX);
+                            (nvMeshShaderApi ?? throw new GraphicsFeatureNotSupportedException(
+                                GraphicsFeature.MeshShaders, GraphicsFeature.MeshShaders)).DrawMeshTask(
+                                    0,
+                                    command.GroupCountX);
                         }
                         else
                         {
-                            throw new GraphicsFeatureNotSupportedException(
-                                GraphicsFeature.MeshShaders, GraphicsFeature.MeshShaders);
+                            throw new GraphicsValidationException("The active mesh pipeline has no validated extension dialect.");
                         }
                         break;
                     case OpenGLCommandKind.DrawMeshTasksIndirect:
-                        if (activePipeline is null || !activePipeline.IsMeshPipeline || meshShaderApi is null)
+                        if (activePipeline is null || !activePipeline.IsMeshPipeline ||
+                            activePipeline.MeshShaderDialect != OpenGLMeshShaderDialect.Ext ||
+                            meshShaderApi is null)
                             throw new GraphicsValidationException(
-                                "Indirect mesh-task drawing requires the EXT three-dimensional indirect command path.");
+                                "Indirect mesh-task drawing requires an EXT mesh-shader pipeline and its three-dimensional indirect command path.");
                         gl.BindBuffer(
                             BufferTargetARB.DrawIndirectBuffer,
                             ((OpenGLGraphicsBuffer)command.SourceBuffer!).Handle);
