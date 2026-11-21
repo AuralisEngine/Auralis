@@ -887,10 +887,11 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
                         gl.BindBuffer(BufferTargetARB.DrawIndirectBuffer, ((OpenGLESGraphicsBuffer)command.Buffer0!).Handle);
                         PrimitiveType indirectPrimitive = GetPrimitive((activeRenderPipeline ?? throw new GraphicsValidationException(
                             "A render pipeline must be bound before drawing.")).Description.Topology);
-                        ExtMultiDrawIndirect? multiDraw = _queue.GlesDevice.MultiDrawIndirectApi;
+                        OpenGLESGraphicsDevice.MultiDrawArraysIndirectExtDelegate? multiDraw =
+                            _queue.GlesDevice.MultiDrawArraysIndirectExt;
                         if (command.DrawCount > 1 && multiDraw is not null)
                         {
-                            multiDraw.MultiDrawArraysIndirect(
+                            multiDraw(
                                 indirectPrimitive,
                                 (void*)checked((nint)command.Offset0),
                                 command.DrawCount,
@@ -916,10 +917,11 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
                         DrawElementsType indexedType = command.IndexFormat == (uint)GraphicsIndexFormat.UInt16
                             ? DrawElementsType.UnsignedShort
                             : DrawElementsType.UnsignedInt;
-                        ExtMultiDrawIndirect? indexedMultiDraw = _queue.GlesDevice.MultiDrawIndirectApi;
+                        OpenGLESGraphicsDevice.MultiDrawElementsIndirectExtDelegate? indexedMultiDraw =
+                            _queue.GlesDevice.MultiDrawElementsIndirectExt;
                         if (command.DrawCount > 1 && indexedMultiDraw is not null)
                         {
-                            indexedMultiDraw.MultiDrawElementsIndirect(
+                            indexedMultiDraw(
                                 indexedIndirectPrimitive,
                                 indexedType,
                                 (void*)checked((nint)command.Offset0),
