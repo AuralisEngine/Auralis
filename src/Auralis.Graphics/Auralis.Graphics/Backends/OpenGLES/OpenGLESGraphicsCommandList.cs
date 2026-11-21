@@ -1372,8 +1372,9 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
         EnsureOwned(view);
         if (view.Texture is not OpenGLESGraphicsTexture texture)
             throw new GraphicsValidationException("The render attachment is not an OpenGL ES texture.");
-        if (texture.Target != TextureTarget.Texture2D)
-            throw new GraphicsValidationException("GLES framebuffer attachments currently require 2D textures.");
+        if (texture.Target is not (TextureTarget.Texture2D or TextureTarget.Texture2DMultisample))
+            throw new GraphicsValidationException(
+                "GLES framebuffer attachments require 2D or 2D-multisample textures.");
 
         GraphicsFormat format = GetViewFormat(view);
         if (depthAttachment)
