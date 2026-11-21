@@ -63,8 +63,30 @@ public sealed class OpenGLESGraphicsBackendProvider : IGraphicsBackendProvider
             throw new NotSupportedException(
                 "Debug-context creation options must be configured by the host before supplying the GLES context.");
 
-        IGraphicsDevice device = OpenGLESGraphicsDevice.Create(_contextProvider, options, cancellationToken);
-        return ValueTask.FromResult(device);
+        try
+        {
+            IGraphicsDevice device = OpenGLESGraphicsDevice.Create(_contextProvider, options, cancellationToken);
+            return ValueTask.FromResult(device);
+        }
+        catch (Exception creationError)
+        {
+            if (_contextProvider.Ownership == OpenGLESContextOwnership.Owned)
+            {
+                try
+                {
+                    _contextProvider.Dispose();
+                }
+                catch (Exception disposalError)
+                {
+                    throw new AggregateException(
+                        "OpenGL ES device initialization failed and the owned context provider could not be disposed.",
+                        creationError,
+                        disposalError);
+                }
+            }
+
+            throw;
+        }
     }
 
     private void EnsureAvailable()
