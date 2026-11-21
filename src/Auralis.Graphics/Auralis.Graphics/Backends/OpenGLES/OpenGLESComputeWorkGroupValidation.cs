@@ -10,18 +10,17 @@ internal static class OpenGLESComputeWorkGroupValidation
         uint groupCountX, uint groupCountY, uint groupCountZ,
         uint maxGroupCountX, uint maxGroupCountY, uint maxGroupCountZ)
     {
+        // GLES defines a zero count in any dimension as a valid no-op.
         if (groupCountX == 0 || groupCountY == 0 || groupCountZ == 0)
-            throw new GraphicsValidationException(
-                "OpenGL ES compute dispatch group counts must all be greater than zero.");
+            return;
 
         if (maxGroupCountX == 0 || maxGroupCountY == 0 || maxGroupCountZ == 0)
             throw new GraphicsValidationException(
-                "OpenGL ES compute dispatch limits were not reported; dispatch cannot be validated safely.");
+                "The GLES device did not report valid compute dispatch-count limits.");
 
-        // GLES rejects a dispatch count equal to the corresponding maximum as well as one above it.
-        if (groupCountX >= maxGroupCountX || groupCountY >= maxGroupCountY || groupCountZ >= maxGroupCountZ)
+        if (groupCountX > maxGroupCountX || groupCountY > maxGroupCountY || groupCountZ > maxGroupCountZ)
             throw new GraphicsValidationException(
-                $"OpenGL ES compute dispatch ({groupCountX}, {groupCountY}, {groupCountZ}) must be below " +
+                $"OpenGL ES compute dispatch ({groupCountX}, {groupCountY}, {groupCountZ}) exceeds " +
                 $"the device work-group count limits ({maxGroupCountX}, {maxGroupCountY}, {maxGroupCountZ}).");
     }
 
