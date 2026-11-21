@@ -79,13 +79,17 @@ internal sealed unsafe class OpenGLGraphicsShader : GraphicsDeviceObject, IGraph
             throw new GraphicsValidationException("GLSL shader source does not accept SPIR-V specialization constants.");
         if (isSpirV)
             OpenGLSpirVValidation.Validate(description, device.SpirVApi is not null);
-        if (description.Stage is GraphicsShaderStage.Mesh or GraphicsShaderStage.Task &&
-            device.MeshShaderApi is null)
+        if (description.Stage == GraphicsShaderStage.Mesh &&
+            !device.Capabilities.Features.Supports(GraphicsFeature.MeshShaders))
         {
-            GraphicsFeature required = description.Stage == GraphicsShaderStage.Mesh
-                ? GraphicsFeature.MeshShaders
-                : GraphicsFeature.TaskShaders;
-            throw new GraphicsFeatureNotSupportedException(required, required);
+            throw new GraphicsFeatureNotSupportedException(
+                GraphicsFeature.MeshShaders, GraphicsFeature.MeshShaders);
+        }
+        if (description.Stage == GraphicsShaderStage.Task &&
+            !device.Capabilities.Features.Supports(GraphicsFeature.TaskShaders))
+        {
+            throw new GraphicsFeatureNotSupportedException(
+                GraphicsFeature.TaskShaders, GraphicsFeature.TaskShaders);
         }
 
         string? source = null;
