@@ -25,7 +25,7 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
 {
     private readonly IOpenGLContextProvider _contextProvider;
     private readonly object _contextGate = new();
-    private readonly ConcurrentBag<IOpenGLNativeResource> _resources = [];
+    private readonly HashSet<IOpenGLNativeResource> _resources = new(ReferenceEqualityComparer.Instance);
     private readonly ConcurrentQueue<IOpenGLNativeResource> _deferredResources = new();
     private readonly object _queueGate = new();
     private readonly OpenGLGraphicsCommandQueue?[] _queues = new OpenGLGraphicsCommandQueue?[3];
@@ -559,8 +559,12 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
         }
     }
 
-    /// <summary>Registers a resource from inside a WithContext callback, while the context gate is held.</summary>
-    internal void RegisterUnderContext(IOpenGLNativeResource resource) => _resources.Add(resource);
+    /// <summary>Registers a live native resource while the device context gate is held.</summary>
+    internal void RegisterUnderContext(IOpenGLNativeResource resource)
+    {
+        if (!_resources.Add(resource))
+            throw new InvalidOperationException("An OpenGL native resource was registered more than once.");
+    }
 
     /// <summary>
     /// Releases a resource under the same context serialization used for commands. If device disposal
@@ -576,6 +580,7 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
             if (Volatile.Read(ref _pendingSubmissionCount) != 0)
             {
                 _deferredResources.Enqueue(resource);
+                _resources.Remove(resource);
                 return;
             }
 
@@ -588,6 +593,9 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
             {
                 _contextProvider.ReleaseCurrent();
             }
+
+            // Keep failed/uncompleted releases registered so device shutdown can retry them.
+            _resources.Remove(resource);
         }
     }
 
@@ -977,6 +985,7 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
                         cleanupFailure ??= exception;
                     }
                 }
+                _resources.Clear();
 
                 DisposeNativeApi(_uniformBufferObjectApi, ref cleanupFailure);
                 DisposeNativeApi(_meshShaderApi, ref cleanupFailure);
