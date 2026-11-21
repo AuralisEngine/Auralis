@@ -30,6 +30,8 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
     private readonly MultiDrawArraysIndirectExtDelegate? _multiDrawArraysIndirectExt;
     private readonly MultiDrawElementsIndirectExtDelegate? _multiDrawElementsIndirectExt;
     private readonly ExtDrawBuffersIndexed? _drawBuffersIndexedApi;
+    private readonly ExtDrawElementsBaseVertex? _drawElementsBaseVertexApi;
+    private readonly ExtBaseInstance? _baseInstanceApi;
     private readonly object _contextGate = new();
     private readonly object _resourceGate = new();
     private readonly HashSet<IOpenGLESNativeResource> _resources = new(ReferenceEqualityComparer.Instance);
@@ -44,6 +46,8 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
         MultiDrawArraysIndirectExtDelegate? multiDrawArraysIndirectExt,
         MultiDrawElementsIndirectExtDelegate? multiDrawElementsIndirectExt,
         ExtDrawBuffersIndexed? drawBuffersIndexedApi,
+        ExtDrawElementsBaseVertex? drawElementsBaseVertexApi,
+        ExtBaseInstance? baseInstanceApi,
         OpenGLESVersion version,
         string versionString,
         string vendor,
@@ -57,6 +61,8 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
         _multiDrawArraysIndirectExt = multiDrawArraysIndirectExt;
         _multiDrawElementsIndirectExt = multiDrawElementsIndirectExt;
         _drawBuffersIndexedApi = drawBuffersIndexedApi;
+        _drawElementsBaseVertexApi = drawElementsBaseVertexApi;
+        _baseInstanceApi = baseInstanceApi;
         Version = version;
         VersionString = versionString;
         Vendor = vendor;
@@ -117,6 +123,8 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
     internal MultiDrawArraysIndirectExtDelegate? MultiDrawArraysIndirectExt => _multiDrawArraysIndirectExt;
     internal MultiDrawElementsIndirectExtDelegate? MultiDrawElementsIndirectExt => _multiDrawElementsIndirectExt;
     internal ExtDrawBuffersIndexed? DrawBuffersIndexedApi => _drawBuffersIndexedApi;
+    internal ExtDrawElementsBaseVertex? DrawElementsBaseVertexApi => _drawElementsBaseVertexApi;
+    internal ExtBaseInstance? BaseInstanceApi => _baseInstanceApi;
 
     internal uint MaxUniformBufferBindings { get; }
     internal uint MaxStorageBufferBindings { get; }
@@ -140,6 +148,8 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
         MultiDrawArraysIndirectExtDelegate? multiDrawArraysIndirectExt = null;
         MultiDrawElementsIndirectExtDelegate? multiDrawElementsIndirectExt = null;
         ExtDrawBuffersIndexed? drawBuffersIndexedApi = null;
+        ExtDrawElementsBaseVertex? drawElementsBaseVertexApi = null;
+        ExtBaseInstance? baseInstanceApi = null;
         contextProvider.MakeCurrent();
         try
         {
@@ -167,12 +177,23 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
             if (gl.IsExtensionPresent(ExtDrawBuffersIndexed.ExtensionName))
                 drawBuffersIndexedApi = new ExtDrawBuffersIndexed(gl.Context);
 
+            bool hasBaseVertexExtension = gl.IsExtensionPresent(ExtDrawElementsBaseVertex.ExtensionName);
+            if (hasBaseVertexExtension)
+                drawElementsBaseVertexApi = new ExtDrawElementsBaseVertex(gl.Context);
+
+            // EXT_base_instance depends on EXT_draw_elements_base_vertex; do not load or report
+            // its functions independently of that required extension.
+            if (hasBaseVertexExtension && gl.IsExtensionPresent(ExtBaseInstance.ExtensionName))
+                baseInstanceApi = new ExtBaseInstance(gl.Context);
+
             OpenGLESCapabilityProfile profile = QueryProfile(
                 gl,
                 version,
                 contextProvider.SupportsPresentation,
                 multiDrawArraysIndirectExt is not null && multiDrawElementsIndirectExt is not null,
-                drawBuffersIndexedApi is not null);
+                drawBuffersIndexedApi is not null,
+                drawElementsBaseVertexApi is not null,
+                baseInstanceApi is not null);
             profile.EnsureRequiredBaseline();
 
             string vendor = gl.GetStringS(StringName.Vendor);
@@ -184,15 +205,20 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
 
             OpenGLESGraphicsDevice device = new(
                 contextProvider, gl, multiDrawArraysIndirectExt, multiDrawElementsIndirectExt,
-                drawBuffersIndexedApi, version, versionString, vendor, renderer, profile, capabilities, queriedLimits);
+                drawBuffersIndexedApi, drawElementsBaseVertexApi, baseInstanceApi,
+                version, versionString, vendor, renderer, profile, capabilities, queriedLimits);
             gl = null;
             multiDrawArraysIndirectExt = null;
             multiDrawElementsIndirectExt = null;
             drawBuffersIndexedApi = null;
+            drawElementsBaseVertexApi = null;
+            baseInstanceApi = null;
             return device;
         }
         catch
         {
+            baseInstanceApi?.Dispose();
+            drawElementsBaseVertexApi?.Dispose();
             drawBuffersIndexedApi?.Dispose();
             gl?.Dispose();
             throw;
@@ -208,7 +234,9 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
         OpenGLESVersion version,
         bool supportsPresentation,
         bool multiDrawIndirectEntryPointsAvailable,
-        bool indexedBlendEntryPointsAvailable)
+        bool indexedBlendEntryPointsAvailable,
+        bool baseVertexEntryPointsAvailable,
+        bool baseInstanceEntryPointsAvailable)
     {
         int extensionCount = Math.Max(0, gl.GetInteger(GLEnum.NumExtensions));
         string[] extensions = new string[extensionCount];
@@ -218,7 +246,9 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
         return OpenGLESCapabilityProfile.Create(
             version, extensions, supportsPresentation,
             multiDrawIndirectEntryPointsAvailable,
-            indexedBlendEntryPointsAvailable);
+            indexedBlendEntryPointsAvailable,
+            baseVertexEntryPointsAvailable,
+            baseInstanceEntryPointsAvailable);
     }
 
     private static OpenGLESQueriedLimits QueryLimits(GL gl, OpenGLESCapabilityProfile profile)
@@ -685,6 +715,24 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
             }
             finally
             {
+                try
+                {
+                    _baseInstanceApi?.Dispose();
+                }
+                catch (Exception exception)
+                {
+                    RecordFailure(ref failures, exception);
+                }
+
+                try
+                {
+                    _drawElementsBaseVertexApi?.Dispose();
+                }
+                catch (Exception exception)
+                {
+                    RecordFailure(ref failures, exception);
+                }
+
                 try
                 {
                     _drawBuffersIndexedApi?.Dispose();
