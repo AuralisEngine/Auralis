@@ -883,21 +883,34 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
 
                     case OpenGLESCmdKind.DrawIndirect:
                         gl.BindBuffer(BufferTargetARB.DrawIndirectBuffer, ((OpenGLESGraphicsBuffer)command.Buffer0!).Handle);
-                        gl.DrawArraysIndirect(GetPrimitive((activeRenderPipeline ?? throw new GraphicsValidationException(
-                            "A render pipeline must be bound before drawing.")).Description.Topology), (void*)checked((nint)command.Offset0));
+                        PrimitiveType indirectPrimitive = GetPrimitive((activeRenderPipeline ?? throw new GraphicsValidationException(
+                            "A render pipeline must be bound before drawing.")).Description.Topology);
+                        uint arrayStride = command.Stride == 0 ? 16u : command.Stride;
+                        for (uint drawIndex = 0; drawIndex < command.DrawCount; drawIndex++)
+                        {
+                            ulong argumentOffset = checked(command.Offset0 + checked((ulong)drawIndex * arrayStride));
+                            gl.DrawArraysIndirect(indirectPrimitive, (void*)checked((nint)argumentOffset));
+                        }
                         gl.BindBuffer(BufferTargetARB.DrawIndirectBuffer, 0);
                         break;
 
                     case OpenGLESCmdKind.DrawIndexedIndirect:
                         gl.BindBuffer(BufferTargetARB.ElementArrayBuffer, ((OpenGLESGraphicsBuffer)command.Buffer1!).Handle);
                         gl.BindBuffer(BufferTargetARB.DrawIndirectBuffer, ((OpenGLESGraphicsBuffer)command.Buffer0!).Handle);
-                        gl.DrawElementsIndirect(
-                            GetPrimitive((activeRenderPipeline ?? throw new GraphicsValidationException(
-                                "A render pipeline must be bound before drawing.")).Description.Topology),
-                            command.IndexFormat == (uint)GraphicsIndexFormat.UInt16
-                                ? DrawElementsType.UnsignedShort
-                                : DrawElementsType.UnsignedInt,
-                            (void*)checked((nint)command.Offset0));
+                        PrimitiveType indexedIndirectPrimitive = GetPrimitive((activeRenderPipeline ?? throw new GraphicsValidationException(
+                            "A render pipeline must be bound before drawing.")).Description.Topology);
+                        uint indexedStride = command.Stride == 0 ? 20u : command.Stride;
+                        DrawElementsType indexedType = command.IndexFormat == (uint)GraphicsIndexFormat.UInt16
+                            ? DrawElementsType.UnsignedShort
+                            : DrawElementsType.UnsignedInt;
+                        for (uint drawIndex = 0; drawIndex < command.DrawCount; drawIndex++)
+                        {
+                            ulong argumentOffset = checked(command.Offset0 + checked((ulong)drawIndex * indexedStride));
+                            gl.DrawElementsIndirect(
+                                indexedIndirectPrimitive,
+                                indexedType,
+                                (void*)checked((nint)argumentOffset));
+                        }
                         gl.BindBuffer(BufferTargetARB.DrawIndirectBuffer, 0);
                         break;
 
