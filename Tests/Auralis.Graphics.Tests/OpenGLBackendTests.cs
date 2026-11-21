@@ -917,7 +917,7 @@ public sealed class OpenGLBackendTests
         try
         {
             var manager = new OpenGLMappedMemoryManager(nativeMemory, 16);
-            MemoryHandle pin = manager.Memory.Pin();
+            var pin = manager.Memory.Pin();
             manager.Invalidate();
 
             using var waiting = new ManualResetEventSlim();
