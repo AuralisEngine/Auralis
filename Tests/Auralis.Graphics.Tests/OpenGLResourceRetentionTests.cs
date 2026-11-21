@@ -197,17 +197,30 @@ public sealed class OpenGLResourceRetentionTests
     public void ConcurrentRetainsRacingOwnerDisposalReleaseExactlyOnce()
     {
         var resource = new InstrumentedNativeResource();
+        using var start = new ManualResetEventSlim(initialState: false);
 
-        Parallel.For(0, 256, _ =>
+        Task retainingWorkers = Task.Run(() =>
         {
-            if (!resource.TryRetain())
-                return;
+            Parallel.For(0, 256, _ =>
+            {
+                start.Wait();
+                if (!resource.TryRetain())
+                    return;
 
-            Thread.SpinWait(100);
-            resource.ReleaseReference();
+                Thread.SpinWait(100);
+                resource.ReleaseReference();
+            });
         });
 
-        resource.DisposeOwner();
+        Task ownerDisposal = Task.Run(() =>
+        {
+            start.Wait();
+            Thread.SpinWait(100);
+            resource.DisposeOwner();
+        });
+
+        start.Set();
+        Task.WaitAll(retainingWorkers, ownerDisposal);
 
         Assert.Equal(1, resource.NativeReleaseCount);
     }
