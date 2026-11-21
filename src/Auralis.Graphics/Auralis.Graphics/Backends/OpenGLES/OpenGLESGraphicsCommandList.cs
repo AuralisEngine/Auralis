@@ -1037,7 +1037,14 @@ internal sealed class OpenGLESGraphicsCommandList : GraphicsDeviceObject, IGraph
         if (resource is IOpenGLESNativeResource native)
             Retain(native);
         else if (resource is OpenGLESGraphicsTextureView view)
-            Retain((IOpenGLESNativeResource)view.Texture);
+        {
+            IOpenGLESNativeResource texture = (IOpenGLESNativeResource)view.Texture;
+            if (_retained.Add(texture) && !texture.TryRetainDependency())
+            {
+                _retained.Remove(texture);
+                throw new ObjectDisposedException(nameof(OpenGLESGraphicsTexture));
+            }
+        }
     }
 
     private void Retain(IOpenGLESNativeResource resource)
