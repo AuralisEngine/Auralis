@@ -30,6 +30,7 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
     private readonly MultiDrawArraysIndirectExtDelegate? _multiDrawArraysIndirectExt;
     private readonly MultiDrawElementsIndirectExtDelegate? _multiDrawElementsIndirectExt;
     private readonly ExtDrawBuffersIndexed? _drawBuffersIndexedApi;
+    private readonly ExtCopyImage? _copyImageApi;
     private readonly ExtDrawElementsBaseVertex? _drawElementsBaseVertexApi;
     private readonly ExtBaseInstance? _baseInstanceApi;
     private readonly object _contextGate = new();
@@ -46,6 +47,7 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
         MultiDrawArraysIndirectExtDelegate? multiDrawArraysIndirectExt,
         MultiDrawElementsIndirectExtDelegate? multiDrawElementsIndirectExt,
         ExtDrawBuffersIndexed? drawBuffersIndexedApi,
+        ExtCopyImage? copyImageApi,
         ExtDrawElementsBaseVertex? drawElementsBaseVertexApi,
         ExtBaseInstance? baseInstanceApi,
         OpenGLESVersion version,
@@ -61,6 +63,7 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
         _multiDrawArraysIndirectExt = multiDrawArraysIndirectExt;
         _multiDrawElementsIndirectExt = multiDrawElementsIndirectExt;
         _drawBuffersIndexedApi = drawBuffersIndexedApi;
+        _copyImageApi = copyImageApi;
         _drawElementsBaseVertexApi = drawElementsBaseVertexApi;
         _baseInstanceApi = baseInstanceApi;
         Version = version;
@@ -123,6 +126,7 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
     internal MultiDrawArraysIndirectExtDelegate? MultiDrawArraysIndirectExt => _multiDrawArraysIndirectExt;
     internal MultiDrawElementsIndirectExtDelegate? MultiDrawElementsIndirectExt => _multiDrawElementsIndirectExt;
     internal ExtDrawBuffersIndexed? DrawBuffersIndexedApi => _drawBuffersIndexedApi;
+    internal ExtCopyImage? CopyImageApi => _copyImageApi;
     internal ExtDrawElementsBaseVertex? DrawElementsBaseVertexApi => _drawElementsBaseVertexApi;
     internal ExtBaseInstance? BaseInstanceApi => _baseInstanceApi;
 
@@ -148,6 +152,7 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
         MultiDrawArraysIndirectExtDelegate? multiDrawArraysIndirectExt = null;
         MultiDrawElementsIndirectExtDelegate? multiDrawElementsIndirectExt = null;
         ExtDrawBuffersIndexed? drawBuffersIndexedApi = null;
+        ExtCopyImage? copyImageApi = null;
         ExtDrawElementsBaseVertex? drawElementsBaseVertexApi = null;
         ExtBaseInstance? baseInstanceApi = null;
         contextProvider.MakeCurrent();
@@ -176,6 +181,8 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
 
             if (gl.IsExtensionPresent(ExtDrawBuffersIndexed.ExtensionName))
                 drawBuffersIndexedApi = new ExtDrawBuffersIndexed(gl.Context);
+            if (gl.IsExtensionPresent(ExtCopyImage.ExtensionName))
+                copyImageApi = new ExtCopyImage(gl.Context);
 
             bool hasBaseVertexExtension = gl.IsExtensionPresent(ExtDrawElementsBaseVertex.ExtensionName);
             if (hasBaseVertexExtension)
@@ -199,18 +206,20 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
             string vendor = gl.GetStringS(StringName.Vendor);
             string renderer = gl.GetStringS(StringName.Renderer);
             OpenGLESQueriedLimits queriedLimits = QueryLimits(gl, profile);
-            GraphicsDeviceCapabilities capabilities = QueryCapabilities(profile, queriedLimits);
+            GraphicsDeviceCapabilities capabilities = QueryCapabilities(
+                profile, queriedLimits, supportsImageCopy: copyImageApi is not null);
 
             cancellationToken.ThrowIfCancellationRequested();
 
             OpenGLESGraphicsDevice device = new(
                 contextProvider, gl, multiDrawArraysIndirectExt, multiDrawElementsIndirectExt,
-                drawBuffersIndexedApi, drawElementsBaseVertexApi, baseInstanceApi,
+                drawBuffersIndexedApi, copyImageApi, drawElementsBaseVertexApi, baseInstanceApi,
                 version, versionString, vendor, renderer, profile, capabilities, queriedLimits);
             gl = null;
             multiDrawArraysIndirectExt = null;
             multiDrawElementsIndirectExt = null;
             drawBuffersIndexedApi = null;
+            copyImageApi = null;
             drawElementsBaseVertexApi = null;
             baseInstanceApi = null;
             return device;
@@ -219,6 +228,7 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
         {
             baseInstanceApi?.Dispose();
             drawElementsBaseVertexApi?.Dispose();
+            copyImageApi?.Dispose();
             drawBuffersIndexedApi?.Dispose();
             gl?.Dispose();
             throw;
@@ -350,7 +360,8 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
 
     internal static GraphicsDeviceCapabilities QueryCapabilities(
         OpenGLESCapabilityProfile profile,
-        in OpenGLESQueriedLimits queried)
+        in OpenGLESQueriedLimits queried,
+        bool supportsImageCopy = false)
     {
         GraphicsDeviceLimits limits = new(
             MaxBufferSizeInBytes: 0,
@@ -385,15 +396,24 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
             GraphicsFormatSupport.VertexBuffer |
             GraphicsFormatSupport.LinearFiltering;
 
+        if (supportsImageCopy)
+            normalizedSingleSupport |= GraphicsFormatSupport.CopySource | GraphicsFormatSupport.CopyDestination;
+
         // Integer color formats are sampleable and color-renderable, but do not support
         // linear filtering or fixed-function blending.
         GraphicsFormatSupport integerColorSupport =
             GraphicsFormatSupport.Sampled |
             GraphicsFormatSupport.ColorAttachment;
 
+        if (supportsImageCopy)
+            integerColorSupport |= GraphicsFormatSupport.CopySource | GraphicsFormatSupport.CopyDestination;
+
         GraphicsFormatSupport depthSupport =
             GraphicsFormatSupport.Sampled |
             GraphicsFormatSupport.DepthStencilAttachment;
+
+        if (supportsImageCopy)
+            depthSupport |= GraphicsFormatSupport.CopySource | GraphicsFormatSupport.CopyDestination;
 
         GraphicsFormatSupport rgba8Support = colorSupport;
         if (profile.Version.IsAtLeast(3, 1))
@@ -727,6 +747,15 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
                 try
                 {
                     _drawElementsBaseVertexApi?.Dispose();
+                }
+                catch (Exception exception)
+                {
+                    RecordFailure(ref failures, exception);
+                }
+
+                try
+                {
+                    _copyImageApi?.Dispose();
                 }
                 catch (Exception exception)
                 {
