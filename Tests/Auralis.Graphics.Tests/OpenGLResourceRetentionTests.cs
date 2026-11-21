@@ -280,4 +280,44 @@ public sealed class OpenGLResourceRetentionTests
 
         public void ReleaseNative(GL gl) => Interlocked.Increment(ref _nativeReleaseCount);
     }
+    [Fact]
+    public void CompletedResourceIsReclaimedWhileAnUnrelatedSubmissionRemainsPending()
+    {
+        var completedList = new GraphicsCommandListLifecycle(GraphicsQueueType.Copy);
+        var unrelatedList = new GraphicsCommandListLifecycle(GraphicsQueueType.Copy);
+        var completedRetention = new OpenGLResourceRetention();
+        var unrelatedRetention = new OpenGLResourceRetention();
+        var completedResource = new InstrumentedNativeResource();
+        var unrelatedResource = new InstrumentedNativeResource();
+
+        completedList.Begin();
+        completedRetention.Retain(completedResource);
+        completedList.End();
+        completedList.MarkSubmitted();
+
+        unrelatedList.Begin();
+        unrelatedRetention.Retain(unrelatedResource);
+        unrelatedList.End();
+        unrelatedList.MarkSubmitted();
+
+        completedResource.DisposeOwner();
+        unrelatedResource.DisposeOwner();
+        Assert.Equal(0, completedResource.NativeReleaseCount);
+        Assert.Equal(0, unrelatedResource.NativeReleaseCount);
+
+        // Complete and release only the first list; no queue-wide idle point or later State poll
+        // is required to reclaim a resource whose final list reference has gone away.
+        completedList.MarkCompleted();
+        completedRetention.ReleaseAll();
+
+        Assert.Equal(1, completedResource.NativeReleaseCount);
+        Assert.Equal(GraphicsCommandListState.Pending, unrelatedList.State);
+        Assert.Equal(0, unrelatedResource.NativeReleaseCount);
+
+        unrelatedList.MarkCompleted();
+        unrelatedRetention.ReleaseAll();
+        Assert.Equal(1, unrelatedResource.NativeReleaseCount);
+    }
+
+
 }
