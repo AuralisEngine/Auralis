@@ -261,3 +261,63 @@ These hardware tests are intentionally **not executed by CI**. The workflow only
 - Context activation no longer allocates an `OpenGLContextLease` per `WithContext` call, and the `Action<GL>` overload no longer routes through an intermediate `Func<GL, T>`. Callback-based call sites can still allocate delegates/closures; zero-allocation context execution has not been established.
 - A separate hardware-dependent BenchmarkDotNet project lives in `Benchmarks/Auralis.Graphics.OpenGL.Benchmarks`. Run it on a machine with a working OpenGL 4.5 Core driver using `dotnet run --project Benchmarks/Auralis.Graphics.OpenGL.Benchmarks/Auralis.Graphics.OpenGL.Benchmarks.csproj --configuration Release -- --filter '*OpenGLBackendBenchmarks*'`. The suite uses `MemoryDiagnoser` and measures command recording of one buffer copy, command submission plus GPU fence wait, completed fence-value polling, buffer creation/disposal, and texture creation/disposal. Results are specific to the selected driver, GPU, CPU, OS, context provider, and power/clock state.
 - The benchmark project is **built but never executed by CI**. CI restores and compiles it only. No before/after allocation or throughput results are claimed until the benchmark suite has been run on named hardware; the initial harness does not itself constitute a measurement.
+
+
+## OpenGL ES backend
+
+Auralis includes a separate OpenGL ES backend under `Backends/OpenGLES`. It implements the existing `IGraphicsBackendProvider`, `IGraphicsDevice`, resource, pipeline, command, synchronization, and presentation contracts. It does not add a second graphics API and does not change the desktop OpenGL implementation.
+
+### Host context contract
+
+The backend requires a host-created, currentable OpenGL ES context reporting **OpenGL ES 3.1 or newer**. The host implements `IOpenGLESContextProvider` and supplies:
+
+- a stable context identity and ownership mode;
+- exclusive GLES state ownership (the backend does not save and restore arbitrary external GL state);
+- `MakeCurrent`, `ReleaseCurrent`, and a context-specific `GetProcAddress`;
+- optional drawable compatibility, present-mode, and buffer-swap operations.
+
+The backend does not create EGL contexts, windows, Android surfaces, or platform-specific objects. The same existing registry and device factory select the provider:
+
+```csharp
+var registry = new GraphicsBackendProviderRegistry();
+registry.Register(new OpenGLESGraphicsBackendProvider(hostGlesContextProvider));
+
+using IGraphicsDevice device = await GraphicsDeviceFactory.CreateAsync(
+    registry,
+    new GraphicsDeviceOptions
+    {
+        Backend = GraphicsBackend.OpenGLES,
+        RequiredQueues = GraphicsQueueCapabilities.Graphics |
+                         GraphicsQueueCapabilities.Compute
+    });
+```
+
+`hostGlesContextProvider` is an application/platform object implementing `IOpenGLESContextProvider`; it is not supplied by the graphics assembly. A borrowed provider remains owned by the host. An owned provider is disposed by the device, including when device initialization fails.
+
+### GLES capability model
+
+- ES 3.1 is the minimum accepted context. The device reads the actual GL version, vendor, renderer, extension list, and relevant implementation limits after activating the supplied context.
+- Compute shaders, indirect drawing, shader-storage buffers, image load/store, and memory barriers are used only on the ES 3.1 path.
+- ES 3.2 adds geometry and tessellation shader stages and patch topology when the implementation reports a usable patch-vertex limit.
+- Timeline fences are implemented using GLES sync objects. Logical graphics, compute, and copy queue roles are serialized over the one GLES command stream; they are not advertised as independent hardware queues.
+- Anisotropic filtering is advertised only when `GL_EXT_texture_filter_anisotropic` is present and the driver-reported maximum is queried.
+- Presentation is advertised only when the injected context provider reports a compatible host drawable. A generic currentable context does not imply presentation support.
+- Mesh/task shaders, SPIR-V ingestion, multi-draw-indirect, independent blend state, depth clamp, depth-bounds testing, wide lines, and sparse resources are not advertised.
+
+### Implemented operations
+
+- Buffers use GLES bind-to-edit allocation and transient `MapBufferRange`/unmap mapping. Read mappings copy into managed staging memory and write mappings upload with `BufferSubData`; persistent mapping and desktop buffer-storage APIs are not used.
+- Immutable texture storage supports 2D, 2D-array, 3D, and single cubemap textures for formats listed in the device format-capability table. Multisample textures, 1D textures, cube-map arrays, and texture reinterpretation/subresource views are rejected. Texture views currently support identity/full-resource views only.
+- Samplers use GLES sampler objects. Border-clamp modes are rejected; anisotropy is set only when the extension is available.
+- Shader creation compiles GLSL ES source with driver diagnostics. Source must declare `#version 300 es`, `#version 310 es`, or `#version 320 es` as appropriate for the stage and context. Desktop GLSL source and SPIR-V are rejected.
+- Binding layouts map uniform buffers, storage buffers, sampled textures, samplers, combined texture/sampler pairs, and storage images to GLES binding slots. Unsupported binding flags and incomplete non-partially-bound descriptors are rejected.
+- Render pipelines create linked programs and vertex-array objects; implemented fixed-function state includes culling, front-face winding, depth/stencil state, polygon offset, and one color-blend attachment. ES 3.2 patch vertex state is configured for tessellation pipelines.
+- Command lists support buffer copies, supported 2D framebuffer-blit texture copies, render-target binding, viewport/scissor, color/depth clears, vertex/index binding, direct and instanced drawing, one-command indirect drawing, compute dispatch/indirect dispatch, descriptor binds, and memory barriers.
+- Recorded and submitted command lists retain referenced native resources until reset/disposal or observed GPU completion. Device shutdown finishes the GLES stream and drains pending submissions before native resource deletion.
+- When a host drawable is supplied, the presentation surface creates backend-owned color images and framebuffer objects, blits the selected image to the host default framebuffer, and delegates the actual buffer swap to the host provider.
+
+### Explicit current limitations
+
+This backend is a distinct GLES implementation, but it does not claim feature-for-feature parity with desktop OpenGL. It currently supports one color attachment, single-sample render targets, 2D color/depth framebuffer attachments, one indirect draw per indirect command, and no base-instance or base-vertex drawing. Integer color clears and stencil clears are rejected. Texture copies are restricted to identical single-sample 2D textures that can be used as framebuffer color attachments. Texture subviews, texture format reinterpretation, persistent mapping, independent blend attachments, multi-draw indirect, task/mesh shaders, and SPIR-V are not implemented. Requests outside these supported contracts fail explicitly rather than being silently ignored.
+
+The GLES context and driver path has not been executed in this environment. The hardware-independent tests cover version/extension parsing, capability reporting, provider registration/failure behavior, and the native resource-reference state machine. A successful build or unit-test run is not evidence of real-driver correctness. Actual-driver execution must be reported separately from build-only verification.
