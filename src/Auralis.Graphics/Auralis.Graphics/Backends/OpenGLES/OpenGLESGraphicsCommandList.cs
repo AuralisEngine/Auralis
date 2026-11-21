@@ -662,7 +662,11 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
 
                     case OpenGLESCmdKind.CopyTexture:
                         readFramebuffer = gl.GenFramebuffer();
+                        if (readFramebuffer == 0)
+                            throw new GraphicsException("OpenGL ES failed to create the texture-copy read framebuffer.");
                         drawFramebuffer = gl.GenFramebuffer();
+                        if (drawFramebuffer == 0)
+                            throw new GraphicsException("OpenGL ES failed to create the texture-copy draw framebuffer.");
                         gl.BindFramebuffer(FramebufferTarget.ReadFramebuffer, readFramebuffer);
                         gl.FramebufferTexture2D(
                             FramebufferTarget.ReadFramebuffer,
@@ -677,6 +681,13 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
                             TextureTarget.Texture2D,
                             ((OpenGLESGraphicsTexture)command.Texture1!).Handle,
                             0);
+                        GLEnum readStatus = gl.CheckFramebufferStatus(FramebufferTarget.ReadFramebuffer);
+                        if (readStatus != GLEnum.FramebufferComplete)
+                            throw new GraphicsException($"OpenGL ES texture-copy read framebuffer is incomplete: {readStatus}.");
+                        GLEnum drawStatus = gl.CheckFramebufferStatus(FramebufferTarget.DrawFramebuffer);
+                        if (drawStatus != GLEnum.FramebufferComplete)
+                            throw new GraphicsException($"OpenGL ES texture-copy draw framebuffer is incomplete: {drawStatus}.");
+
                         uint copyWidth = command.Texture0!.Description.Width;
                         uint copyHeight = command.Texture0.Description.Height;
                         gl.BlitFramebuffer(
