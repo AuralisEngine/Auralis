@@ -499,6 +499,36 @@ public sealed class OpenGLESTextureCompatibilityTests
             OpenGLESTextureCompatibility.ValidateAndGetTarget(description, new OpenGLESVersion(3, 1)));
     }
 
+    [Theory]
+    [InlineData(GraphicsShaderStage.Mesh)]
+    [InlineData(GraphicsShaderStage.Task)]
+    public void MeshTaskShaderSourceRequiresGlesExtensionDirective(GraphicsShaderStage stage)
+    {
+        const string source = """
+            #version 310 es
+            #extension GL_EXT_mesh_shader : require
+            layout(local_size_x = 1) in;
+            void main() {}
+            """;
+        OpenGLESShaderCompatibility.ValidateSourceVersion(
+            new OpenGLESVersion(3, 1), stage, source);
+    }
+
+    [Theory]
+    [InlineData(GraphicsShaderStage.Mesh)]
+    [InlineData(GraphicsShaderStage.Task)]
+    public void MeshTaskShaderSourceRejectsMissingExtensionDirective(GraphicsShaderStage stage)
+    {
+        const string source = """
+            #version 310 es
+            layout(local_size_x = 1) in;
+            void main() {}
+            """;
+        Assert.Throws<GraphicsValidationException>(() =>
+            OpenGLESShaderCompatibility.ValidateSourceVersion(
+                new OpenGLESVersion(3, 1), stage, source));
+    }
+
     [Fact]
     public void MultisampleTextureRequiresEs31AndRejectsAliasing()
     {
