@@ -1221,7 +1221,8 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
         IGraphicsBuffer arguments,
         ulong offset,
         uint drawCount,
-        uint commandSize)
+        uint commandSize,
+        uint stride)
     {
         ArgumentNullException.ThrowIfNull(arguments);
         EnsureOwned(arguments);
