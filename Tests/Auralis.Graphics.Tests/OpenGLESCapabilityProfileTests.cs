@@ -735,6 +735,58 @@ public sealed class OpenGLESTextureCopyCompatibilityTests
     }
 
     [Fact]
+    public void ValidateCopy_ImageCopyPathDoesNotRequireFramebufferAttachmentUsage()
+    {
+        GraphicsTextureDescription source = CreateSource() with
+        {
+            Usage = GraphicsTextureUsage.CopySource
+        };
+        GraphicsTextureDescription destination = CreateDestination() with
+        {
+            Usage = GraphicsTextureUsage.CopyDestination
+        };
+
+        OpenGLESTextureCompatibility.ValidateCopy(source, destination, supportsImageCopy: true);
+    }
+
+    [Fact]
+    public void ValidateCopy_ImageCopyPathSupportsMatchingArraySubresources()
+    {
+        GraphicsTextureDescription source = CreateSource() with
+        {
+            ArrayLayers = 4,
+            MipLevels = 3,
+            Usage = GraphicsTextureUsage.CopySource
+        };
+        GraphicsTextureDescription destination = CreateDestination() with
+        {
+            ArrayLayers = 4,
+            MipLevels = 3,
+            Usage = GraphicsTextureUsage.CopyDestination
+        };
+
+        OpenGLESTextureCompatibility.ValidateCopy(source, destination, supportsImageCopy: true);
+    }
+
+    [Fact]
+    public void ValidateCopy_ImageCopyPathRejectsMipOrLayerMismatches()
+    {
+        GraphicsTextureDescription source = CreateSource() with
+        {
+            ArrayLayers = 4,
+            MipLevels = 3
+        };
+        GraphicsTextureDescription destination = CreateDestination() with
+        {
+            ArrayLayers = 3,
+            MipLevels = 3
+        };
+
+        Assert.Throws<GraphicsValidationException>(() =>
+            OpenGLESTextureCompatibility.ValidateCopy(source, destination, supportsImageCopy: true));
+    }
+
+    [Fact]
     public void ValidateCopy_RequiresSourceAndDestinationUsages()
     {
         GraphicsTextureDescription missingSource = CreateSource() with
