@@ -576,7 +576,9 @@ public sealed class OpenGLESFormatCapabilityTests
             MaxComputeWorkGroupCountY: major > 3 || (major == 3 && minor >= 1) ? 65_535u : 0u,
             MaxComputeWorkGroupCountZ: major > 3 || (major == 3 && minor >= 1) ? 65_535u : 0u,
             MaxTessellationPatchSize: minor >= 2 ? 32u : 0u,
-            MaxAnisotropy: 1);
+            MaxAnisotropy: 1,
+            MaxColorAttachments: 4,
+            MaxColorDrawBuffers: 4);
 
         return OpenGLESGraphicsDevice.QueryCapabilities(profile, limits);
     }
