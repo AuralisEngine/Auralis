@@ -185,8 +185,7 @@ internal sealed class OpenGLESGraphicsCommandQueue : IGraphicsCommandQueue
 
         if (completed is null)
             return;
-        for (int i = 0; i < completed.Count; i++)
-            completed[i].Complete();
+        CompleteAll(completed);
     }
 
     internal void WaitForCompletion(OpenGLESGraphicsCommandList commandList)
@@ -229,8 +228,7 @@ internal sealed class OpenGLESGraphicsCommandQueue : IGraphicsCommandQueue
 
             if (completedLists is not null)
             {
-                for (int i = 0; i < completedLists.Length; i++)
-                    completedLists[i].Complete();
+                CompleteAll(completedLists);
             }
         }
     }
@@ -253,8 +251,29 @@ internal sealed class OpenGLESGraphicsCommandQueue : IGraphicsCommandQueue
 
         if (completed is null)
             return;
-        for (int i = 0; i < completed.Count; i++)
-            completed[i].Complete();
+        CompleteAll(completed);
+    }
+
+    private static void CompleteAll(IReadOnlyList<OpenGLESGraphicsCommandList> commandLists)
+    {
+        List<Exception>? failures = null;
+        for (int i = 0; i < commandLists.Count; i++)
+        {
+            try
+            {
+                commandLists[i].Complete();
+            }
+            catch (Exception exception)
+            {
+                failures ??= new List<Exception>();
+                failures.Add(exception);
+            }
+        }
+
+        if (failures is not null)
+            throw new AggregateException(
+                "One or more GLES command lists failed to release retained resources after GPU completion.",
+                failures);
     }
 
     private readonly record struct PendingSubmission(
