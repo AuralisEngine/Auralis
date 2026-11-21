@@ -77,7 +77,6 @@ internal sealed class OpenGLESGraphicsCommandQueue : IGraphicsCommandQueue
         int submitted = 0;
         bool commandsStarted = false;
         nint completionSync = 0;
-        bool queued = false;
 
         _device.WithContext(gl =>
         {
@@ -104,7 +103,6 @@ internal sealed class OpenGLESGraphicsCommandQueue : IGraphicsCommandQueue
                 lock (_gate)
                 {
                     _pending.Add(new PendingSubmission(lists, completionSync));
-                    queued = true;
                 }
             }
             catch (Exception submissionError)
@@ -148,9 +146,6 @@ internal sealed class OpenGLESGraphicsCommandQueue : IGraphicsCommandQueue
             }
         });
 
-        // If MakeCurrent/ReleaseCurrent fails after queue insertion, the pending record remains
-        // authoritative and is deliberately not rolled back here.
-        _ = queued;
     }
 
     public void Wait(IGraphicsFence fence, ulong value)
