@@ -66,6 +66,14 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
         PrimitiveType mode, DrawElementsType type, void* indirect, uint drawCount, uint stride);
 
     [UnmanagedFunctionPointer(CallingConvention.Winapi)]
+    internal delegate void CopyImageSubDataOesDelegate(
+        uint source, TextureTarget sourceTarget, int sourceLevel,
+        int sourceX, int sourceY, int sourceZ,
+        uint destination, TextureTarget destinationTarget, int destinationLevel,
+        int destinationX, int destinationY, int destinationZ,
+        uint width, uint height, uint depth);
+
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)]
     internal delegate void TextureViewExtDelegate(
         uint texture, TextureTarget target, uint originalTexture, SizedInternalFormat internalFormat,
         uint minimumLevel, uint levelCount, uint minimumLayer, uint layerCount);
@@ -76,6 +84,7 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
     private readonly MultiDrawElementsIndirectExtDelegate? _multiDrawElementsIndirectExt;
     private readonly ExtDrawBuffersIndexed? _drawBuffersIndexedApi;
     private readonly ExtCopyImage? _copyImageApi;
+    private readonly CopyImageSubDataOesDelegate? _copyImageSubDataOes;
     private readonly TextureViewExtDelegate? _textureViewExt;
     private readonly ExtDrawElementsBaseVertex? _drawElementsBaseVertexApi;
     private readonly ExtBaseInstance? _baseInstanceApi;
@@ -94,6 +103,7 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
         MultiDrawElementsIndirectExtDelegate? multiDrawElementsIndirectExt,
         ExtDrawBuffersIndexed? drawBuffersIndexedApi,
         ExtCopyImage? copyImageApi,
+        CopyImageSubDataOesDelegate? copyImageSubDataOes,
         TextureViewExtDelegate? textureViewExt,
         ExtDrawElementsBaseVertex? drawElementsBaseVertexApi,
         ExtBaseInstance? baseInstanceApi,
@@ -111,6 +121,7 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
         _multiDrawElementsIndirectExt = multiDrawElementsIndirectExt;
         _drawBuffersIndexedApi = drawBuffersIndexedApi;
         _copyImageApi = copyImageApi;
+        _copyImageSubDataOes = copyImageSubDataOes;
         _textureViewExt = textureViewExt;
         _drawElementsBaseVertexApi = drawElementsBaseVertexApi;
         _baseInstanceApi = baseInstanceApi;
@@ -175,6 +186,8 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
     internal MultiDrawElementsIndirectExtDelegate? MultiDrawElementsIndirectExt => _multiDrawElementsIndirectExt;
     internal ExtDrawBuffersIndexed? DrawBuffersIndexedApi => _drawBuffersIndexedApi;
     internal ExtCopyImage? CopyImageApi => _copyImageApi;
+    internal CopyImageSubDataOesDelegate? CopyImageSubDataOes => _copyImageSubDataOes;
+    internal bool HasImageCopy => _copyImageApi is not null || _copyImageSubDataOes is not null;
     internal bool SupportsCubeMapArray =>
         Version.IsAtLeast(3, 2) || Profile.HasExtension("GL_OES_texture_cube_map_array");
     internal TextureViewExtDelegate? TextureViewExt => _textureViewExt;
@@ -204,6 +217,7 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
         MultiDrawElementsIndirectExtDelegate? multiDrawElementsIndirectExt = null;
         ExtDrawBuffersIndexed? drawBuffersIndexedApi = null;
         ExtCopyImage? copyImageApi = null;
+        CopyImageSubDataOesDelegate? copyImageSubDataOes = null;
         TextureViewExtDelegate? textureViewExt = null;
         ExtDrawElementsBaseVertex? drawElementsBaseVertexApi = null;
         ExtBaseInstance? baseInstanceApi = null;
@@ -235,6 +249,13 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
                 drawBuffersIndexedApi = new ExtDrawBuffersIndexed(gl.Context);
             if (gl.IsExtensionPresent(ExtCopyImage.ExtensionName))
                 copyImageApi = new ExtCopyImage(gl.Context);
+            if (gl.IsExtensionPresent("GL_OES_copy_image"))
+            {
+                nint copyImageAddress = contextProvider.GetProcAddress("glCopyImageSubDataOES");
+                if (copyImageAddress != 0)
+                    copyImageSubDataOes =
+                        Marshal.GetDelegateForFunctionPointer<CopyImageSubDataOesDelegate>(copyImageAddress);
+            }
             nint textureViewAddress = 0;
             if (gl.IsExtensionPresent("GL_EXT_texture_view"))
                 textureViewAddress = contextProvider.GetProcAddress("glTextureViewEXT");
@@ -267,13 +288,14 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
             string renderer = gl.GetStringS(StringName.Renderer);
             OpenGLESQueriedLimits queriedLimits = QueryLimits(gl, profile);
             GraphicsDeviceCapabilities capabilities = QueryCapabilities(
-                profile, queriedLimits, supportsImageCopy: copyImageApi is not null);
+                profile, queriedLimits,
+                supportsImageCopy: copyImageApi is not null || copyImageSubDataOes is not null);
 
             cancellationToken.ThrowIfCancellationRequested();
 
             OpenGLESGraphicsDevice device = new(
                 contextProvider, gl, multiDrawArraysIndirectExt, multiDrawElementsIndirectExt,
-                drawBuffersIndexedApi, copyImageApi, textureViewExt,
+                drawBuffersIndexedApi, copyImageApi, copyImageSubDataOes, textureViewExt,
                 drawElementsBaseVertexApi, baseInstanceApi,
                 version, versionString, vendor, renderer, profile, capabilities, queriedLimits);
             gl = null;
@@ -281,6 +303,7 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
             multiDrawElementsIndirectExt = null;
             drawBuffersIndexedApi = null;
             copyImageApi = null;
+            copyImageSubDataOes = null;
             textureViewExt = null;
             drawElementsBaseVertexApi = null;
             baseInstanceApi = null;
