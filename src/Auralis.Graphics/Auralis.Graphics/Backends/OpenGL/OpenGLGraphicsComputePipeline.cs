@@ -6,7 +6,7 @@ using Silk.NET.OpenGL;
 namespace Auralis.Graphics.Backends.OpenGL;
 
 /// <summary>Compute pipeline backed by a linked OpenGL compute program.</summary>
-internal sealed class OpenGLGraphicsComputePipeline : GraphicsDeviceObject, IGraphicsComputePipeline, IOpenGLNativeResource
+internal sealed class OpenGLGraphicsComputePipeline : OpenGLNativeDeviceObject, IGraphicsComputePipeline
 {
     private readonly OpenGLGraphicsDevice _device;
     private uint _program;
@@ -30,8 +30,8 @@ internal sealed class OpenGLGraphicsComputePipeline : GraphicsDeviceObject, IGra
     {
         get
         {
-            ThrowIfDisposed();
-            return _program;
+            uint handle = Volatile.Read(ref _program);
+            return handle != 0 ? handle : throw new ObjectDisposedException(nameof(OpenGLGraphicsComputePipeline));
         }
     }
 
@@ -71,9 +71,9 @@ internal sealed class OpenGLGraphicsComputePipeline : GraphicsDeviceObject, IGra
         });
     }
 
-    protected override void DisposeCore() => _device.ReleaseResource(this);
+    protected override void DisposeCore() => ReleaseOwnerReference();
 
-    public void ReleaseNative(GL gl)
+    public override void ReleaseNative(GL gl)
     {
         uint program = Interlocked.Exchange(ref _program, 0);
         if (program != 0)
