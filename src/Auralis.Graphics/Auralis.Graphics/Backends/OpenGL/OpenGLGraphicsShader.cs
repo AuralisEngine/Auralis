@@ -8,7 +8,7 @@ using Silk.NET.OpenGL.Extensions.ARB;
 namespace Auralis.Graphics.Backends.OpenGL;
 
 /// <summary>A compiled GLSL source or specialized SPIR-V shader object.</summary>
-internal sealed unsafe class OpenGLGraphicsShader : GraphicsDeviceObject, IGraphicsShader, IOpenGLNativeResource
+internal sealed unsafe class OpenGLGraphicsShader : OpenGLNativeDeviceObject, IGraphicsShader
 {
     private readonly OpenGLGraphicsDevice _device;
     private uint _handle;
@@ -31,20 +31,14 @@ internal sealed unsafe class OpenGLGraphicsShader : GraphicsDeviceObject, IGraph
     {
         get
         {
-            ThrowIfDisposed();
-            return _handle;
+            uint handle = Volatile.Read(ref _handle);
+            return handle != 0 ? handle : throw new ObjectDisposedException(nameof(OpenGLGraphicsShader));
         }
     }
 
-    protected override void DisposeCore()
-    {
-        if (_device.IsDisposed)
-            return;
+    protected override void DisposeCore() => ReleaseOwnerReference();
 
-        _device.ReleaseResource(this);
-    }
-
-    public void ReleaseNative(GL gl)
+    public override void ReleaseNative(GL gl)
     {
         uint handle = Interlocked.Exchange(ref _handle, 0);
         if (handle != 0)
