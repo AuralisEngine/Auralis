@@ -5,6 +5,13 @@ namespace Auralis.Graphics.Backends.OpenGL;
 /// <summary>Validates EXT_mesh_shader work-group counts against driver-reported limits.</summary>
 internal static class OpenGLMeshTaskValidation
 {
+    internal static bool IsSupported(
+        bool extensionAvailable,
+        uint maximumX,
+        uint maximumY,
+        uint maximumZ) =>
+        extensionAvailable && maximumX != 0 && maximumY != 0 && maximumZ != 0;
+
     internal static void Validate(
         uint groupCountX,
         uint groupCountY,
