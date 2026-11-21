@@ -3,6 +3,7 @@ using Auralis.Graphics.Backends.OpenGLES;
 using Auralis.Graphics.Devices;
 using Auralis.Graphics.Presentation;
 using Auralis.Graphics.Resources;
+using Silk.NET.OpenGLES;
 using Xunit;
 
 namespace Auralis.Graphics.Tests;
@@ -743,5 +744,68 @@ public sealed class OpenGLESTextureCopyCompatibilityTests
             OpenGLESTextureCompatibility.ValidateCopy(missingSource, CreateDestination()));
         Assert.Throws<GraphicsValidationException>(() =>
             OpenGLESTextureCompatibility.ValidateCopy(CreateSource(), missingDestination));
+    }
+}
+
+public sealed class OpenGLESFormatCapabilityTests
+{
+    [Fact]
+    public void QueryCapabilities_ExposesMrtLimitsAndIntegerColorFormatsWithoutBlendOrFiltering()
+    {
+        OpenGLESCapabilityProfile profile = OpenGLESCapabilityProfile.Create(
+            new OpenGLESVersion(3, 1),
+            ReadOnlySpan<string>.Empty,
+            supportsPresentation: false);
+
+        OpenGLESGraphicsDevice.OpenGLESQueriedLimits queried = new(
+            MaxTextureSize: 4096,
+            MaxTexture3DSize: 256,
+            MaxArrayLayers: 256,
+            MaxVertexAttributes: 16,
+            MaxUniformBufferBindings: 24,
+            MaxStorageBufferBindings: 8,
+            MaxTextureUnits: 16,
+            MaxImageUnits: 8,
+            UniformBufferOffsetAlignment: 256,
+            StorageBufferOffsetAlignment: 256,
+            MaxComputeInvocations: 1024,
+            MaxComputeWorkGroupSizeX: 1024,
+            MaxComputeWorkGroupSizeY: 1024,
+            MaxComputeWorkGroupSizeZ: 64,
+            MaxComputeWorkGroupCountX: 65535,
+            MaxComputeWorkGroupCountY: 65535,
+            MaxComputeWorkGroupCountZ: 65535,
+            MaxTessellationPatchSize: 0,
+            MaxAnisotropy: 1,
+            MaxColorAttachments: 4,
+            MaxColorDrawBuffers: 4);
+
+        GraphicsDeviceCapabilities capabilities =
+            OpenGLESGraphicsDevice.QueryCapabilities(profile, queried);
+
+        Assert.Equal(4u, capabilities.Limits.MaxColorAttachments);
+        Assert.Equal(4u, capabilities.Limits.MaxColorDrawBuffers);
+
+        Assert.True(capabilities.SupportsFormat(
+            GraphicsFormat.RGBA8UInt, GraphicsFormatSupport.Sampled | GraphicsFormatSupport.ColorAttachment));
+        Assert.False(capabilities.SupportsFormat(
+            GraphicsFormat.RGBA8UInt, GraphicsFormatSupport.Blend));
+        Assert.False(capabilities.SupportsFormat(
+            GraphicsFormat.RGBA8UInt, GraphicsFormatSupport.LinearFiltering));
+        Assert.True(capabilities.SupportsSampleCount(GraphicsFormat.RGBA8UInt, 1));
+    }
+
+    [Theory]
+    [InlineData(GraphicsFormat.R8UInt, SizedInternalFormat.R8ui)]
+    [InlineData(GraphicsFormat.R8SInt, SizedInternalFormat.R8i)]
+    [InlineData(GraphicsFormat.RG8UInt, SizedInternalFormat.RG8ui)]
+    [InlineData(GraphicsFormat.RG8SInt, SizedInternalFormat.RG8i)]
+    [InlineData(GraphicsFormat.RGBA8UInt, SizedInternalFormat.Rgba8ui)]
+    [InlineData(GraphicsFormat.RGBA8SInt, SizedInternalFormat.Rgba8i)]
+    public void GetInternalFormat_MapsEightBitIntegerFormats(
+        GraphicsFormat format,
+        SizedInternalFormat expected)
+    {
+        Assert.Equal(expected, OpenGLESGraphicsTexture.GetInternalFormat(format));
     }
 }
