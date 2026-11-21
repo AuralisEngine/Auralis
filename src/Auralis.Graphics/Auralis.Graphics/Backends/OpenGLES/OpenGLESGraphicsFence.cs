@@ -56,7 +56,7 @@ internal sealed class OpenGLESGraphicsFence : OpenGLESNativeDeviceObject, IGraph
         lock (_gate)
         {
             EnsureMonotonic(value);
-            nint sync = gl.FenceSync(SyncCondition.SyncGpuCommandsComplete, 0);
+            nint sync = gl.FenceSync(SyncCondition.SyncGpuCommandsComplete, (uint)0);
             if (sync == 0)
                 throw new GraphicsException("OpenGL ES failed to create a GPU sync object.");
             _syncs.Enqueue(new SyncPoint(value, sync));
@@ -77,7 +77,7 @@ internal sealed class OpenGLESGraphicsFence : OpenGLESNativeDeviceObject, IGraph
             {
                 if (point.Value >= value)
                 {
-                    gl.WaitSync(point.Handle, 0, ulong.MaxValue);
+                    gl.WaitSync(point.Handle, (uint)0, ulong.MaxValue);
                     return;
                 }
             }
@@ -119,7 +119,7 @@ internal sealed class OpenGLESGraphicsFence : OpenGLESNativeDeviceObject, IGraph
         ulong completed = _completedValue;
         while (_syncs.TryPeek(out SyncPoint point))
         {
-            GLEnum status = gl.ClientWaitSync(point.Handle, 0, waitNanoseconds);
+            GLEnum status = gl.ClientWaitSync(point.Handle, (uint)0, waitNanoseconds);
             if (status == GLEnum.TimeoutExpired)
                 break;
             if (status == GLEnum.WaitFailed)
