@@ -40,9 +40,11 @@ internal sealed class OpenGLGraphicsBindingLayout : GraphicsDeviceObject, IGraph
         for (int i = 0; i < _entries.Length; i++)
         {
             GraphicsBindingLayoutEntry entry = description.Entries[i];
-            if (entry.Flags != GraphicsBindingFlags.None)
+            GraphicsBindingFlags unsupportedFlags =
+                entry.Flags & ~GraphicsBindingFlags.PartiallyBound;
+            if (unsupportedFlags != GraphicsBindingFlags.None)
                 throw new GraphicsValidationException(
-                    $"OpenGL does not implement descriptor binding flags ({entry.Flags}) yet.");
+                    $"OpenGL does not implement descriptor binding flags ({unsupportedFlags}).");
 
             _entries[i] = new OpenGLDescriptorEntry(entry, valueOffset);
             valueOffset = checked(valueOffset + (int)entry.Count);
@@ -172,6 +174,16 @@ internal static class OpenGLBindingSetBinder
             {
                 OpenGLBindingValue value = values[entry.ValueOffset + checked((int)element)];
                 uint slot = checked(mapping.BaseSlot + element);
+                bool partiallyBound = (entry.Description.Flags & GraphicsBindingFlags.PartiallyBound) != 0;
+
+                if (IsMissing(value, entry.Description.Type))
+                {
+                    if (!partiallyBound)
+                        throw new GraphicsValidationException(
+                            $"Descriptor binding {entry.Description.Binding}[{element}] is not populated.");
+                    Unbind(gl, dsa, imageLoadStoreApi, entry.Description.Type, slot);
+                    continue;
+                }
 
                 switch (entry.Description.Type)
                 {
@@ -203,6 +215,7 @@ internal static class OpenGLBindingSetBinder
                         break;
 
                     case GraphicsDescriptorType.Sampler:
+                        dsa.BindTextureUnit(slot, 0);
                         gl.BindSampler(slot, ((OpenGLGraphicsSampler)value.Sampler!).Handle);
                         break;
 
@@ -215,6 +228,55 @@ internal static class OpenGLBindingSetBinder
                         throw new GraphicsValidationException($"Unsupported OpenGL descriptor type: {entry.Description.Type}.");
                 }
             }
+        }
+    }
+
+    private static bool IsMissing(OpenGLBindingValue value, GraphicsDescriptorType type) => type switch
+    {
+        GraphicsDescriptorType.UniformBuffer or GraphicsDescriptorType.StorageBuffer => value.Buffer is null,
+        GraphicsDescriptorType.SampledTexture or GraphicsDescriptorType.StorageTexture => value.Texture is null,
+        GraphicsDescriptorType.Sampler => value.Sampler is null,
+        GraphicsDescriptorType.CombinedTextureSampler => value.Texture is null && value.Sampler is null,
+        _ => throw new GraphicsValidationException($"Unsupported OpenGL descriptor type: {type}.")
+    };
+
+    private static void Unbind(
+        GL gl,
+        ArbDirectStateAccess dsa,
+        ArbShaderImageLoadStore imageLoadStoreApi,
+        GraphicsDescriptorType type,
+        uint slot)
+    {
+        switch (type)
+        {
+            case GraphicsDescriptorType.UniformBuffer:
+                gl.BindBufferBase(BufferTargetARB.UniformBuffer, slot, 0);
+                break;
+
+            case GraphicsDescriptorType.StorageBuffer:
+                gl.BindBufferBase(BufferTargetARB.ShaderStorageBuffer, slot, 0);
+                break;
+
+            case GraphicsDescriptorType.SampledTexture:
+            case GraphicsDescriptorType.Sampler:
+            case GraphicsDescriptorType.CombinedTextureSampler:
+                dsa.BindTextureUnit(slot, 0);
+                gl.BindSampler(slot, 0);
+                break;
+
+            case GraphicsDescriptorType.StorageTexture:
+                imageLoadStoreApi.BindImageTexture(
+                    slot,
+                    0,
+                    0,
+                    false,
+                    0,
+                    BufferAccessARB.ReadWrite,
+                    (InternalFormat)0);
+                break;
+
+            default:
+                throw new GraphicsValidationException($"Unsupported OpenGL descriptor type: {type}.");
         }
     }
 
@@ -382,16 +444,35 @@ internal sealed class OpenGLGraphicsBindingSet : GraphicsDeviceObject, IGraphics
                     OpenGLBindingValue value = _values[entry.ValueOffset + element];
                     bool valid = entry.Description.Type switch
                     {
-                        GraphicsDescriptorType.UniformBuffer or GraphicsDescriptorType.StorageBuffer => value.Buffer is not null,
-                        GraphicsDescriptorType.SampledTexture or GraphicsDescriptorType.StorageTexture => value.Texture is not null,
-                        GraphicsDescriptorType.Sampler => value.Sampler is not null,
-                        GraphicsDescriptorType.CombinedTextureSampler => value.Texture is not null && value.Sampler is not null,
+                        GraphicsDescriptorType.UniformBuffer or GraphicsDescriptorType.StorageBuffer =>
+                            value.Buffer is not null,
+                        GraphicsDescriptorType.SampledTexture or GraphicsDescriptorType.StorageTexture =>
+                            value.Texture is not null,
+                        GraphicsDescriptorType.Sampler =>
+                            value.Sampler is not null,
+                        GraphicsDescriptorType.CombinedTextureSampler =>
+                            value.Texture is not null && value.Sampler is not null,
+                        _ => false
+                    };
+                    bool completelyEmpty = entry.Description.Type switch
+                    {
+                        GraphicsDescriptorType.UniformBuffer or GraphicsDescriptorType.StorageBuffer =>
+                            value.Buffer is null,
+                        GraphicsDescriptorType.SampledTexture or GraphicsDescriptorType.StorageTexture =>
+                            value.Texture is null,
+                        GraphicsDescriptorType.Sampler =>
+                            value.Sampler is null,
+                        GraphicsDescriptorType.CombinedTextureSampler =>
+                            value.Texture is null && value.Sampler is null,
                         _ => false
                     };
 
-                    if (!valid)
+                    if (!valid &&
+                        !((entry.Description.Flags & GraphicsBindingFlags.PartiallyBound) != 0 && completelyEmpty))
+                    {
                         throw new GraphicsValidationException(
-                            $"Descriptor binding {entry.Description.Binding}[{element}] has not been populated.");
+                            $"Descriptor binding {entry.Description.Binding}[{element}] is not populated with a complete descriptor.");
+                    }
                 }
             }
 
