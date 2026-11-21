@@ -88,6 +88,7 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
         TextureTarget.Texture2DArray,
         TextureTarget.Texture3D,
         TextureTarget.TextureCubeMap,
+        TextureTarget.TextureCubeMapArray,
         TextureTarget.Texture2DMultisample
     ];
 
@@ -1160,7 +1161,8 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
                         }
                         OpenGLESGraphicsTextureView storageView = (OpenGLESGraphicsTextureView)value.Texture;
                         bool layered = storageView.Target is
-                            TextureTarget.Texture2DArray or TextureTarget.Texture3D or TextureTarget.TextureCubeMap;
+                            TextureTarget.Texture2DArray or TextureTarget.Texture3D or
+                        TextureTarget.TextureCubeMap or TextureTarget.TextureCubeMapArray;
                         gl.BindImageTexture(
                             slot,
                             storageView.Handle,
