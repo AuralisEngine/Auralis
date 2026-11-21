@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using Auralis.Graphics.Abstractions;
 using Auralis.Graphics.Commands;
 using Auralis.Graphics.Devices;
@@ -16,9 +17,18 @@ namespace Auralis.Graphics.Backends.OpenGLES;
 /// </summary>
 internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
 {
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)]
+    internal unsafe delegate void MultiDrawArraysIndirectExtDelegate(
+        PrimitiveType mode, void* indirect, uint drawCount, uint stride);
+
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)]
+    internal unsafe delegate void MultiDrawElementsIndirectExtDelegate(
+        PrimitiveType mode, DrawElementsType type, void* indirect, uint drawCount, uint stride);
+
     private readonly IOpenGLESContextProvider _contextProvider;
     private readonly GL _gl;
-    private readonly ExtMultiDrawIndirect? _multiDrawIndirectApi;
+    private readonly MultiDrawArraysIndirectExtDelegate? _multiDrawArraysIndirectExt;
+    private readonly MultiDrawElementsIndirectExtDelegate? _multiDrawElementsIndirectExt;
     private readonly ExtDrawBuffersIndexed? _drawBuffersIndexedApi;
     private readonly object _contextGate = new();
     private readonly object _resourceGate = new();
@@ -31,7 +41,8 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
     private OpenGLESGraphicsDevice(
         IOpenGLESContextProvider contextProvider,
         GL gl,
-        ExtMultiDrawIndirect? multiDrawIndirectApi,
+        MultiDrawArraysIndirectExtDelegate? multiDrawArraysIndirectExt,
+        MultiDrawElementsIndirectExtDelegate? multiDrawElementsIndirectExt,
         ExtDrawBuffersIndexed? drawBuffersIndexedApi,
         OpenGLESVersion version,
         string versionString,
@@ -43,7 +54,8 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
     {
         _contextProvider = contextProvider;
         _gl = gl;
-        _multiDrawIndirectApi = multiDrawIndirectApi;
+        _multiDrawArraysIndirectExt = multiDrawArraysIndirectExt;
+        _multiDrawElementsIndirectExt = multiDrawElementsIndirectExt;
         _drawBuffersIndexedApi = drawBuffersIndexedApi;
         Version = version;
         VersionString = versionString;
@@ -102,7 +114,8 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
     public OpenGLESCapabilityProfile Profile { get; }
 
     internal GL Api => _gl;
-    internal ExtMultiDrawIndirect? MultiDrawIndirectApi => _multiDrawIndirectApi;
+    internal MultiDrawArraysIndirectExtDelegate? MultiDrawArraysIndirectExt => _multiDrawArraysIndirectExt;
+    internal MultiDrawElementsIndirectExtDelegate? MultiDrawElementsIndirectExt => _multiDrawElementsIndirectExt;
     internal ExtDrawBuffersIndexed? DrawBuffersIndexedApi => _drawBuffersIndexedApi;
 
     internal uint MaxUniformBufferBindings { get; }
@@ -124,7 +137,8 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
         cancellationToken.ThrowIfCancellationRequested();
 
         GL? gl = null;
-        ExtMultiDrawIndirect? multiDrawIndirectApi = null;
+        MultiDrawArraysIndirectExtDelegate? multiDrawArraysIndirectExt = null;
+        MultiDrawElementsIndirectExtDelegate? multiDrawElementsIndirectExt = null;
         ExtDrawBuffersIndexed? drawBuffersIndexedApi = null;
         contextProvider.MakeCurrent();
         try
@@ -136,15 +150,30 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
                     GraphicsBackend.OpenGLES,
                     $"The supplied context did not report an OpenGL ES version (GL_VERSION='{versionString}').");
 
-            OpenGLESCapabilityProfile profile = QueryProfile(gl, version, contextProvider.SupportsPresentation);
-            profile.EnsureRequiredBaseline();
+            bool hasMultiDrawIndirectExtension = gl.IsExtensionPresent("GL_EXT_multi_draw_indirect");
+            if (hasMultiDrawIndirectExtension)
+            {
+                nint arraysAddress = contextProvider.GetProcAddress("glMultiDrawArraysIndirectEXT");
+                nint elementsAddress = contextProvider.GetProcAddress("glMultiDrawElementsIndirectEXT");
+                if (arraysAddress != 0 && elementsAddress != 0)
+                {
+                    multiDrawArraysIndirectExt =
+                        Marshal.GetDelegateForFunctionPointer<MultiDrawArraysIndirectExtDelegate>(arraysAddress);
+                    multiDrawElementsIndirectExt =
+                        Marshal.GetDelegateForFunctionPointer<MultiDrawElementsIndirectExtDelegate>(elementsAddress);
+                }
+            }
 
-            // Construct only wrappers for extensions actually advertised by this current context.
-            // The wrappers resolve their entry points through the context that supplied the core GL API.
-            if (profile.HasExtension(ExtMultiDrawIndirect.ExtensionName))
-                multiDrawIndirectApi = new ExtMultiDrawIndirect(gl.Context);
-            if (profile.HasExtension(ExtDrawBuffersIndexed.ExtensionName))
+            if (gl.IsExtensionPresent(ExtDrawBuffersIndexed.ExtensionName))
                 drawBuffersIndexedApi = new ExtDrawBuffersIndexed(gl.Context);
+
+            OpenGLESCapabilityProfile profile = QueryProfile(
+                gl,
+                version,
+                contextProvider.SupportsPresentation,
+                multiDrawArraysIndirectExt is not null && multiDrawElementsIndirectExt is not null,
+                drawBuffersIndexedApi is not null);
+            profile.EnsureRequiredBaseline();
 
             string vendor = gl.GetStringS(StringName.Vendor);
             string renderer = gl.GetStringS(StringName.Renderer);
@@ -154,17 +183,17 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
             cancellationToken.ThrowIfCancellationRequested();
 
             OpenGLESGraphicsDevice device = new(
-                contextProvider, gl, multiDrawIndirectApi, drawBuffersIndexedApi,
-                version, versionString, vendor, renderer, profile, capabilities, queriedLimits);
+                contextProvider, gl, multiDrawArraysIndirectExt, multiDrawElementsIndirectExt,
+                drawBuffersIndexedApi, version, versionString, vendor, renderer, profile, capabilities, queriedLimits);
             gl = null;
-            multiDrawIndirectApi = null;
+            multiDrawArraysIndirectExt = null;
+            multiDrawElementsIndirectExt = null;
             drawBuffersIndexedApi = null;
             return device;
         }
         catch
         {
             drawBuffersIndexedApi?.Dispose();
-            multiDrawIndirectApi?.Dispose();
             gl?.Dispose();
             throw;
         }
@@ -177,14 +206,19 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
     private static OpenGLESCapabilityProfile QueryProfile(
         GL gl,
         OpenGLESVersion version,
-        bool supportsPresentation)
+        bool supportsPresentation,
+        bool multiDrawIndirectEntryPointsAvailable,
+        bool indexedBlendEntryPointsAvailable)
     {
         int extensionCount = Math.Max(0, gl.GetInteger(GLEnum.NumExtensions));
         string[] extensions = new string[extensionCount];
         for (int i = 0; i < extensionCount; i++)
             extensions[i] = gl.GetStringS(StringName.Extensions, (uint)i);
 
-        return OpenGLESCapabilityProfile.Create(version, extensions, supportsPresentation);
+        return OpenGLESCapabilityProfile.Create(
+            version, extensions, supportsPresentation,
+            multiDrawIndirectEntryPointsAvailable,
+            indexedBlendEntryPointsAvailable);
     }
 
     private static OpenGLESQueriedLimits QueryLimits(GL gl, OpenGLESCapabilityProfile profile)
@@ -654,15 +688,6 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
                 try
                 {
                     _drawBuffersIndexedApi?.Dispose();
-                }
-                catch (Exception exception)
-                {
-                    RecordFailure(ref failures, exception);
-                }
-
-                try
-                {
-                    _multiDrawIndirectApi?.Dispose();
                 }
                 catch (Exception exception)
                 {
