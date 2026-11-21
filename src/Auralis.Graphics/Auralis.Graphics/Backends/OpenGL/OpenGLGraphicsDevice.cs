@@ -289,10 +289,11 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
                 maxMeshWorkGroupCountZ = ToUInt(countZ);
             }
 
-            bool supportsMeshShaders = meshShaderApi is not null &&
-                maxMeshWorkGroupCountX != 0 &&
-                maxMeshWorkGroupCountY != 0 &&
-                maxMeshWorkGroupCountZ != 0;
+            bool supportsMeshShaders = OpenGLMeshTaskValidation.IsSupported(
+                meshShaderApi is not null,
+                maxMeshWorkGroupCountX,
+                maxMeshWorkGroupCountY,
+                maxMeshWorkGroupCountZ);
             GraphicsDeviceCapabilities capabilities = QueryCapabilities(
                 gl, major, minor, internalFormatQuery!, uniformBufferObjectApi!,
                 contextProvider.SupportsPresentation,
