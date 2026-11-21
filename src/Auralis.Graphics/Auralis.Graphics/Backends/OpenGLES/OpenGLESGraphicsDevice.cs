@@ -254,7 +254,7 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
             maxAnisotropy);
     }
 
-    private static GraphicsDeviceCapabilities QueryCapabilities(
+    internal static GraphicsDeviceCapabilities QueryCapabilities(
         OpenGLESCapabilityProfile profile,
         in OpenGLESQueriedLimits queried)
     {
@@ -286,15 +286,11 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
         GraphicsFormatSupport normalizedSingleSupport =
             GraphicsFormatSupport.Sampled |
             GraphicsFormatSupport.VertexBuffer |
-            GraphicsFormatSupport.CopySource |
-            GraphicsFormatSupport.CopyDestination |
             GraphicsFormatSupport.LinearFiltering;
 
         GraphicsFormatSupport depthSupport =
             GraphicsFormatSupport.Sampled |
-            GraphicsFormatSupport.DepthStencilAttachment |
-            GraphicsFormatSupport.CopySource |
-            GraphicsFormatSupport.CopyDestination;
+            GraphicsFormatSupport.DepthStencilAttachment;
 
         GraphicsFormatSupport rgba8Support = colorSupport;
         if (profile.Version.IsAtLeast(3, 1))
@@ -323,7 +319,7 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
 
     private static uint ToUInt(int value) => value <= 0 ? 0u : (uint)value;
 
-    private readonly record struct OpenGLESQueriedLimits(
+    internal readonly record struct OpenGLESQueriedLimits(
         uint MaxTextureSize,
         uint MaxTexture3DSize,
         uint MaxArrayLayers,

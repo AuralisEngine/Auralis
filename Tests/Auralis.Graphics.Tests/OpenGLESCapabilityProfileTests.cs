@@ -532,3 +532,103 @@ public sealed class OpenGLESComputeWorkGroupValidationTests
         Assert.Throws<GraphicsValidationException>(() =>
             OpenGLESComputeWorkGroupValidation.ValidateLocalSize(x, y, z, s_limits));
 }
+
+
+using Auralis.Graphics.Abstractions;
+using Auralis.Graphics.Backends.OpenGLES;
+using Auralis.Graphics.Devices;
+using Xunit;
+
+namespace Auralis.Graphics.Tests;
+
+public sealed class OpenGLESFormatCapabilityTests
+{
+    private static GraphicsDeviceCapabilities CreateCapabilities(int major = 3, int minor = 1)
+    {
+        OpenGLESCapabilityProfile profile = OpenGLESCapabilityProfile.Create(
+            new OpenGLESVersion(major, minor),
+            ReadOnlySpan<string>.Empty,
+            supportsPresentation: false);
+
+        OpenGLESGraphicsDevice.OpenGLESQueriedLimits limits = new(
+            MaxTextureSize: 4096,
+            MaxTexture3DSize: 256,
+            MaxArrayLayers: 256,
+            MaxVertexAttributes: 16,
+            MaxUniformBufferBindings: 24,
+            MaxStorageBufferBindings: 8,
+            MaxTextureUnits: 16,
+            MaxImageUnits: major > 3 || (major == 3 && minor >= 1) ? 8u : 0u,
+            UniformBufferOffsetAlignment: 256,
+            StorageBufferOffsetAlignment: 16,
+            MaxComputeInvocations: major > 3 || (major == 3 && minor >= 1) ? 256u : 0u,
+            MaxComputeWorkGroupSizeX: major > 3 || (major == 3 && minor >= 1) ? 128u : 0u,
+            MaxComputeWorkGroupSizeY: major > 3 || (major == 3 && minor >= 1) ? 128u : 0u,
+            MaxComputeWorkGroupSizeZ: major > 3 || (major == 3 && minor >= 1) ? 64u : 0u,
+            MaxComputeWorkGroupCountX: major > 3 || (major == 3 && minor >= 1) ? 65_535u : 0u,
+            MaxComputeWorkGroupCountY: major > 3 || (major == 3 && minor >= 1) ? 65_535u : 0u,
+            MaxComputeWorkGroupCountZ: major > 3 || (major == 3 && minor >= 1) ? 65_535u : 0u,
+            MaxTessellationPatchSize: minor >= 2 ? 32u : 0u,
+            MaxAnisotropy: 1);
+
+        return OpenGLESGraphicsDevice.QueryCapabilities(profile, limits);
+    }
+
+    [Theory]
+    [InlineData(GraphicsFormat.R8UNorm)]
+    [InlineData(GraphicsFormat.RG8UNorm)]
+    [InlineData(GraphicsFormat.D16UNorm)]
+    [InlineData(GraphicsFormat.D24UNormS8UInt)]
+    public void FormatsOutsideImplementedColorBlitPath_DoNotAdvertiseTextureCopy(GraphicsFormat format)
+    {
+        GraphicsDeviceCapabilities capabilities = CreateCapabilities();
+
+        Assert.True(capabilities.TryGetFormatCapabilities(format, out GraphicsFormatCapabilities support));
+        Assert.False(support.Supports(GraphicsFormatSupport.CopySource));
+        Assert.False(support.Supports(GraphicsFormatSupport.CopyDestination));
+    }
+
+    [Theory]
+    [InlineData(GraphicsFormat.RGBA8UNorm)]
+    [InlineData(GraphicsFormat.RGBA8UNormSrgb)]
+    public void ImplementedRgbaColorBlitFormats_AdvertiseTextureCopy(GraphicsFormat format)
+    {
+        GraphicsDeviceCapabilities capabilities = CreateCapabilities();
+
+        Assert.True(capabilities.TryGetFormatCapabilities(format, out GraphicsFormatCapabilities support));
+        Assert.True(support.Supports(GraphicsFormatSupport.CopySource));
+        Assert.True(support.Supports(GraphicsFormatSupport.CopyDestination));
+        Assert.True(support.Supports(GraphicsFormatSupport.ColorAttachment));
+    }
+
+    [Fact]
+    public void Rgba8StorageSupport_IsReportedOnlyForGles31AndNewer()
+    {
+        GraphicsDeviceCapabilities es30 = CreateCapabilities(3, 0);
+        GraphicsDeviceCapabilities es31 = CreateCapabilities(3, 1);
+
+        Assert.True(es30.TryGetFormatCapabilities(GraphicsFormat.RGBA8UNorm, out GraphicsFormatCapabilities es30Support));
+        Assert.True(es31.TryGetFormatCapabilities(GraphicsFormat.RGBA8UNorm, out GraphicsFormatCapabilities es31Support));
+        Assert.False(es30Support.Supports(GraphicsFormatSupport.Storage));
+        Assert.True(es31Support.Supports(GraphicsFormatSupport.Storage));
+    }
+
+    [Fact]
+    public void NormalizedAndDepthFormats_RetainTheirImplementedUsages()
+    {
+        GraphicsDeviceCapabilities capabilities = CreateCapabilities();
+
+        Assert.True(capabilities.SupportsFormat(
+            GraphicsFormat.R8UNorm,
+            GraphicsFormatSupport.Sampled | GraphicsFormatSupport.VertexBuffer | GraphicsFormatSupport.LinearFiltering));
+        Assert.True(capabilities.SupportsFormat(
+            GraphicsFormat.RG8UNorm,
+            GraphicsFormatSupport.Sampled | GraphicsFormatSupport.VertexBuffer | GraphicsFormatSupport.LinearFiltering));
+        Assert.True(capabilities.SupportsFormat(
+            GraphicsFormat.D16UNorm,
+            GraphicsFormatSupport.Sampled | GraphicsFormatSupport.DepthStencilAttachment));
+        Assert.True(capabilities.SupportsFormat(
+            GraphicsFormat.D24UNormS8UInt,
+            GraphicsFormatSupport.Sampled | GraphicsFormatSupport.DepthStencilAttachment));
+    }
+}
