@@ -76,6 +76,14 @@ internal struct OpenGLESCmd
 
 internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject, IGraphicsCommandList
 {
+    private static readonly TextureTarget[] s_textureTargets =
+    [
+        TextureTarget.Texture2D,
+        TextureTarget.Texture2DArray,
+        TextureTarget.Texture3D,
+        TextureTarget.TextureCubeMap
+    ];
+
     private readonly OpenGLESGraphicsCommandQueue _queue;
     private readonly GraphicsCommandListLifecycle _lifecycle;
     private readonly List<OpenGLESCmd> _commands = new(48);
@@ -168,13 +176,13 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
         uint width = 0, height = 0;
         for (int i = 0; i < colorTargets.Length; i++)
         {
-            ValidateRenderTarget(colorTargets[i], ref width, ref height);
+            ValidateRenderTarget(colorTargets[i], ref width, ref height, depthAttachment: false);
             EnsureOwned(colorTargets[i]);
         }
 
         if (depthStencilTarget is not null)
         {
-            ValidateRenderTarget(depthStencilTarget, ref width, ref height);
+            ValidateRenderTarget(depthStencilTarget, ref width, ref height, depthAttachment: true);
             EnsureOwned(depthStencilTarget);
             GraphicsFormat format = GetViewFormat(depthStencilTarget);
             if (format is not (GraphicsFormat.D16UNorm or GraphicsFormat.D24UNormS8UInt))
@@ -582,6 +590,14 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
             throw new GraphicsValidationException("The GLES copy path requires identical whole-texture descriptions.");
         if (src.Dimension != GraphicsTextureDimension.Texture2D || src.SampleCount != 1)
             throw new GraphicsValidationException("The GLES framebuffer blit copy path currently supports 2D textures only.");
+        if ((src.Usage & GraphicsTextureUsage.ColorAttachment) == 0 ||
+            (dst.Usage & GraphicsTextureUsage.ColorAttachment) == 0)
+            throw new GraphicsValidationException(
+                "The GLES framebuffer-blit texture copy requires both textures to have ColorAttachment usage.");
+        GraphicsFormat copyFormat = src.Format;
+        if (copyFormat is not (GraphicsFormat.RGBA8UNorm or GraphicsFormat.RGBA8UNormSrgb))
+            throw new GraphicsValidationException(
+                $"The GLES color framebuffer-blit copy path does not support format {copyFormat}.");
 
         _commands.Add(new OpenGLESCmd
         {
@@ -889,20 +905,12 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
         uint sampler)
     {
         gl.ActiveTexture((TextureUnit)(0x84C0 + slot));
-        TextureTarget[] targets =
-        [
-            TextureTarget.Texture2D,
-            TextureTarget.Texture2DArray,
-            TextureTarget.Texture3D,
-            TextureTarget.TextureCubeMap
-        ];
-
-        for (int i = 0; i < targets.Length; i++)
+        for (int i = 0; i < s_textureTargets.Length; i++)
         {
-            uint handle = texture is not null && texture.Target == targets[i]
+            uint handle = texture is not null && texture.Target == s_textureTargets[i]
                 ? texture.Handle
                 : 0;
-            gl.BindTexture(targets[i], handle);
+            gl.BindTexture(s_textureTargets[i], handle);
         }
 
         gl.BindSampler(slot, sampler);
@@ -1053,16 +1061,35 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
             throw new ArgumentOutOfRangeException(nameof(drawCount));
     }
 
-    private void ValidateRenderTarget(IGraphicsTextureView view, ref uint width, ref uint height)
+    private void ValidateRenderTarget(
+        IGraphicsTextureView view,
+        ref uint width,
+        ref uint height,
+        bool depthAttachment)
     {
         ArgumentNullException.ThrowIfNull(view);
         EnsureOwned(view);
         if (view.Texture is not OpenGLESGraphicsTexture texture)
             throw new GraphicsValidationException("The render attachment is not an OpenGL ES texture.");
-        if (texture.Target != TextureTarget.Texture2D ||
-            texture.Description.SampleCount != 1 ||
-            (texture.Description.Usage & (GraphicsTextureUsage.ColorAttachment | GraphicsTextureUsage.DepthStencilAttachment)) == 0)
-            throw new GraphicsValidationException("The render attachment is not a supported single-sample 2D attachment.");
+        if (texture.Target != TextureTarget.Texture2D || texture.Description.SampleCount != 1)
+            throw new GraphicsValidationException("GLES framebuffer attachments require a single-sample 2D texture.");
+
+        GraphicsFormat format = GetViewFormat(view);
+        if (depthAttachment)
+        {
+            if ((texture.Description.Usage & GraphicsTextureUsage.DepthStencilAttachment) == 0 ||
+                format is not (GraphicsFormat.D16UNorm or GraphicsFormat.D24UNormS8UInt))
+                throw new GraphicsValidationException(
+                    "Depth targets require DepthStencilAttachment usage and a supported depth format.");
+        }
+        else
+        {
+            if ((texture.Description.Usage & GraphicsTextureUsage.ColorAttachment) == 0 ||
+                format is not (GraphicsFormat.RGBA8UNorm or GraphicsFormat.RGBA8UNormSrgb))
+                throw new GraphicsValidationException(
+                    "Color targets require ColorAttachment usage and a supported GLES color-renderable format.");
+        }
+
         if (width == 0) { width = texture.Description.Width; height = texture.Description.Height; }
         else if (width != texture.Description.Width || height != texture.Description.Height)
             throw new GraphicsValidationException("All framebuffer attachments must have matching dimensions.");
