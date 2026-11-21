@@ -193,6 +193,8 @@ internal sealed class OpenGLESGraphicsCommandQueue : IGraphicsCommandQueue
         while (commandList.Lifecycle.State == GraphicsCommandListState.Pending)
         {
             bool foundPending = false;
+            OpenGLESGraphicsCommandList[]? completedLists = null;
+
             _device.WithContext(gl =>
             {
                 lock (_gate)
@@ -207,15 +209,14 @@ internal sealed class OpenGLESGraphicsCommandQueue : IGraphicsCommandQueue
                             continue;
 
                         foundPending = true;
-                        GLEnum status = gl.ClientWaitSync(submission.Sync, (SyncObjectMask)1, 1_000_000);
+                        GLEnum status = gl.ClientWaitSync(submission.Sync, (SyncObjectMask)SyncObjectMask.Bit, 1_000_000);
                         if (status == GLEnum.WaitFailed)
                             throw new GraphicsException("OpenGL ES failed while waiting for command-list completion.");
                         if (status is GLEnum.AlreadySignaled or GLEnum.ConditionSatisfied)
                         {
                             gl.DeleteSync(submission.Sync);
                             _pending.RemoveAt(i);
-                            for (int j = 0; j < submission.CommandLists.Length; j++)
-                                submission.CommandLists[j].Complete();
+                            completedLists = submission.CommandLists;
                         }
                         break;
                     }
@@ -224,6 +225,12 @@ internal sealed class OpenGLESGraphicsCommandQueue : IGraphicsCommandQueue
 
             if (!foundPending && commandList.Lifecycle.State == GraphicsCommandListState.Pending)
                 throw new GraphicsException("The GLES command list is pending but has no owning queue submission.");
+
+            if (completedLists is not null)
+            {
+                for (int i = 0; i < completedLists.Length; i++)
+                    completedLists[i].Complete();
+            }
         }
     }
 
