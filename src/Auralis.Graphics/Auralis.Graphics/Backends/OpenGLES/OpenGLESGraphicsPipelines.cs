@@ -201,7 +201,7 @@ internal sealed unsafe class OpenGLESGraphicsRenderPipeline : OpenGLESGraphicsPi
         gl.BindVertexArray(VertexArray);
         if (Description.Tessellation is { } tessellation)
             gl.PatchParameter(
-                PatchParameterName.PatchVertices,
+                PatchParameterName.Vertices,
                 checked((int)tessellation.PatchControlPoints));
 
         GraphicsRasterizationState raster = Description.Rasterization;
