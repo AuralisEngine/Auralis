@@ -48,19 +48,19 @@ internal static class Program
             int skipped = 0;
             int failed = 0;
 
-            await Run("buffer copy after dispose-before-submit", session, CopyBufferAfterRecordDispose,
+            Run("buffer copy after dispose-before-submit", session, CopyBufferAfterRecordDispose,
                 ref passed, ref skipped, ref failed);
-            await Run("texture copy after dispose-before-submit", session, CopyTextureAfterRecordDispose,
+            Run("texture copy after dispose-before-submit", session, CopyTextureAfterRecordDispose,
                 ref passed, ref skipped, ref failed);
-            await Run("buffer dispose after submission while GPU work is pending", session, CopyBufferAfterSubmitDispose,
+            Run("buffer dispose after submission while GPU work is pending", session, CopyBufferAfterSubmitDispose,
                 ref passed, ref skipped, ref failed);
-            await Run("partially-bound descriptor switching and indirect compute", session, PartiallyBoundIndirectCompute,
+            Run("partially-bound descriptor switching and indirect compute", session, PartiallyBoundIndirectCompute,
                 ref passed, ref skipped, ref failed);
-            await Run("conventional direct and indirect graphics draws", session, ConventionalDirectAndIndirectDraw,
+            Run("conventional direct and indirect graphics draws", session, ConventionalDirectAndIndirectDraw,
                 ref passed, ref skipped, ref failed);
-            await Run("EXT mesh-shader direct and indirect draws", session, MeshShaderDirectAndIndirectDraw,
+            Run("EXT mesh-shader direct and indirect draws", session, MeshShaderDirectAndIndirectDraw,
                 ref passed, ref skipped, ref failed);
-            await Run("EXT task+mesh shader pipeline", session, TaskAndMeshShaderDraw,
+            Run("EXT task+mesh shader pipeline", session, TaskAndMeshShaderDraw,
                 ref passed, ref skipped, ref failed);
 
             Console.WriteLine();
@@ -69,7 +69,7 @@ internal static class Program
         }
     }
 
-    private static async Task Run(
+    private static void Run(
         string name,
         GlfwOpenGLHardwareSession session,
         Action<GlfwOpenGLHardwareSession> test,
@@ -98,7 +98,6 @@ internal static class Program
             Console.Error.WriteLine($"FAIL: {name} — {exception}");
         }
 
-        await Task.CompletedTask;
     }
 
     private static void CopyBufferAfterRecordDispose(GlfwOpenGLHardwareSession session)
@@ -558,5 +557,5 @@ internal static class Program
             throw new InvalidOperationException("The command list remained Pending after its completion fence signaled.");
     }
 
-    private sealed class HardwareTestSkippedException(string message) : Exception(message);
+    private sealed class HardwareTestSkippedException(string message) : Exception(message) { }
 }
