@@ -9,6 +9,7 @@ namespace Auralis.Graphics.Backends.OpenGLES;
 internal sealed class OpenGLESGraphicsShader : OpenGLESNativeDeviceObject, IGraphicsShader
 {
     private readonly OpenGLESGraphicsDevice _device;
+    private static readonly UTF8Encoding StrictUtf8 = new(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
     private uint _handle;
 
     private OpenGLESGraphicsShader(
@@ -56,7 +57,7 @@ internal sealed class OpenGLESGraphicsShader : OpenGLESNativeDeviceObject, IGrap
         string source;
         try
         {
-            source = new UTF8Encoding(false, true).GetString(copy.Code.Span);
+            source = StrictUtf8.GetString(copy.Code.Span);
         }
         catch (DecoderFallbackException exception)
         {

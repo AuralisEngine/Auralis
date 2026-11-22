@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Diagnostics;
 using System.Text;
 using Auralis.Graphics.Backends;
@@ -1014,12 +1015,23 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
             return;
 
         int byteCount = Encoding.UTF8.GetByteCount(label);
-        Span<byte> utf8 = byteCount <= 128
-            ? stackalloc byte[byteCount]
-            : new byte[byteCount];
-        Encoding.UTF8.GetBytes(label.AsSpan(), utf8);
-        fixed (byte* pointer = utf8)
-            _gl.ObjectLabel((GLEnum)identifier, handle, checked((uint)byteCount), pointer);
+        byte[]? rented = null;
+        Span<byte> buffer = byteCount < 128
+            ? stackalloc byte[128]
+            : (rented = ArrayPool<byte>.Shared.Rent(checked(byteCount + 1)));
+        Span<byte> utf8 = buffer[..checked(byteCount + 1)];
+        try
+        {
+            Encoding.UTF8.GetBytes(label.AsSpan(), utf8[..byteCount]);
+            utf8[byteCount] = 0;
+            fixed (byte* pointer = utf8)
+                _gl.ObjectLabel((GLEnum)identifier, handle, checked((uint)byteCount), pointer);
+        }
+        finally
+        {
+            if (rented is not null)
+                ArrayPool<byte>.Shared.Return(rented, clearArray: true);
+        }
     }
 
     internal unsafe void PushDebugGroup(GLEnum source, uint id, string message)
@@ -1028,12 +1040,23 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
             return;
 
         int byteCount = Encoding.UTF8.GetByteCount(message);
-        Span<byte> utf8 = byteCount <= 128
-            ? stackalloc byte[byteCount]
-            : new byte[byteCount];
-        Encoding.UTF8.GetBytes(message.AsSpan(), utf8);
-        fixed (byte* pointer = utf8)
-            _gl.PushDebugGroup(source, id, checked((uint)byteCount), pointer);
+        byte[]? rented = null;
+        Span<byte> buffer = byteCount < 128
+            ? stackalloc byte[128]
+            : (rented = ArrayPool<byte>.Shared.Rent(checked(byteCount + 1)));
+        Span<byte> utf8 = buffer[..checked(byteCount + 1)];
+        try
+        {
+            Encoding.UTF8.GetBytes(message.AsSpan(), utf8[..byteCount]);
+            utf8[byteCount] = 0;
+            fixed (byte* pointer = utf8)
+                _gl.PushDebugGroup(source, id, checked((uint)byteCount), pointer);
+        }
+        finally
+        {
+            if (rented is not null)
+                ArrayPool<byte>.Shared.Return(rented, clearArray: true);
+        }
     }
 
     internal void PopDebugGroup()
@@ -1044,7 +1067,8 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
 
     public void Dispose()
     {
-        IOpenGLNativeResource[] resourcesToPrepare;
+        IOpenGLNativeResource[]? resourcesToPrepare = null;
+        int resourcesToPrepareCount = 0;
         lock (_contextGate)
         {
             if (Volatile.Read(ref _disposeState) != 0)
@@ -1054,16 +1078,21 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
                 return;
             }
 
-            // Publish shutdown before releasing the gate so no new operation/resource can enter.
+            // Snapshot before publishing shutdown; preparation may mutate the resource registry.
+            resourcesToPrepareCount = _resources.Count;
+            if (resourcesToPrepareCount != 0)
+            {
+                resourcesToPrepare = ArrayPool<IOpenGLNativeResource>.Shared.Rent(resourcesToPrepareCount);
+                _resources.CopyTo(resourcesToPrepare);
+            }
             Volatile.Write(ref _disposeState, 1);
-            resourcesToPrepare = _resources.ToArray();
         }
 
         try
         {
             // Invalidate mappings and wait for user pins without owning the shared GL context.
-            foreach (IOpenGLNativeResource resource in resourcesToPrepare)
-                if (resource is IOpenGLNativeResourcePreparation preparation)
+            for (int i = 0; i < resourcesToPrepareCount; i++)
+                if (resourcesToPrepare![i] is IOpenGLNativeResourcePreparation preparation)
                     preparation.PrepareForNativeRelease();
         }
         catch
@@ -1074,6 +1103,11 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
                 Monitor.PulseAll(_contextGate);
             }
             throw;
+        }
+        finally
+        {
+            if (resourcesToPrepare is not null)
+                ArrayPool<IOpenGLNativeResource>.Shared.Return(resourcesToPrepare, clearArray: true);
         }
 
         Exception? cleanupFailure = null;

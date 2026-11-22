@@ -140,35 +140,52 @@ internal sealed unsafe class OpenGLESGraphicsBuffer : OpenGLESNativeDeviceObject
                     throw new InvalidOperationException("The buffer is already mapped.");
 
                 OpenGLESMappedStagingMemoryManager manager = new((int)size);
-                if (mode is GraphicsMapMode.Read or GraphicsMapMode.ReadWrite)
+                try
                 {
-                    gl.BindBuffer(BufferTargetARB.CopyReadBuffer, Handle);
-                    void* pointer = gl.MapBufferRange(
-                        BufferTargetARB.CopyReadBuffer,
-                        (nint)offset,
-                        (nuint)size,
-                        MapBufferAccessMask.ReadBit);
-                    if (pointer == null)
+                    if (mode is GraphicsMapMode.Read or GraphicsMapMode.ReadWrite)
                     {
-                        gl.BindBuffer(BufferTargetARB.CopyReadBuffer, 0);
-                        manager.Invalidate();
-                        throw new GraphicsException("OpenGL ES failed to map the requested buffer range for reading.");
+                        gl.BindBuffer(BufferTargetARB.CopyReadBuffer, Handle);
+                        void* pointer = null;
+                        bool unmapAttempted = false;
+                        try
+                        {
+                            pointer = gl.MapBufferRange(
+                                BufferTargetARB.CopyReadBuffer,
+                                (nint)offset,
+                                (nuint)size,
+                                MapBufferAccessMask.ReadBit);
+                            if (pointer == null)
+                                throw new GraphicsException("OpenGL ES failed to map the requested buffer range for reading.");
+
+                            new ReadOnlySpan<byte>(pointer, (int)size).CopyTo(manager.GetSpan());
+                            unmapAttempted = true;
+                            if (!gl.UnmapBuffer(BufferTargetARB.CopyReadBuffer))
+                                throw new GraphicsException("OpenGL ES reported corrupted buffer contents while unmapping a read range.");
+                        }
+                        finally
+                        {
+                            if (pointer != null && !unmapAttempted)
+                            {
+                                try { gl.UnmapBuffer(BufferTargetARB.CopyReadBuffer); }
+                                finally { gl.BindBuffer(BufferTargetARB.CopyReadBuffer, 0); }
+                            }
+                            else
+                            {
+                                gl.BindBuffer(BufferTargetARB.CopyReadBuffer, 0);
+                            }
+                        }
                     }
 
-                    new ReadOnlySpan<byte>(pointer, (int)size).CopyTo(manager.GetSpan());
-                    bool valid = gl.UnmapBuffer(BufferTargetARB.CopyReadBuffer);
-                    gl.BindBuffer(BufferTargetARB.CopyReadBuffer, 0);
-                    if (!valid)
-                    {
-                        manager.Invalidate();
-                        throw new GraphicsException("OpenGL ES reported corrupted buffer contents while unmapping a read range.");
-                    }
+                    _mapped = manager;
+                    _mappedOffset = offset;
+                    _mappedMode = mode;
+                    return manager.Memory;
                 }
-
-                _mapped = manager;
-                _mappedOffset = offset;
-                _mappedMode = mode;
-                return manager.Memory;
+                catch
+                {
+                    manager.Invalidate();
+                    throw;
+                }
             }
         });
     }
@@ -234,31 +251,109 @@ internal sealed unsafe class OpenGLESGraphicsBuffer : OpenGLESNativeDeviceObject
     }
 }
 
-/// <summary>Managed staging memory whose views throw after Unmap or resource disposal.</summary>
+/// <summary>
+/// Independently owned staging-memory view. Only the backing array is pooled; disposal prevents new
+/// access immediately and defers returning the array until every outstanding MemoryHandle is unpinned.
+/// </summary>
 internal sealed unsafe class OpenGLESMappedStagingMemoryManager : MemoryManager<byte>
 {
+    private readonly Lock _gate = new();
+    private readonly int _length;
     private byte[]? _buffer;
+    private GCHandle _pinHandle;
+    private int _pinCount;
+    private bool _disposeRequested;
 
-    internal OpenGLESMappedStagingMemoryManager(int length) => _buffer = GC.AllocateUninitializedArray<byte>(length);
+    internal OpenGLESMappedStagingMemoryManager(int length)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(length);
+        _length = length;
+        _buffer = ArrayPool<byte>.Shared.Rent(length);
+    }
 
-    public override Span<byte> GetSpan() =>
-        Volatile.Read(ref _buffer) is { } buffer
-            ? buffer.AsSpan()
-            : throw new ObjectDisposedException(nameof(OpenGLESMappedStagingMemoryManager));
+    public override Span<byte> GetSpan()
+    {
+        lock (_gate)
+        {
+            byte[] buffer = _buffer ??
+                throw new ObjectDisposedException(nameof(OpenGLESMappedStagingMemoryManager));
+            return buffer.AsSpan(0, _length);
+        }
+    }
 
     public override MemoryHandle Pin(int elementIndex = 0)
     {
-        byte[] buffer = Volatile.Read(ref _buffer) ??
-            throw new ObjectDisposedException(nameof(OpenGLESMappedStagingMemoryManager));
-        if ((uint)elementIndex > (uint)buffer.Length)
-            throw new ArgumentOutOfRangeException(nameof(elementIndex));
-        GCHandle handle = GCHandle.Alloc(buffer, GCHandleType.Pinned);
-        return new MemoryHandle((byte*)handle.AddrOfPinnedObject() + elementIndex, handle, this);
+        lock (_gate)
+        {
+            byte[] buffer = _buffer ??
+                throw new ObjectDisposedException(nameof(OpenGLESMappedStagingMemoryManager));
+            if ((uint)elementIndex > (uint)_length)
+                throw new ArgumentOutOfRangeException(nameof(elementIndex));
+            if (_pinCount == int.MaxValue)
+                throw new InvalidOperationException("The staging memory has too many outstanding pins.");
+
+            if (!_pinHandle.IsAllocated)
+                _pinHandle = GCHandle.Alloc(buffer, GCHandleType.Pinned);
+
+            _pinCount++;
+            byte* pointer = (byte*)_pinHandle.AddrOfPinnedObject() + elementIndex;
+            // The manager owns the single GCHandle so it can free the pin before returning the
+            // array to the pool. MemoryHandle still calls Unpin through this manager.
+            return new MemoryHandle(pointer, default, this);
+        }
     }
 
-    public override void Unpin() { }
+    public override void Unpin()
+    {
+        byte[]? bufferToReturn = null;
+        lock (_gate)
+        {
+            if (_pinCount == 0)
+                return;
+
+            _pinCount--;
+            if (_pinCount == 0)
+            {
+                FreePinHandleUnderLock();
+                if (_disposeRequested)
+                {
+                    bufferToReturn = _buffer;
+                    _buffer = null;
+                }
+            }
+        }
+
+        if (bufferToReturn is not null)
+            ArrayPool<byte>.Shared.Return(bufferToReturn);
+    }
 
     internal void Invalidate() => Dispose(true);
 
-    protected override void Dispose(bool disposing) => Interlocked.Exchange(ref _buffer, null);
+    protected override void Dispose(bool disposing)
+    {
+        byte[]? bufferToReturn = null;
+        lock (_gate)
+        {
+            _disposeRequested = true;
+            if (_pinCount == 0)
+            {
+                FreePinHandleUnderLock();
+                bufferToReturn = _buffer;
+                _buffer = null;
+            }
+        }
+
+        if (bufferToReturn is not null)
+            ArrayPool<byte>.Shared.Return(bufferToReturn);
+    }
+
+    private void FreePinHandleUnderLock()
+    {
+        if (!_pinHandle.IsAllocated)
+            return;
+
+        GCHandle handle = _pinHandle;
+        _pinHandle = default;
+        handle.Free();
+    }
 }

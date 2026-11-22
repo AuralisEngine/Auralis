@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using Auralis.Graphics.Backends;
@@ -1257,27 +1258,40 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
                     }
                 }
 
-                IOpenGLESNativeResource[] resources;
-                lock (_resourceGate)
-                {
-                    resources = new IOpenGLESNativeResource[_resources.Count];
-                    _resources.CopyTo(resources);
-                }
-
                 // If Finish failed, native resources may still be referenced by the GPU. Leave them
                 // for host-context destruction rather than deleting them while work might be active.
                 if (gpuIdle)
                 {
-                    for (int i = 0; i < resources.Length; i++)
+                    IOpenGLESNativeResource[]? resources = null;
+                    int resourceCount = 0;
+                    try
                     {
-                        try
+                        lock (_resourceGate)
                         {
-                            resources[i].ReleaseNative(_gl);
+                            resourceCount = _resources.Count;
+                            if (resourceCount != 0)
+                            {
+                                resources = ArrayPool<IOpenGLESNativeResource>.Shared.Rent(resourceCount);
+                                _resources.CopyTo(resources);
+                            }
                         }
-                        catch (Exception exception)
+
+                        for (int i = 0; i < resourceCount; i++)
                         {
-                            RecordFailure(ref failures, exception);
+                            try
+                            {
+                                resources![i].ReleaseNative(_gl);
+                            }
+                            catch (Exception exception)
+                            {
+                                RecordFailure(ref failures, exception);
+                            }
                         }
+                    }
+                    finally
+                    {
+                        if (resources is not null)
+                            ArrayPool<IOpenGLESNativeResource>.Shared.Return(resources, clearArray: true);
                     }
 
                     lock (_resourceGate)

@@ -1,3 +1,5 @@
+using System.Buffers;
+
 namespace Auralis.Graphics.Backends.OpenGL;
 
 /// <summary>
@@ -9,107 +11,144 @@ internal static class GlslDirectiveScanner
 {
     private enum BranchState : byte { Active, Inactive, Ambiguous }
 
-    private sealed class ConditionalFrame
+    private struct ConditionalFrame
     {
-        internal required BranchState ParentState;
+        internal BranchState ParentState;
         internal bool? AnyEarlierBranchMatched;
         internal bool ElseSeen;
+
+        internal ConditionalFrame(BranchState parentState, bool? anyEarlierBranchMatched)
+        {
+            ParentState = parentState;
+            AnyEarlierBranchMatched = anyEarlierBranchMatched;
+            ElseSeen = false;
+        }
     }
 
     internal readonly record struct ExtensionResult(bool Found, bool Enabled, bool Ambiguous, string? Behavior);
+
+    private const int InitialConditionalCapacity = 16;
+    private const int StackLineBufferCapacity = 512;
 
     internal static ExtensionResult FindExtension(string source, string extensionName)
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentException.ThrowIfNullOrWhiteSpace(extensionName);
 
-        string text = StripComments(source);
+        ReadOnlySpan<char> sourceSpan = source.AsSpan();
+        Span<ConditionalFrame> stack = stackalloc ConditionalFrame[InitialConditionalCapacity];
+        Span<char> stackLineBuffer = stackalloc char[StackLineBufferCapacity];
+        ConditionalFrame[]? rentedStack = null;
+        char[]? rentedLineBuffer = null;
+
         BranchState state = BranchState.Active;
-        List<ConditionalFrame> stack = new(4);
         bool found = false;
         bool enabled = false;
         bool ambiguous = false;
         string? behaviorText = null;
+        bool blockComment = false;
+        int stackCount = 0;
 
-        int lineStart = 0;
-        while (lineStart <= text.Length)
+        try
         {
-            int lineEnd = text.IndexOf('\n', lineStart);
-            if (lineEnd < 0)
-                lineEnd = text.Length;
-
-            ReadOnlySpan<char> line = text.AsSpan(lineStart, lineEnd - lineStart);
-            ReadOnlySpan<char> directiveLine = line.TrimStart();
-            if (!directiveLine.IsEmpty && directiveLine[0] == '#')
+            int lineStart = 0;
+            while (lineStart <= sourceSpan.Length)
             {
-                int cursor = 1;
-                SkipWhitespace(directiveLine, ref cursor);
-                ReadOnlySpan<char> directive = ReadToken(directiveLine, ref cursor);
+                int lineEnd = sourceSpan[lineStart..].IndexOf('\n');
+                if (lineEnd < 0)
+                    lineEnd = sourceSpan.Length;
+                else
+                    lineEnd += lineStart;
 
-                if (directive.SequenceEqual("if") ||
-                    directive.SequenceEqual("ifdef") ||
-                    directive.SequenceEqual("ifndef"))
+                ReadOnlySpan<char> sourceLine = sourceSpan[lineStart..lineEnd];
+                Span<char> normalizedLine;
+                if (sourceLine.Length <= stackLineBuffer.Length)
                 {
-                    BranchState parent = state;
-                    bool? condition = directive.SequenceEqual("if")
-                        ? EvaluateLiteralCondition(directiveLine[cursor..])
-                        : null;
-                    stack.Add(new ConditionalFrame { ParentState = parent, AnyEarlierBranchMatched = condition });
-                    state = Combine(parent, condition);
+                    normalizedLine = stackLineBuffer[..sourceLine.Length];
                 }
-                else if (directive.SequenceEqual("elif") && stack.Count > 0)
+                else
                 {
-                    ConditionalFrame frame = stack[^1];
-                    if (frame.ParentState == BranchState.Inactive)
-                    {
-                        state = BranchState.Inactive;
-                    }
-                    else if (frame.ParentState == BranchState.Ambiguous)
-                    {
-                        state = BranchState.Ambiguous;
-                    }
-                    else if (frame.ElseSeen || frame.AnyEarlierBranchMatched == true)
-                    {
-                        state = BranchState.Inactive;
-                    }
-                    else if (frame.AnyEarlierBranchMatched is null)
-                    {
-                        state = BranchState.Ambiguous;
-                    }
-                    else
-                    {
-                        bool? condition = EvaluateLiteralCondition(directiveLine[cursor..]);
-                        frame.AnyEarlierBranchMatched = condition;
-                        state = Combine(frame.ParentState, condition);
-                    }
+                    rentedLineBuffer = ArrayPool<char>.Shared.Rent(sourceLine.Length);
+                    normalizedLine = rentedLineBuffer.AsSpan(0, sourceLine.Length);
                 }
-                else if (directive.SequenceEqual("else") && stack.Count > 0)
+
+                int normalizedLength = StripComments(sourceLine, normalizedLine, ref blockComment);
+                ReadOnlySpan<char> directiveLine = normalizedLine[..normalizedLength].TrimStart();
+                if (!directiveLine.IsEmpty && directiveLine[0] == '#')
                 {
-                    ConditionalFrame frame = stack[^1];
-                    frame.ElseSeen = true;
-                    state = frame.ParentState switch
+                    int cursor = 1;
+                    SkipWhitespace(directiveLine, ref cursor);
+                    ReadOnlySpan<char> directive = ReadToken(directiveLine, ref cursor);
+
+                    if (directive.SequenceEqual("if") ||
+                        directive.SequenceEqual("ifdef") ||
+                        directive.SequenceEqual("ifndef"))
                     {
-                        BranchState.Inactive => BranchState.Inactive,
-                        BranchState.Ambiguous => BranchState.Ambiguous,
-                        _ when frame.AnyEarlierBranchMatched == true => BranchState.Inactive,
-                        _ when frame.AnyEarlierBranchMatched == false => BranchState.Active,
-                        _ => BranchState.Ambiguous
-                    };
-                }
-                else if (directive.SequenceEqual("endif") && stack.Count > 0)
-                {
-                    ConditionalFrame frame = stack[^1];
-                    stack.RemoveAt(stack.Count - 1);
-                    state = frame.ParentState;
-                }
-                else if (directive.SequenceEqual("extension"))
-                {
-                    if (TryParseExtension(directiveLine[cursor..], extensionName, out bool isEnabled, out string? behavior))
+                        BranchState parent = state;
+                        bool? condition = directive.SequenceEqual("if")
+                            ? EvaluateLiteralCondition(directiveLine[cursor..])
+                            : null;
+
+                        if (stackCount == stack.Length)
+                        {
+                            ConditionalFrame[] next = ArrayPool<ConditionalFrame>.Shared.Rent(
+                                checked(stack.Length * 2));
+                            stack.CopyTo(next);
+                            if (rentedStack is not null)
+                                ArrayPool<ConditionalFrame>.Shared.Return(rentedStack);
+                            rentedStack = next;
+                            stack = next;
+                        }
+
+                        stack[stackCount++] = new ConditionalFrame(parent, condition);
+                        state = Combine(parent, condition);
+                    }
+                    else if (directive.SequenceEqual("elif") && stackCount > 0)
+                    {
+                        int frameIndex = stackCount - 1;
+                        ConditionalFrame frame = stack[frameIndex];
+                        if (frame.ParentState == BranchState.Inactive)
+                            state = BranchState.Inactive;
+                        else if (frame.ParentState == BranchState.Ambiguous)
+                            state = BranchState.Ambiguous;
+                        else if (frame.ElseSeen || frame.AnyEarlierBranchMatched == true)
+                            state = BranchState.Inactive;
+                        else if (frame.AnyEarlierBranchMatched is null)
+                            state = BranchState.Ambiguous;
+                        else
+                        {
+                            bool? condition = EvaluateLiteralCondition(directiveLine[cursor..]);
+                            frame.AnyEarlierBranchMatched = condition;
+                            stack[frameIndex] = frame;
+                            state = Combine(frame.ParentState, condition);
+                        }
+                    }
+                    else if (directive.SequenceEqual("else") && stackCount > 0)
+                    {
+                        int frameIndex = stackCount - 1;
+                        ConditionalFrame frame = stack[frameIndex];
+                        frame.ElseSeen = true;
+                        stack[frameIndex] = frame;
+                        state = frame.ParentState switch
+                        {
+                            BranchState.Inactive => BranchState.Inactive,
+                            BranchState.Ambiguous => BranchState.Ambiguous,
+                            _ when frame.AnyEarlierBranchMatched == true => BranchState.Inactive,
+                            _ when frame.AnyEarlierBranchMatched == false => BranchState.Active,
+                            _ => BranchState.Ambiguous
+                        };
+                    }
+                    else if (directive.SequenceEqual("endif") && stackCount > 0)
+                    {
+                        ConditionalFrame frame = stack[--stackCount];
+                        stack[stackCount] = default;
+                        state = frame.ParentState;
+                    }
+                    else if (directive.SequenceEqual("extension") &&
+                             TryParseExtension(directiveLine[cursor..], extensionName, out bool isEnabled, out string? behavior))
                     {
                         if (state == BranchState.Ambiguous)
-                        {
                             ambiguous = true;
-                        }
                         else if (state == BranchState.Active)
                         {
                             if (found && !string.Equals(behaviorText, behavior, StringComparison.Ordinal))
@@ -120,14 +159,27 @@ internal static class GlslDirectiveScanner
                         }
                     }
                 }
+
+                if (rentedLineBuffer is not null)
+                {
+                    ArrayPool<char>.Shared.Return(rentedLineBuffer);
+                    rentedLineBuffer = null;
+                }
+
+                if (lineEnd == sourceSpan.Length)
+                    break;
+                lineStart = lineEnd + 1;
             }
 
-            if (lineEnd == text.Length)
-                break;
-            lineStart = lineEnd + 1;
+            return new ExtensionResult(found, enabled, ambiguous, behaviorText);
         }
-
-        return new ExtensionResult(found, enabled, ambiguous, behaviorText);
+        finally
+        {
+            if (rentedLineBuffer is not null)
+                ArrayPool<char>.Shared.Return(rentedLineBuffer);
+            if (rentedStack is not null)
+                ArrayPool<ConditionalFrame>.Shared.Return(rentedStack);
+        }
     }
 
     private static BranchState Combine(BranchState parent, bool? condition) =>
@@ -183,15 +235,24 @@ internal static class GlslDirectiveScanner
         if (behaviorToken.IsEmpty || cursor != text.Length)
             return false;
 
-        if (behaviorToken.SequenceEqual("require") ||
-            behaviorToken.SequenceEqual("enable") ||
-            behaviorToken.SequenceEqual("warn"))
+        if (behaviorToken.SequenceEqual("require"))
         {
             enabled = true;
-            behavior = behaviorToken.ToString();
+            behavior = "require";
             return true;
         }
-
+        if (behaviorToken.SequenceEqual("enable"))
+        {
+            enabled = true;
+            behavior = "enable";
+            return true;
+        }
+        if (behaviorToken.SequenceEqual("warn"))
+        {
+            enabled = true;
+            behavior = "warn";
+            return true;
+        }
         if (behaviorToken.SequenceEqual("disable"))
         {
             behavior = "disable";
@@ -219,53 +280,61 @@ internal static class GlslDirectiveScanner
             cursor++;
     }
 
-    private static string StripComments(string source)
+    private static int StripComments(
+        ReadOnlySpan<char> source,
+        Span<char> destination,
+        ref bool blockComment)
     {
-        char[] output = source.ToCharArray();
+        int written = 0;
         bool lineComment = false;
-        bool blockComment = false;
-        for (int i = 0; i < output.Length; i++)
+        for (int i = 0; i < source.Length; i++)
         {
+            char current = source[i];
             if (lineComment)
             {
-                if (output[i] is '\r' or '\n')
+                if (current == '\r')
+                {
+                    destination[written++] = current;
                     lineComment = false;
+                }
                 else
-                    output[i] = ' ';
+                    destination[written++] = ' ';
                 continue;
             }
 
             if (blockComment)
             {
-                if (output[i] == '*' && i + 1 < output.Length && output[i + 1] == '/')
+                if (current == '*' && i + 1 < source.Length && source[i + 1] == '/')
                 {
-                    output[i] = output[i + 1] = ' ';
+                    destination[written++] = ' ';
+                    destination[written++] = ' ';
                     i++;
                     blockComment = false;
                 }
-                else if (output[i] is not ('\r' or '\n'))
-                {
-                    output[i] = ' ';
-                }
+                else
+                    destination[written++] = current is '\r' or '\n' ? current : ' ';
                 continue;
             }
 
-            if (output[i] == '/' && i + 1 < output.Length)
+            if (current == '/' && i + 1 < source.Length)
             {
-                if (output[i + 1] == '/')
+                char next = source[i + 1];
+                if (next == '/' || next == '*')
                 {
-                    output[i] = output[i + 1] = ' ';
+                    destination[written++] = ' ';
+                    destination[written++] = ' ';
                     i++;
-                    lineComment = true;
-                }
-                else if (output[i + 1] == '*')
-                {
-                    output[i] = output[i + 1] = ' ';
-                    i++;
-                    blockComment = true;
+                    if (next == '/')
+                        lineComment = true;
+                    else
+                        blockComment = true;
+                    continue;
                 }
             }
+
+            destination[written++] = current;
         }
-        return new string(output);
+
+        return written;
     }
 }
