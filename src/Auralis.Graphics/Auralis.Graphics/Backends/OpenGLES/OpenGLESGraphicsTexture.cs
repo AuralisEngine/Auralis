@@ -301,9 +301,17 @@ internal sealed class OpenGLESGraphicsTextureView : OpenGLESNativeDeviceObject, 
                 viewFormat);
         if (!isIdentity && textureViewApi is null && !isFramebufferSubresourceAlias)
         {
+            bool hasExtTextureView = device.Profile.HasExtension("GL_EXT_texture_view");
+            bool hasOesTextureView = device.Profile.HasExtension("GL_OES_texture_view");
+            if (!hasExtTextureView && !hasOesTextureView)
+            {
+                throw new GraphicsValidationException(
+                    "The driver advertises neither GL_EXT_texture_view nor GL_OES_texture_view; subresource texture views are unsupported.");
+            }
+
             throw new GraphicsValidationException(
-                "This GLES subresource/format view requires GL_EXT_texture_view or GL_OES_texture_view. " +
-                "Without it, only same-format single-mip/single-layer 2D framebuffer attachment aliases are supported.");
+                "The driver advertises a texture-view extension, but its corresponding native entry point is unavailable; " +
+                "this subresource/format view is outside the framebuffer-only fallback.");
         }
 
         // Retain the parent's native object for the full view lifetime. Identity views and
