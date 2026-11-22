@@ -503,6 +503,9 @@ public sealed partial class OpenGLESIntegrationTests : IClassFixture<OpenGLESHar
         if (!signed.AsSpan().SequenceEqual(new int[] { -11, 22, -33, 44 }))
             throw new InvalidOperationException($"Signed integer clear readback was [{string.Join(", ", signed)}].");
 
+        ExpectThrows<InvalidOperationException>(
+            () => ReadRgba8Pixel(device, context, normalizedView, 32, 32),
+            "RGBA8 pixel readback must reject coordinates outside the texture dimensions");
         AssertPixelNear(ReadRgba8Pixel(device, context, normalizedView, 16, 16), 64, 128, 191, 255);
         Console.WriteLine("Validated signed and unsigned attachment-indexed integer clears and exact typed GPU readback.");
     }
