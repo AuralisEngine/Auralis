@@ -78,6 +78,16 @@ internal static class GraphicsContextGate
             if (!Monitor.TryEnter(gate, waitMilliseconds))
                 continue;
 
+            try
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+            }
+            catch
+            {
+                Monitor.Exit(gate);
+                throw;
+            }
+
             if (timeoutTicks != long.MaxValue &&
                 Stopwatch.GetTimestamp() - start > timeoutTicks)
             {
