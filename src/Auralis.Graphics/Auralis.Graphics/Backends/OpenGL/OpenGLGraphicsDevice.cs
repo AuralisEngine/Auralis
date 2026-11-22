@@ -292,7 +292,7 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
             bool hasExtMeshShader = gl.IsExtensionPresent(OpenGLExtMeshShader.ExtensionName);
             bool hasNvMeshShader = gl.IsExtensionPresent(NVMeshShader.ExtensionName);
             OpenGLMeshShaderEntryPoints meshShaderEntryPoints =
-                OpenGLMeshShaderEntryPoints.Resolve(contextProvider.GetProcAddress);
+                OpenGLMeshShaderEntryPoints.Resolve(contextProvider);
 
             // The EXT direct and single-indirect functions are sufficient for the existing
             // backend paths. Multi-draw is a separate optional operation and must not gate them.
