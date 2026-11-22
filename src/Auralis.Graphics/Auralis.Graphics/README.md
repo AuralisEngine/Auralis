@@ -267,7 +267,7 @@ BenchmarkDotNet remains separate from the test suite. The benchmark project can 
 - The device tracks only live native resources in a reference-identity `HashSet<T>` protected by the existing context gate. A resource leaves that registry when its native deletion succeeds or ownership is handed to the deferred-deletion queue, avoiding an unbounded history of already-disposed managed wrappers.
 - Fence sync points use a FIFO `Queue<T>` because values are monotonic; completed syncs are deleted from the head without a temporary cleanup collection.
 - Context activation no longer allocates an `OpenGLContextLease` per `WithContext` call, and the `Action<GL>` overload no longer routes through an intermediate `Func<GL, T>`. Callback-based call sites can still allocate delegates/closures; zero-allocation context execution has not been established.
-- A separate hardware-dependent BenchmarkDotNet project lives in `Benchmarks/Auralis.Graphics.OpenGL.Benchmarks`. Run it on a machine with a working OpenGL 4.5 Core driver using `dotnet run --project Benchmarks/Auralis.Graphics.OpenGL.Benchmarks/Auralis.Graphics.OpenGL.Benchmarks.csproj --configuration Release -- --filter '*OpenGLBackendBenchmarks*'`. The suite uses `MemoryDiagnoser` and measures command recording of one buffer copy, command submission plus GPU fence wait, completed fence-value polling, buffer creation/disposal, and texture creation/disposal. Results are specific to the selected driver, GPU, CPU, OS, context provider, and power/clock state.
+- A hardware-dependent BenchmarkDotNet project lives in `Benchmarks/Auralis.Graphics.OpenGL.Benchmarks` and contains equivalent desktop OpenGL 4.5 Core and OpenGL ES 3.1+ benchmark classes. It uses `MemoryDiagnoser` and measures empty/copy command recording, submission plus fence wait, completed-fence reads, submit-and-poll, and buffer/texture creation and disposal. See [OpenGL hardware benchmarks](#opengl-hardware-benchmarks) for commands and prerequisites. Results are specific to the selected driver, GPU, CPU, OS, context provider, runtime, and power/clock state.
 - The solution test workflow may compile the benchmark project as part of the solution build, but it does not execute the BenchmarkDotNet suite. No before/after allocation or throughput results are claimed until the benchmark suite has been run on named hardware; the initial harness does not itself constitute a measurement.
 
 
@@ -355,3 +355,40 @@ using IGraphicsDevice device = await GraphicsDeviceFactory.CreateAsync(
 - Sparse-resource residency remains unsupported because the common texture/resource API has no page-commit/decommit and residency contract.
 - Timestamp-query result retrieval remains unsupported because the common API has no usable query-result lifecycle, availability, unit, or disjoint-result contract.
 The OpenGL ES integration cases are part of the standard solution test command above. They automatically attempt to create an OpenGL ES 3.1+ context and are individually reported as skipped when the host or driver cannot provide that context or a case-specific capability. No separate executable or opt-in setting is required.
+
+## OpenGL hardware benchmarks
+
+The BenchmarkDotNet project provides hardware-backed measurements for both implemented OpenGL backends:
+
+- Desktop OpenGL 4.5 Core: `OpenGLBackendBenchmarks`.
+- OpenGL ES 3.1 or newer: `OpenGLESBackendBenchmarks`.
+
+Both classes use the same `MemoryDiagnoser` and `ShortRunJob` configuration and equivalent workloads through the common graphics interfaces. The benchmark methods measure:
+
+- `RecordEmptyCommandList`: empty reusable command-list recording (the per-class baseline).
+- `RecordCopyCommand`: recording one 4 KiB buffer copy, including normal command-resource retention, without submitting it.
+- `SubmitAndWait`: recording and submitting the copy, signaling a timeline fence, then waiting for GPU completion.
+- `ReadCompletedFenceValue`: reading a fence value that has already completed.
+- `SubmitAndPoll`: submitting the copy and polling the fence until GPU completion, with a bounded timeout.
+- `CreateAndDisposeBuffer`: allocating and disposing a 4 KiB GPU-only copy-source/copy-destination buffer.
+- `CreateAndDisposeTexture`: allocating and disposing a 256 × 256 RGBA8 texture with sampled, copy-source, and copy-destination usage.
+
+Global setup creates one hidden hardware context per benchmark process, allocates persistent source/destination buffers and reusable command/fence objects, initializes a known source pattern, and validates one real GPU buffer copy through the supported read mapping API. That readback is not repeated in measured iterations. Setup prints the backend, adapter/device/API information, .NET runtime, operating system, and process architecture; BenchmarkDotNet also reports its execution environment.
+
+### Run desktop OpenGL benchmarks
+
+```bash
+dotnet run --project Benchmarks/Auralis.Graphics.OpenGL.Benchmarks/Auralis.Graphics.OpenGL.Benchmarks.csproj --configuration Release -- --filter "*OpenGLBackendBenchmarks*"
+```
+
+### Run OpenGL ES benchmarks
+
+```bash
+dotnet run --project Benchmarks/Auralis.Graphics.OpenGL.Benchmarks/Auralis.Graphics.OpenGL.Benchmarks.csproj --configuration Release -- --filter "*OpenGLESBackendBenchmarks*"
+```
+
+The selected backend is initialized automatically; no benchmark-specific environment variables or manual test-runner options are required. The host must have the native GLFW library, a usable platform/display session capable of creating the hidden context, and a compatible graphics driver exposing desktop OpenGL 4.5 Core or OpenGL ES 3.1+, respectively. Missing native GLFW support, a display/context, or the required API/driver causes benchmark setup to fail with a hardware-prerequisite error; missing hardware is not reported as a successful benchmark.
+
+These are measurements of one specific hardware/software environment, not universal comparisons of the APIs or implementations. Results can vary with GPU/CPU model, graphics driver, operating system, runtime, context creation path, power state, clocks, and competing system load. Compare results only with those environmental differences understood. No arbitrary pass/fail performance thresholds are defined.
+
+The regular graphics validation workflow builds the solution and this benchmark project in Release configuration and runs the solution tests. It does not execute the hardware-dependent BenchmarkDotNet benchmarks and does not require a physical GPU or display on the CI runner.
