@@ -178,9 +178,9 @@ internal sealed unsafe class OpenGLGraphicsShader : OpenGLNativeDeviceObject, IG
         uint[]? rentedIds = null;
         uint[]? rentedValues = null;
         byte[]? rentedEntryPoint = null;
-        Span<uint> ids = default;
-        Span<uint> values = default;
-        Span<byte> entryPointBytes = default;
+        scoped Span<uint> ids = default;
+        scoped Span<uint> values = default;
+        scoped Span<byte> entryPointBytes = default;
         int entryPointLength = Encoding.UTF8.GetByteCount(description.EntryPoint);
 
         try
