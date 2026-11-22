@@ -1,3 +1,5 @@
+using System.Runtime.ExceptionServices;
+using System.Runtime.CompilerServices;
 using System.Text;
 using Auralis.Graphics.Abstractions;
 using Auralis.Graphics.Backends.OpenGLES;
@@ -18,9 +20,64 @@ public sealed partial class OpenGLESIntegrationTests : IClassFixture<OpenGLESHar
 
     private readonly OpenGLESHardwareFixture _fixture;
     public OpenGLESIntegrationTests(OpenGLESHardwareFixture fixture) => _fixture = fixture;
-    private void RunHardwareTest(Action<IGraphicsDevice> test) => test(_fixture.GetDeviceOrSkip());
-    private void RunHardwareTest(Action<IGraphicsDevice, GlfwOpenGLESContextProvider> test) =>
-        test(_fixture.GetDeviceOrSkip(), _fixture.GetContextOrSkip());
+
+    private void RunHardwareTest(
+        Action<IGraphicsDevice> test,
+        [CallerMemberName] string testName = "")
+    {
+        IGraphicsDevice device = _fixture.GetDeviceOrSkip();
+        RunHardwareTestBoundary(testName, device, () => test(device));
+    }
+
+    private void RunHardwareTest(
+        Action<IGraphicsDevice, GlfwOpenGLESContextProvider> test,
+        [CallerMemberName] string testName = "")
+    {
+        IGraphicsDevice device = _fixture.GetDeviceOrSkip();
+        GlfwOpenGLESContextProvider context = _fixture.GetContextOrSkip();
+        RunHardwareTestBoundary(testName, device, () => test(device, context));
+    }
+
+    private static void RunHardwareTestBoundary(string testName, IGraphicsDevice device, Action test)
+    {
+        string displayName = string.IsNullOrWhiteSpace(testName) ? "unnamed GLES integration test" : testName;
+        CheckGlesErrors(device, $"before integration test '{displayName}'");
+
+        Exception? testFailure = null;
+        try
+        {
+            test();
+        }
+        catch (Exception exception)
+        {
+            testFailure = exception;
+        }
+
+        try
+        {
+            CheckGlesErrors(device, $"after integration test '{displayName}'");
+        }
+        catch (Exception boundaryFailure)
+        {
+            if (testFailure is null)
+                throw;
+
+            // Preserve the test's original exception and attach the independent boundary failure.
+            testFailure.Data["GLES post-test boundary failure"] = boundaryFailure;
+            Console.Error.WriteLine(
+                $"The original failure from '{displayName}' is preserved; its post-test GLES boundary check also failed: {boundaryFailure}");
+        }
+
+        if (testFailure is not null)
+            ExceptionDispatchInfo.Capture(testFailure).Throw();
+    }
+
+    private static void CheckGlesErrors(IGraphicsDevice device, string operation)
+    {
+        OpenGLESGraphicsDevice gles = (OpenGLESGraphicsDevice)device;
+        gles.WithContext(gl => CheckNoGlesError(gl, operation));
+    }
+
     private static void Skip(string reason) => throw SkipException.ForSkip(reason);
 
     [Fact] public void NestedContextProviderActivationIsBalanced() => RunHardwareTest((device, context) => RunNestedContextActivation(device, context));
@@ -35,108 +92,100 @@ public sealed partial class OpenGLESIntegrationTests : IClassFixture<OpenGLESHar
     [Fact] public void OffscreenGraphicsPipelineWorks() => RunHardwareTest((device, context) => RunOffscreenGraphicsPipeline(device, context));
 
     [Fact]
-    public void MrtRenderingAndAttachmentOrderingWork()
-    {
-        IGraphicsDevice device = _fixture.GetDeviceOrSkip();
-        GlfwOpenGLESContextProvider context = _fixture.GetContextOrSkip();
-        if (device.Capabilities.Limits.MaxColorAttachments < 2 || device.Capabilities.Limits.MaxColorDrawBuffers < 2)
-            Skip($"MRT rendering requires at least two attachments and draw buffers; the driver reports {device.Capabilities.Limits.MaxColorAttachments} and {device.Capabilities.Limits.MaxColorDrawBuffers}.");
-        RunMrtRendering(device, context);
-    }
-
-    [Fact]
-    public void MrtIndependentWriteMasksSurviveClearOperations()
-    {
-        IGraphicsDevice device = _fixture.GetDeviceOrSkip();
-        GlfwOpenGLESContextProvider context = _fixture.GetContextOrSkip();
-        if (device.Capabilities.Limits.MaxColorAttachments < 2 ||
-            device.Capabilities.Limits.MaxColorDrawBuffers < 2 ||
-            ((OpenGLESGraphicsDevice)device).DrawBuffersIndexedApi is null)
-            Skip("Independent MRT write masks require GL_EXT_draw_buffers_indexed and at least two color attachments/draw buffers.");
-        RunMrtIndependentWriteMasks(device, context);
-    }
-
-    [Fact]
-    public void TypedSignedAndUnsignedIntegerColorClearsWork()
-    {
-        IGraphicsDevice device = _fixture.GetDeviceOrSkip();
-        GlfwOpenGLESContextProvider context = _fixture.GetContextOrSkip();
-        bool supported =
-            device.Capabilities.TryGetFormatCapabilities(GraphicsFormat.RGBA8UInt, out GraphicsFormatCapabilities unsignedCaps) &&
-            unsignedCaps.Supports(GraphicsFormatSupport.ColorAttachment) &&
-            device.Capabilities.TryGetFormatCapabilities(GraphicsFormat.RGBA8SInt, out GraphicsFormatCapabilities signedCaps) &&
-            signedCaps.Supports(GraphicsFormatSupport.ColorAttachment);
-        if (!supported || device.Capabilities.Limits.MaxColorAttachments < 3 ||
-            device.Capabilities.Limits.MaxColorDrawBuffers < 3)
-            Skip("Integer clears require renderable RGBA8 UInt and SInt formats plus three color attachments/draw buffers.");
-        RunIntegerColorClears(device, context);
-    }
-
-    [Fact] public void MultiCommandArrayAndIndexedIndirectDrawingWorks() => RunHardwareTest((device, context) => RunMultiDrawIndirect(device, context));
-
-    [Fact]
-    public void SubresourceTextureViewRenderingAndParentRetentionWork()
-    {
-        IGraphicsDevice device = _fixture.GetDeviceOrSkip();
-        GlfwOpenGLESContextProvider context = _fixture.GetContextOrSkip();
-        OpenGLESGraphicsDevice gles = (OpenGLESGraphicsDevice)device;
-        bool hasExt = gles.Profile.HasExtension("GL_EXT_texture_view");
-        bool hasOes = gles.Profile.HasExtension("GL_OES_texture_view");
-        bool entryPointResolved = gles.TextureViewExt is not null;
-        Console.WriteLine($"GLES texture-view support: GL_EXT_texture_view advertised={hasExt}; GL_OES_texture_view advertised={hasOes}; native entry point='{gles.TextureViewEntryPointName ?? "unresolved"}', resolved={entryPointResolved}.");
-        if (!hasExt && !hasOes)
-            Skip("The driver advertises neither GL_EXT_texture_view nor GL_OES_texture_view; subresource texture views are unsupported.");
-        if (!entryPointResolved)
-            Skip("The driver advertises a texture-view extension, but the corresponding glTextureViewEXT/glTextureViewOES entry point did not resolve; the capability is correctly disabled.");
-        if (!device.Capabilities.Features.Supports(GraphicsFeature.TextureViews))
-            throw new GraphicsException("A texture-view extension and native entry point are available, but GraphicsFeature.TextureViews was not exposed.");
-        RunTextureViewSubresourceRendering(device, context);
-    }
-
-    [Fact]
-    public void NativeFullResourceImageCopyWorksWhenAvailable()
-    {
-        IGraphicsDevice device = _fixture.GetDeviceOrSkip();
-        GlfwOpenGLESContextProvider context = _fixture.GetContextOrSkip();
-        if (!((OpenGLESGraphicsDevice)device).HasImageCopy)
-            Skip("Native image copy requires GL_EXT_copy_image or GL_OES_copy_image and its native entry point.");
-        RunNativeImageCopy(device, context);
-    }
-
-    [Fact]
-    public void FramebufferBlitCopyRestoresTheActiveRenderTargetWhenFallbackIsUsed()
-    {
-        IGraphicsDevice device = _fixture.GetDeviceOrSkip();
-        GlfwOpenGLESContextProvider context = _fixture.GetContextOrSkip();
-        OpenGLESGraphicsDevice gles = (OpenGLESGraphicsDevice)device;
-        Console.WriteLine($"GLES image-copy support: GL_EXT_copy_image advertised={gles.Profile.HasExtension("GL_EXT_copy_image")}; EXT glCopyImageSubData resolved={gles.CopyImageApi is not null}; GL_OES_copy_image advertised={gles.Profile.HasExtension("GL_OES_copy_image")}; OES glCopyImageSubData resolved={gles.CopyImageSubDataOes is not null}; forcing framebuffer-blit fallback for this test.");
-        gles.ForceFramebufferBlitFallbackForTesting = true;
-        try
+    public void MrtRenderingAndAttachmentOrderingWork() =>
+        RunHardwareTest((device, context) =>
         {
-            RunFramebufferBlitCopyThenDraw(device, context);
-        }
-        finally
-        {
-            gles.ForceFramebufferBlitFallbackForTesting = false;
-        }
-    }
+            if (device.Capabilities.Limits.MaxColorAttachments < 2 ||
+                device.Capabilities.Limits.MaxColorDrawBuffers < 2)
+                Skip($"MRT rendering requires at least two attachments and draw buffers; the driver reports {device.Capabilities.Limits.MaxColorAttachments} and {device.Capabilities.Limits.MaxColorDrawBuffers}.");
+            RunMrtRendering(device, context);
+        });
 
     [Fact]
-    public void MultisampleFramebufferClearAndShaderSampleReadbackWork()
-    {
-        IGraphicsDevice device = _fixture.GetDeviceOrSkip();
-        GlfwOpenGLESContextProvider context = _fixture.GetContextOrSkip();
-        uint sampleCount =
-            device.Capabilities.SupportsSampleCount(GraphicsFormat.RGBA8UNorm, 4) ? 4u :
-            device.Capabilities.SupportsSampleCount(GraphicsFormat.RGBA8UNorm, 2) ? 2u : 1u;
-        if (sampleCount == 1)
-            Skip("Multisample readback requires RGBA8 storage with two or more samples; only single-sample support is available.");
-        RunMultisampleFramebuffer(device, context, sampleCount);
-    }
+    public void MrtIndependentWriteMasksSurviveClearOperations() =>
+        RunHardwareTest((device, context) =>
+        {
+            if (device.Capabilities.Limits.MaxColorAttachments < 2 ||
+                device.Capabilities.Limits.MaxColorDrawBuffers < 2 ||
+                ((OpenGLESGraphicsDevice)device).DrawBuffersIndexedApi is null)
+                Skip("Independent MRT write masks require GL_EXT_draw_buffers_indexed and at least two color attachments/draw buffers.");
+            RunMrtIndependentWriteMasks(device, context);
+        });
 
+    [Fact]
+    public void TypedSignedAndUnsignedIntegerColorClearsWork() =>
+        RunHardwareTest((device, context) =>
+        {
+            bool supported =
+                device.Capabilities.TryGetFormatCapabilities(GraphicsFormat.RGBA8UInt, out GraphicsFormatCapabilities unsignedCaps) &&
+                unsignedCaps.Supports(GraphicsFormatSupport.ColorAttachment) &&
+                device.Capabilities.TryGetFormatCapabilities(GraphicsFormat.RGBA8SInt, out GraphicsFormatCapabilities signedCaps) &&
+                signedCaps.Supports(GraphicsFormatSupport.ColorAttachment);
+            if (!supported || device.Capabilities.Limits.MaxColorAttachments < 3 ||
+                device.Capabilities.Limits.MaxColorDrawBuffers < 3)
+                Skip("Integer clears require renderable RGBA8 UInt and SInt formats plus three color attachments/draw buffers.");
+            RunIntegerColorClears(device, context);
+        });
 
+    [Fact]
+    public void MultiCommandArrayAndIndexedIndirectDrawingWorks() =>
+        RunHardwareTest((device, context) => RunMultiDrawIndirect(device, context));
 
-    
+    [Fact]
+    public void SubresourceTextureViewRenderingAndParentRetentionWork() =>
+        RunHardwareTest((device, context) =>
+        {
+            OpenGLESGraphicsDevice gles = (OpenGLESGraphicsDevice)device;
+            bool hasExt = gles.Profile.HasExtension("GL_EXT_texture_view");
+            bool hasOes = gles.Profile.HasExtension("GL_OES_texture_view");
+            bool entryPointResolved = gles.TextureViewExt is not null;
+            Console.WriteLine($"GLES texture-view support: GL_EXT_texture_view advertised={hasExt}; GL_OES_texture_view advertised={hasOes}; native entry point='{gles.TextureViewEntryPointName ?? "unresolved"}', resolved={entryPointResolved}.");
+            if (!hasExt && !hasOes)
+                Skip("The driver advertises neither GL_EXT_texture_view nor GL_OES_texture_view; subresource texture views are unsupported.");
+            if (!entryPointResolved)
+                Skip("The driver advertises a texture-view extension, but the corresponding glTextureViewEXT/glTextureViewOES entry point did not resolve; the capability is correctly disabled.");
+            if (!device.Capabilities.Features.Supports(GraphicsFeature.TextureViews))
+                throw new GraphicsException("A texture-view extension and native entry point are available, but GraphicsFeature.TextureViews was not exposed.");
+            RunTextureViewSubresourceRendering(device, context);
+        });
+
+    [Fact]
+    public void NativeFullResourceImageCopyWorksWhenAvailable() =>
+        RunHardwareTest((device, context) =>
+        {
+            if (!((OpenGLESGraphicsDevice)device).HasImageCopy)
+                Skip("Native image copy requires GL_EXT_copy_image or GL_OES_copy_image and its native entry point.");
+            RunNativeImageCopy(device, context);
+        });
+
+    [Fact]
+    public void FramebufferBlitCopyRestoresTheActiveRenderTargetWhenFallbackIsUsed() =>
+        RunHardwareTest((device, context) =>
+        {
+            OpenGLESGraphicsDevice gles = (OpenGLESGraphicsDevice)device;
+            Console.WriteLine($"GLES image-copy support: GL_EXT_copy_image advertised={gles.Profile.HasExtension("GL_EXT_copy_image")}; EXT glCopyImageSubData resolved={gles.CopyImageApi is not null}; GL_OES_copy_image advertised={gles.Profile.HasExtension("GL_OES_copy_image")}; OES glCopyImageSubData resolved={gles.CopyImageSubDataOes is not null}; forcing framebuffer-blit fallback for this test.");
+            gles.ForceFramebufferBlitFallbackForTesting = true;
+            try
+            {
+                RunFramebufferBlitCopyThenDraw(device, context);
+            }
+            finally
+            {
+                gles.ForceFramebufferBlitFallbackForTesting = false;
+            }
+        });
+
+    [Fact]
+    public void MultisampleFramebufferClearAndShaderSampleReadbackWork() =>
+        RunHardwareTest((device, context) =>
+        {
+            uint sampleCount =
+                device.Capabilities.SupportsSampleCount(GraphicsFormat.RGBA8UNorm, 4) ? 4u :
+                device.Capabilities.SupportsSampleCount(GraphicsFormat.RGBA8UNorm, 2) ? 2u : 1u;
+            if (sampleCount == 1)
+                Skip("Multisample readback requires RGBA8 storage with two or more samples; only single-sample support is available.");
+            RunMultisampleFramebuffer(device, context, sampleCount);
+        });
 
     private static void RunTextureViewSubresourceRendering(
         IGraphicsDevice device,
@@ -512,12 +561,17 @@ public sealed partial class OpenGLESIntegrationTests : IClassFixture<OpenGLESHar
 
     private static void RunMultiDrawIndirect(IGraphicsDevice device, GlfwOpenGLESContextProvider context)
     {
+        OpenGLESGraphicsDevice gles = (OpenGLESGraphicsDevice)device;
+        CheckGlesErrors(device, "before MultiCommandArrayAndIndexedIndirectDrawingWorks setup");
         using IGraphicsTexture color = device.CreateTexture(new GraphicsTextureDescription(
             GraphicsTextureDimension.Texture2D, GraphicsFormat.RGBA8UNorm,
             64, 64, 1, 1, 1, 1, GraphicsTextureUsage.ColorAttachment));
+        CheckGlesErrors(device, "after creating the indirect-draw RGBA8 texture");
         using IGraphicsTextureView colorView = color.CreateView(new GraphicsTextureViewDescription(
             GraphicsFormat.Unknown, GraphicsTextureViewType.Texture2D, 0, 1, 0, 1));
+        CheckGlesErrors(device, "after creating the indirect-draw texture view");
         using IGraphicsPipelineLayout layout = device.CreatePipelineLayout(Array.Empty<IGraphicsBindingLayout>());
+        CheckGlesErrors(device, "after creating the indirect-draw pipeline layout");
         using IGraphicsShader vertex = device.CreateShader(new GraphicsShaderDescription
         {
             Stage = GraphicsShaderStage.Vertex,
@@ -536,6 +590,7 @@ public sealed partial class OpenGLESIntegrationTests : IClassFixture<OpenGLESHar
                 }
                 """)
         });
+        CheckGlesErrors(device, "after creating/compiling the indirect-draw vertex shader");
         using IGraphicsShader fragment = device.CreateShader(new GraphicsShaderDescription
         {
             Stage = GraphicsShaderStage.Fragment,
@@ -549,15 +604,18 @@ public sealed partial class OpenGLESIntegrationTests : IClassFixture<OpenGLESHar
                 void main() { outputColor = vec4(vertexColor, 1.0); }
                 """)
         });
+        CheckGlesErrors(device, "after creating/compiling the indirect-draw fragment shader");
         IGraphicsShader[] shaders = [vertex, fragment];
         GraphicsFormat[] formats = [GraphicsFormat.RGBA8UNorm];
         using IGraphicsRenderPipeline pipeline = device.CreateRenderPipeline(
             new GraphicsRenderPipelineDescription(layout, shaders, GraphicsPrimitiveTopology.TriangleList, formats));
+        CheckGlesErrors(device, "after linking the indirect-draw render pipeline and creating its VAO");
 
         using IGraphicsBuffer arguments = device.CreateBuffer(new GraphicsBufferDescription(
             188,
             GraphicsBufferUsage.IndirectArguments,
             GraphicsMemoryAccess.CpuToGpu));
+        CheckGlesErrors(device, "after creating the indirect-argument buffer");
         uint[] words = new uint[47];
         // DrawArraysIndirect: two tightly packed 16-byte commands at offset 0.
         words[0] = 3; words[1] = 1; words[2] = 0; words[3] = 0;
@@ -571,16 +629,16 @@ public sealed partial class OpenGLESIntegrationTests : IClassFixture<OpenGLESHar
         // DrawElementsIndirect: two 20-byte commands with a 4-byte stride gap.
         words[36] = 3; words[37] = 1; words[38] = 0; words[39] = 0; words[40] = 0;
         words[42] = 3; words[43] = 1; words[44] = 3; words[45] = 0; words[46] = 0;
-        WriteUInts(arguments, words);
+        WriteUIntsWithGlesChecks(device, arguments, "indirect argument buffer", words);
 
         using IGraphicsBuffer indices = device.CreateBuffer(new GraphicsBufferDescription(
             6 * sizeof(uint),
             GraphicsBufferUsage.Index,
             GraphicsMemoryAccess.CpuToGpu));
-        WriteUInts(indices, 0, 1, 2, 3, 4, 5);
+        CheckGlesErrors(device, "after creating the index buffer");
+        WriteUIntsWithGlesChecks(device, indices, "index buffer", 0, 1, 2, 3, 4, 5);
 
         IGraphicsCommandQueue queue = device.GetQueue(GraphicsQueueType.Graphics);
-        OpenGLESGraphicsDevice gles = (OpenGLESGraphicsDevice)device;
         bool extensionAdvertised = gles.Profile.HasExtension("GL_EXT_multi_draw_indirect");
         bool arraysResolved = gles.MultiDrawArraysIndirectEntryPointResolved;
         bool elementsResolved = gles.MultiDrawElementsIndirectEntryPointResolved;
@@ -594,7 +652,9 @@ public sealed partial class OpenGLESIntegrationTests : IClassFixture<OpenGLESHar
         void ExecuteAndVerify(bool forceFallback, ulong fenceValue)
         {
             using IGraphicsCommandList commandList = queue.CreateCommandList();
+            CheckGlesErrors(device, "after creating the indirect-draw command list");
             using IGraphicsFence fence = device.CreateFence();
+            CheckGlesErrors(device, "after creating the indirect-draw fence");
             OpenGLESGraphicsCommandList diagnosticCommandList = (OpenGLESGraphicsCommandList)commandList;
             diagnosticCommandList.ForceIndirectDrawFallbackForTesting = forceFallback;
             diagnosticCommandList.ErrorCheckForTesting = CheckNoGlesError;
@@ -618,6 +678,7 @@ public sealed partial class OpenGLESIntegrationTests : IClassFixture<OpenGLESHar
                 () => commandList.DrawIndexedIndirect(arguments, 184, drawCount: 2, stride: 0),
                 "indexed indirect arguments must be range checked");
             commandList.End();
+            CheckGlesErrors(device, "immediately before submitting the indirect-draw command list");
 
             string executionPath = nativeMultiDrawAvailable && !forceFallback
                 ? "native GL_EXT_multi_draw_indirect"
@@ -801,9 +862,31 @@ public sealed partial class OpenGLESIntegrationTests : IClassFixture<OpenGLESHar
 
     private static void CheckNoGlesError(GL gl, string operation)
     {
-        GLEnum error = gl.GetError();
-        if (error != GLEnum.NoError)
-            throw new GraphicsException($"GLES reported {error} after {operation}.");
+        List<GLEnum> errors = new(2);
+        GLEnum error;
+        while ((error = gl.GetError()) != GLEnum.NoError)
+            errors.Add(error);
+
+        if (errors.Count != 0)
+            throw new GraphicsException($"GLES reported {string.Join(", ", errors)} after {operation}.");
+    }
+
+    private static void WriteUIntsWithGlesChecks(
+        IGraphicsDevice device,
+        IGraphicsBuffer buffer,
+        string description,
+        params uint[] values)
+    {
+        Memory<byte> memory = buffer.Map(
+            GraphicsMapMode.Write,
+            0,
+            checked((ulong)(values.Length * sizeof(uint))));
+        CheckGlesErrors(device, $"after Map({description})");
+        for (int i = 0; i < values.Length; i++)
+            BitConverter.TryWriteBytes(
+                memory.Span.Slice(i * sizeof(uint), sizeof(uint)), values[i]);
+        buffer.Unmap();
+        CheckGlesErrors(device, $"after Unmap({description})");
     }
 
     private static unsafe T[] ReadIntegerPixel<T>(
