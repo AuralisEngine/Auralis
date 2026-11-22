@@ -994,8 +994,8 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
 
         int byteCount = Encoding.UTF8.GetByteCount(label);
         byte[]? rented = null;
-        Span<byte> buffer = byteCount < 128
-            ? stackalloc byte[128]
+        Span<byte> buffer = byteCount <= 128
+            ? stackalloc byte[129]
             : (rented = ArrayPool<byte>.Shared.Rent(checked(byteCount + 1)));
         Span<byte> utf8 = buffer[..checked(byteCount + 1)];
         try
@@ -1019,8 +1019,8 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
 
         int byteCount = Encoding.UTF8.GetByteCount(message);
         byte[]? rented = null;
-        Span<byte> buffer = byteCount < 128
-            ? stackalloc byte[128]
+        Span<byte> buffer = byteCount <= 128
+            ? stackalloc byte[129]
             : (rented = ArrayPool<byte>.Shared.Rent(checked(byteCount + 1)));
         Span<byte> utf8 = buffer[..checked(byteCount + 1)];
         try
