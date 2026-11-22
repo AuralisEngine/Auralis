@@ -117,6 +117,75 @@ public sealed class OpenGLBackendTests
     }
 
     [Fact]
+    public void MeshShaderNativeEntryPointsAreDetectedIndependently()
+    {
+        static nint ResolveAllExceptMulti(string name) => name switch
+        {
+            "glDrawMeshTasksEXT" => (nint)1,
+            "glDrawMeshTasksIndirectEXT" => (nint)2,
+            "glDrawMeshTasksNV" => (nint)3,
+            _ => 0
+        };
+
+        OpenGLMeshShaderEntryPoints withoutMulti =
+            OpenGLMeshShaderEntryPoints.Resolve(ResolveAllExceptMulti);
+
+        Assert.True(withoutMulti.ExtDirect);
+        Assert.True(withoutMulti.ExtIndirect);
+        Assert.False(withoutMulti.ExtMultiDrawIndirect);
+        Assert.True(withoutMulti.NvDirect);
+        Assert.True(withoutMulti.SupportsExtMeshShader(extensionPresent: true));
+        Assert.False(withoutMulti.SupportsExtMultiDrawMeshTasksIndirect(extensionPresent: true));
+        Assert.True(withoutMulti.SupportsNvMeshShader(extensionPresent: true));
+
+        // Neither extension may be inferred from an entry point alone.
+        Assert.False(withoutMulti.SupportsExtMeshShader(extensionPresent: false));
+        Assert.False(withoutMulti.SupportsNvMeshShader(extensionPresent: false));
+    }
+
+    [Fact]
+    public void MeshShaderNativeEntryPointGatesRemainDialectSpecific()
+    {
+        static nint ResolveExtOnly(string name) => name switch
+        {
+            "glDrawMeshTasksEXT" => (nint)1,
+            "glDrawMeshTasksIndirectEXT" => (nint)2,
+            "glMultiDrawMeshTasksIndirectEXT" => (nint)3,
+            _ => 0
+        };
+
+        OpenGLMeshShaderEntryPoints extOnly =
+            OpenGLMeshShaderEntryPoints.Resolve(ResolveExtOnly);
+
+        Assert.True(extOnly.SupportsExtMeshShader(extensionPresent: true));
+        Assert.True(extOnly.SupportsExtMultiDrawMeshTasksIndirect(extensionPresent: true));
+        Assert.False(extOnly.SupportsNvMeshShader(extensionPresent: true));
+
+        // A missing single-indirect function is independent of direct-draw and NV support.
+        OpenGLMeshShaderEntryPoints directAndNvOnly =
+            OpenGLMeshShaderEntryPoints.Resolve(name =>
+                name is "glDrawMeshTasksEXT" or "glDrawMeshTasksNV" ? (nint)1 : 0);
+
+        Assert.True(directAndNvOnly.ExtDirect);
+        Assert.False(directAndNvOnly.ExtIndirect);
+        Assert.False(directAndNvOnly.SupportsExtMeshShader(extensionPresent: true));
+        Assert.True(directAndNvOnly.SupportsNvMeshShader(extensionPresent: true));
+    }
+
+    [Fact]
+    public void MeshAndTaskFeatureReportingRequiresTheirOwnUsableLimits()
+    {
+        // EXT limits are three-dimensional; NV limits use the independent one-dimensional
+        // GL_MAX_DRAW_MESH_TASKS_COUNT_NV value mapped to Y=Z=1 by device initialization.
+        Assert.True(OpenGLMeshTaskValidation.IsSupported(true, 64, 32, 8, 4096));
+        Assert.False(OpenGLMeshTaskValidation.IsSupported(true, 64, 32, 8, 0));
+        Assert.False(OpenGLMeshTaskValidation.IsSupported(true, 64, 32, 0, 4096));
+
+        Assert.True(OpenGLMeshTaskValidation.IsSupported(true, 65535, 1, 1, 65535));
+        Assert.False(OpenGLMeshTaskValidation.IsSupported(true, 0, 1, 1, 0));
+    }
+
+    [Fact]
     public void NvMeshShaderDirectDispatchIsRestrictedToItsOneDimensionalContract()
     {
         // GL_NV_mesh_shader exposes DrawMeshTasksNV(first, count). Auralis maps
