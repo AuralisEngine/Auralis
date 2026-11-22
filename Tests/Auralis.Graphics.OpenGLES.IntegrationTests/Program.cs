@@ -75,6 +75,7 @@ internal static class Program
                 Console.WriteLine($"SKIP: {name} (requires {requirements}): {reason}");
             }
 
+            RunTest("nested context-provider activation is balanced", "GLFW currentable GLES context", () => RunNestedContextActivation(device, context));
             RunTest("buffer copy, mapping, and fence", "OpenGL ES 3.1", () => RunBufferCopyAndFence(device));
             RunTest("compute dispatch and SSBO readback", "OpenGL ES 3.1", () => RunComputeDispatch(device));
             RunTest("descriptor types, recording snapshots, and GPU output", "OpenGL ES 3.1", () => RunComputeDescriptorTypesAndSnapshots(device, context));
@@ -832,6 +833,27 @@ internal static class Program
         throw new InvalidOperationException($"Expected {typeof(TException).Name}: {description}.");
     }
 
+    private static void RunNestedContextActivation(
+        IGraphicsDevice device,
+        GlfwOpenGLESContextProvider context)
+    {
+        OpenGLESGraphicsDevice gles = (OpenGLESGraphicsDevice)device;
+        context.MakeCurrent();
+        try
+        {
+            context.MakeCurrent();
+            context.ReleaseCurrent();
+            string? version = gles.Api.GetStringS(StringName.Version);
+            if (string.IsNullOrWhiteSpace(version))
+                throw new GraphicsException("The GLES context stopped being current after a nested provider release.");
+        }
+        finally
+        {
+            context.ReleaseCurrent();
+        }
+        Console.WriteLine("Validated nested GLES provider MakeCurrent/ReleaseCurrent reference counting.");
+    }
+
     private static void RunBufferCopyAndFence(IGraphicsDevice device)
     {
         const int size = 1024;
@@ -850,6 +872,23 @@ internal static class Program
             bytes[i] = (byte)((i * 37 + 11) & 0xFF);
         source.Unmap();
 
+        Memory<byte> readWriteRange = source.Map(GraphicsMapMode.ReadWrite, 128, 128);
+        for (int i = 0; i < readWriteRange.Length; i++)
+        {
+            byte expected = (byte)(((i + 128) * 37 + 11) & 0xFF);
+            if (readWriteRange.Span[i] != expected)
+                throw new InvalidOperationException($"GLES ReadWrite mapping did not snapshot byte {i + 128}.");
+        }
+        readWriteRange.Span[..16].Fill(0xA5);
+        source.Unmap();
+
+        Memory<byte> partialWrite = source.Map(GraphicsMapMode.Write, 512, 64);
+        partialWrite.Span.Fill(0x5A);
+        source.Unmap();
+        ExpectThrows<ObjectDisposedException>(
+            () => { _ = partialWrite.Span[0]; },
+            "a GLES staging view must be invalid after Unmap");
+
         IGraphicsCommandQueue queue = device.GetQueue(GraphicsQueueType.Copy);
         using IGraphicsCommandList commandList = queue.CreateCommandList();
         using IGraphicsFence fence = device.CreateFence();
@@ -865,12 +904,30 @@ internal static class Program
         Memory<byte> readback = destination.Map(GraphicsMapMode.Read);
         for (int i = 0; i < size; i++)
         {
-            byte expected = (byte)((i * 37 + 11) & 0xFF);
+            byte expected = i is >= 128 and < 144
+                ? (byte)0xA5
+                : i is >= 512 and < 576
+                    ? (byte)0x5A
+                    : (byte)((i * 37 + 11) & 0xFF);
             if (readback.Span[i] != expected)
                 throw new InvalidOperationException($"GLES buffer-copy mismatch at byte {i}.");
         }
         destination.Unmap();
-        Console.WriteLine("PASS: GLES buffer allocation, map/unmap, copy, and GPU fence.");
+        ExpectThrows<ObjectDisposedException>(
+            () => { _ = readback.Span[0]; },
+            "a GLES read staging view must be invalid after Unmap");
+
+        using IGraphicsBuffer disposalProbe = device.CreateBuffer(new GraphicsBufferDescription(
+            64,
+            GraphicsBufferUsage.CopySource | GraphicsBufferUsage.CopyDestination,
+            GraphicsMemoryAccess.CpuReadWrite));
+        Memory<byte> mappedBeforeDispose = disposalProbe.Map(GraphicsMapMode.Write, 8, 16);
+        disposalProbe.Dispose();
+        ExpectThrows<ObjectDisposedException>(
+            () => { _ = mappedBeforeDispose.Span[0]; },
+            "a GLES staging view must be invalid after resource disposal");
+
+        Console.WriteLine("PASS: GLES buffer allocation, full and partial Write/Read/ReadWrite staging maps, range-wide write-back, copy/fence readback, and invalidation after Unmap/disposal.");
     }
 
 

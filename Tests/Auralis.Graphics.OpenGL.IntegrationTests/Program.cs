@@ -50,6 +50,8 @@ internal static class Program
             int skipped = 0;
             int failed = 0;
 
+            Run("nested context-provider activation is balanced", session, NestedContextProviderActivation,
+                ref passed, ref skipped, ref failed);
             Run("disposed signal fence rejection preserves executable command lists", session, DisposedSignalFenceIsRejectedBeforeSubmission,
                 ref passed, ref skipped, ref failed);
             Run("buffer copy after dispose-before-submit", session, CopyBufferAfterRecordDispose,
@@ -83,6 +85,26 @@ internal static class Program
             Console.WriteLine($"Hardware integration result: {passed} passed, {skipped} skipped, {failed} failed.");
             return failed == 0 ? 0 : 1;
         }
+    }
+
+    private static void NestedContextProviderActivation(GlfwOpenGLHardwareSession session)
+    {
+        GlfwOpenGLContextProvider context = session.ContextProvider;
+        context.MakeCurrent();
+        try
+        {
+            context.MakeCurrent();
+            context.ReleaseCurrent();
+            IReadOnlyList<Silk.NET.OpenGL.GLEnum> errors = context.DrainErrors();
+            if (errors.Count != 0)
+                throw new GraphicsException(
+                    $"Nested desktop context activation left GL errors: {string.Join(", ", errors)}.");
+        }
+        finally
+        {
+            context.ReleaseCurrent();
+        }
+        Console.WriteLine("Validated nested desktop GL provider MakeCurrent/ReleaseCurrent reference counting.");
     }
 
     private static void DisposedSignalFenceIsRejectedBeforeSubmission(GlfwOpenGLHardwareSession session)

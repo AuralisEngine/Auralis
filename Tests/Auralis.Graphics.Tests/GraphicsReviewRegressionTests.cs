@@ -1,5 +1,6 @@
 using Auralis.Graphics.Abstractions;
 using Auralis.Graphics.Backends;
+using Auralis.Graphics.Backends.OpenGLES;
 using Auralis.Graphics.Commands;
 using Auralis.Graphics.Devices;
 using Auralis.Graphics.Pipelines;
@@ -85,6 +86,22 @@ public sealed class GraphicsReviewRegressionTests
         Assert.Throws<GraphicsValidationException>(() =>
             GraphicsCommandValidation.TryValidateIndirectCommandSequence(
                 description, offset: 128, drawCount: 1, commandSize, stride: 0, out _));
+    }
+
+    [Fact]
+    public void GlesRetainedResourceCleanupAggregatesEveryReleaseFailure()
+    {
+        var first = new ThrowingGlesRetainedResource("first");
+        var second = new ThrowingGlesRetainedResource("second");
+        var third = new ThrowingGlesRetainedResource("third");
+
+        AggregateException exception = Assert.Throws<AggregateException>(() =>
+            OpenGLESGraphicsCommandList.ReleaseRetainedResources([first, second, third]));
+
+        Assert.Equal(3, exception.InnerExceptions.Count);
+        Assert.Equal(1, first.ReleaseAttempts);
+        Assert.Equal(1, second.ReleaseAttempts);
+        Assert.Equal(1, third.ReleaseAttempts);
     }
 
     [Fact]
@@ -825,6 +842,19 @@ public sealed class GraphicsReviewRegressionTests
             width, height, 1, 1, arrayLayers, 1,
             usage,
             creationOptions);
+
+    private sealed class ThrowingGlesRetainedResource(string label) : IOpenGLESNativeResource
+    {
+        public int ReleaseAttempts { get; private set; }
+        public bool TryRetain() => true;
+        public bool TryRetainDependency() => true;
+        public void ReleaseReference()
+        {
+            ReleaseAttempts++;
+            throw new InvalidOperationException($"Synthetic GLES release failure: {label}.");
+        }
+        public void ReleaseNative(Silk.NET.OpenGLES.GL gl) { }
+    }
 
     private sealed class TestBuffer(
         IGraphicsDevice device,

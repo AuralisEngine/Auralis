@@ -1654,6 +1654,28 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
         _ => throw new GraphicsValidationException($"Primitive topology {topology} is not supported by OpenGL ES.")
     };
 
+    internal static void ReleaseRetainedResources(IEnumerable<IOpenGLESNativeResource> resources)
+    {
+        ArgumentNullException.ThrowIfNull(resources);
+        List<Exception>? failures = null;
+        foreach (IOpenGLESNativeResource resource in resources)
+        {
+            try
+            {
+                resource.ReleaseReference();
+            }
+            catch (Exception exception)
+            {
+                (failures ??= new List<Exception>(2)).Add(exception);
+            }
+        }
+
+        if (failures is not null)
+            throw new AggregateException(
+                "One or more retained GLES resources failed to release during command-list cleanup.",
+                failures);
+    }
+
     private void ClearRecordedState()
     {
         _commands.Clear();
@@ -1672,24 +1694,14 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
         _colorCount = 0;
         _targetSampleCount = 0;
         _targetOffset = 0;
-        List<Exception>? releaseFailures = null;
-        foreach (IOpenGLESNativeResource resource in _retained)
+        try
         {
-            try
-            {
-                resource.ReleaseReference();
-            }
-            catch (Exception exception)
-            {
-                (releaseFailures ??= new List<Exception>(2)).Add(exception);
-            }
+            ReleaseRetainedResources(_retained);
         }
-        _retained.Clear();
-
-        if (releaseFailures is not null)
-            throw new AggregateException(
-                "One or more retained GLES resources failed to release during command-list cleanup.",
-                releaseFailures);
+        finally
+        {
+            _retained.Clear();
+        }
     }
 
     protected override void DisposeCore()
