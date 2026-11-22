@@ -9,6 +9,8 @@ using Auralis.Graphics.Pipelines;
 using Auralis.Graphics.Resources;
 using Auralis.Graphics.Synchronization;
 using Silk.NET.OpenGL;
+using OpenGLExtMeshShader = Silk.NET.OpenGL.Extensions.EXT.ExtMeshShader;
+using NvMeshShader = Silk.NET.OpenGL.Extensions.NV.NVMeshShader;
 using Xunit;
 using Xunit.Sdk;
 
@@ -23,11 +25,23 @@ public sealed partial class OpenGLIntegrationTests : IClassFixture<OpenGLHardwar
     {
         GlfwOpenGLHardwareSession session = _fixture.GetSessionOrSkip();
         OpenGLGraphicsDevice nativeDevice = (OpenGLGraphicsDevice)session.Device;
+        MeshShaderContextDiagnostics meshShaderDiagnostics =
+            QueryMeshShaderContextDiagnostics(nativeDevice);
         Console.WriteLine(
             $"Desktop OpenGL context: vendor='{nativeDevice.Info.DriverName}', " +
             $"renderer='{nativeDevice.Info.Name}', driver='{nativeDevice.Info.DriverVersion}', " +
-            $"API='{nativeDevice.Info.ApiVersion}', EXT_mesh_shader={nativeDevice.MeshShaderApi is not null}, " +
-            $"NV_mesh_shader={nativeDevice.NvMeshShaderApi is not null}, process='{Environment.ProcessPath}'.");
+            $"API='{nativeDevice.Info.ApiVersion}', process='{Environment.ProcessPath}', " +
+            $"GL_NUM_EXTENSIONS={meshShaderDiagnostics.ExtensionCount}, " +
+            $"indexed mesh extensions=[{meshShaderDiagnostics.AdvertisedExtensions}], " +
+            $"Silk.NET IsExtensionPresent: EXT={meshShaderDiagnostics.SilkExtAdvertised}, " +
+            $"NV={meshShaderDiagnostics.SilkNvAdvertised}, " +
+            $"device advertisement: EXT={nativeDevice.HasExtMeshShaderExtension}, " +
+            $"NV={nativeDevice.HasNvMeshShaderExtension}, " +
+            $"wrappers: EXT={nativeDevice.MeshShaderApi is not null}, NV={nativeDevice.NvMeshShaderApi is not null}, " +
+            $"entry points: EXT direct={meshShaderDiagnostics.ExtDirectEntryPoint}, " +
+            $"EXT indirect={meshShaderDiagnostics.ExtIndirectEntryPoint}, " +
+            $"EXT multi-indirect={meshShaderDiagnostics.ExtMultiDrawEntryPoint}, " +
+            $"NV direct={meshShaderDiagnostics.NvDirectEntryPoint}.");
         try
         {
             test(session);
@@ -38,6 +52,89 @@ public sealed partial class OpenGLIntegrationTests : IClassFixture<OpenGLHardwar
             throw SkipException.ForSkip(exception.Message);
         }
     }
+
+    private static MeshShaderContextDiagnostics QueryMeshShaderContextDiagnostics(
+        OpenGLGraphicsDevice device)
+    {
+        // The device's GL instance and extension cache are queried only while the device's own
+        // context gate is held. Enumerate GL_NUM_EXTENSIONS/glGetStringi independently, then
+        // compare that exact list against Silk.NET and the immutable device-initialization result.
+        using OpenGLContextScope context = device.AcquireContext();
+        GL gl = context.Gl;
+        int extensionCount = gl.GetInteger(GLEnum.NumExtensions);
+        if (extensionCount < 0)
+            throw new GraphicsException($"The current OpenGL context returned an invalid GL_NUM_EXTENSIONS value: {extensionCount}.");
+
+        bool indexedExtAdvertised = false;
+        bool indexedNvAdvertised = false;
+        for (int i = 0; i < extensionCount; i++)
+        {
+            string extension = gl.GetStringS(StringName.Extensions, (uint)i);
+            if (string.Equals(extension, "GL_" + OpenGLExtMeshShader.ExtensionName, StringComparison.Ordinal))
+                indexedExtAdvertised = true;
+            else if (string.Equals(extension, "GL_" + NvMeshShader.ExtensionName, StringComparison.Ordinal))
+                indexedNvAdvertised = true;
+        }
+
+        bool silkExtAdvertised = gl.IsExtensionPresent(OpenGLExtMeshShader.ExtensionName);
+        bool silkNvAdvertised = gl.IsExtensionPresent(NvMeshShader.ExtensionName);
+        if (indexedExtAdvertised != silkExtAdvertised ||
+            indexedNvAdvertised != silkNvAdvertised ||
+            indexedExtAdvertised != device.HasExtMeshShaderExtension ||
+            indexedNvAdvertised != device.HasNvMeshShaderExtension)
+        {
+            throw new GraphicsException(
+                "Desktop OpenGL mesh-shader extension discovery disagrees for the active context: " +
+                $"indexed EXT={indexedExtAdvertised}, Silk.NET EXT={silkExtAdvertised}, device EXT={device.HasExtMeshShaderExtension}; " +
+                $"indexed NV={indexedNvAdvertised}, Silk.NET NV={silkNvAdvertised}, device NV={device.HasNvMeshShaderExtension}.");
+        }
+
+        // These are deliberately diagnostic-only here. An advertised extension whose required
+        // function cannot be resolved is reported as a native-entry-point problem, never as an
+        // unadvertised extension or a capability skip.
+        bool extDirect = device.ContextProvider.GetProcAddress("glDrawMeshTasksEXT") != 0;
+        bool extIndirect = device.ContextProvider.GetProcAddress("glDrawMeshTasksIndirectEXT") != 0;
+        bool extMultiDraw = device.ContextProvider.GetProcAddress("glMultiDrawMeshTasksIndirectEXT") != 0;
+        bool nvDirect = device.ContextProvider.GetProcAddress("glDrawMeshTasksNV") != 0;
+
+        string advertisedExtensions = string.Join(
+            ", ",
+            indexedExtAdvertised ? "GL_EXT_mesh_shader" : null,
+            indexedNvAdvertised ? "GL_NV_mesh_shader" : null);
+        return new MeshShaderContextDiagnostics(
+            extensionCount,
+            advertisedExtensions,
+            silkExtAdvertised,
+            silkNvAdvertised,
+            extDirect,
+            extIndirect,
+            extMultiDraw,
+            nvDirect);
+    }
+
+    private static void RequireNativeEntryPoint(
+        OpenGLGraphicsDevice device,
+        string extensionName,
+        string entryPointName)
+    {
+        using OpenGLContextScope context = device.AcquireContext();
+        if (device.ContextProvider.GetProcAddress(entryPointName) == 0)
+        {
+            throw new GraphicsException(
+                $"{extensionName} is advertised by the active OpenGL context, but its required native entry point " +
+                $"'{entryPointName}' could not be resolved from that same current context.");
+        }
+    }
+
+    private readonly record struct MeshShaderContextDiagnostics(
+        int ExtensionCount,
+        string AdvertisedExtensions,
+        bool SilkExtAdvertised,
+        bool SilkNvAdvertised,
+        bool ExtDirectEntryPoint,
+        bool ExtIndirectEntryPoint,
+        bool ExtMultiDrawEntryPoint,
+        bool NvDirectEntryPoint);
 
     [Fact] public void NestedContextProviderActivationIsBalanced() => RunHardwareTest(NestedContextProviderActivation);
     [Fact] public void FenceWaitTimeoutIsBoundedByContextGateContention() => RunHardwareTest(FenceWaitTimeoutUnderContextContention);
@@ -931,8 +1028,12 @@ public sealed partial class OpenGLIntegrationTests : IClassFixture<OpenGLHardwar
     {
         IGraphicsDevice device = session.Device;
         OpenGLGraphicsDevice nativeDevice = (OpenGLGraphicsDevice)device;
-        if (nativeDevice.MeshShaderApi is null)
+        if (!nativeDevice.HasExtMeshShaderExtension)
             throw new HardwareTestSkippedException("The context does not advertise GL_EXT_mesh_shader.");
+        if (nativeDevice.MeshShaderApi is null)
+            throw new GraphicsException("GL_EXT_mesh_shader is advertised, but its Silk.NET API wrapper was not initialized.");
+        RequireNativeEntryPoint(nativeDevice, "GL_EXT_mesh_shader", "glDrawMeshTasksEXT");
+        RequireNativeEntryPoint(nativeDevice, "GL_EXT_mesh_shader", "glDrawMeshTasksIndirectEXT");
         if (!nativeDevice.MeshShaderCapabilities.SupportsMeshShader(OpenGLMeshShaderDialect.Ext))
             throw new HardwareTestSkippedException(
                 $"GL_EXT_mesh_shader is advertised, but its mesh work-group limits are unusable: " +
@@ -996,8 +1097,11 @@ public sealed partial class OpenGLIntegrationTests : IClassFixture<OpenGLHardwar
     {
         IGraphicsDevice device = session.Device;
         OpenGLGraphicsDevice nativeDevice = (OpenGLGraphicsDevice)device;
-        if (nativeDevice.MeshShaderApi is null)
+        if (!nativeDevice.HasExtMeshShaderExtension)
             throw new HardwareTestSkippedException("The context does not advertise GL_EXT_mesh_shader.");
+        if (nativeDevice.MeshShaderApi is null)
+            throw new GraphicsException("GL_EXT_mesh_shader is advertised, but its Silk.NET API wrapper was not initialized.");
+        RequireNativeEntryPoint(nativeDevice, "GL_EXT_mesh_shader", "glDrawMeshTasksEXT");
         if (!nativeDevice.MeshShaderCapabilities.SupportsTaskShader(OpenGLMeshShaderDialect.Ext))
             throw new HardwareTestSkippedException(
                 $"GL_EXT_mesh_shader is advertised, but its EXT task/mesh work-group limits are unusable: " +
@@ -1060,8 +1164,11 @@ public sealed partial class OpenGLIntegrationTests : IClassFixture<OpenGLHardwar
     {
         IGraphicsDevice device = session.Device;
         OpenGLGraphicsDevice nativeDevice = (OpenGLGraphicsDevice)device;
-        if (nativeDevice.NvMeshShaderApi is null)
+        if (!nativeDevice.HasNvMeshShaderExtension)
             throw new HardwareTestSkippedException("The context does not advertise GL_NV_mesh_shader.");
+        if (nativeDevice.NvMeshShaderApi is null)
+            throw new GraphicsException("GL_NV_mesh_shader is advertised, but its Silk.NET API wrapper was not initialized.");
+        RequireNativeEntryPoint(nativeDevice, "GL_NV_mesh_shader", "glDrawMeshTasksNV");
         if (nativeDevice.MaxNvDrawMeshTasksCount == 0)
             throw new HardwareTestSkippedException($"GL_NV_mesh_shader is advertised, but GL_MAX_DRAW_MESH_TASKS_COUNT_NV is zero. Active adapter: {nativeDevice.Info.DriverName} / {nativeDevice.Info.Name} (GL {nativeDevice.Info.DriverVersion}).");
 
@@ -1125,8 +1232,11 @@ public sealed partial class OpenGLIntegrationTests : IClassFixture<OpenGLHardwar
     {
         IGraphicsDevice device = session.Device;
         OpenGLGraphicsDevice nativeDevice = (OpenGLGraphicsDevice)device;
-        if (nativeDevice.NvMeshShaderApi is null)
+        if (!nativeDevice.HasNvMeshShaderExtension)
             throw new HardwareTestSkippedException("The context does not advertise GL_NV_mesh_shader.");
+        if (nativeDevice.NvMeshShaderApi is null)
+            throw new GraphicsException("GL_NV_mesh_shader is advertised, but its Silk.NET API wrapper was not initialized.");
+        RequireNativeEntryPoint(nativeDevice, "GL_NV_mesh_shader", "glDrawMeshTasksNV");
         if (!nativeDevice.MeshShaderCapabilities.SupportsTaskShader(OpenGLMeshShaderDialect.Nv))
             throw new HardwareTestSkippedException(
                 $"GL_NV_mesh_shader is advertised, but its NV task/mesh dispatch limit is unusable: {nativeDevice.MaxNvDrawMeshTasksCount}. Active adapter: {nativeDevice.Info.DriverName} / {nativeDevice.Info.Name} (GL {nativeDevice.Info.DriverVersion}); process: {Environment.ProcessPath}.");
