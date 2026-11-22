@@ -51,6 +51,7 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
     private readonly OpenGLExtMeshShader? _meshShaderApi;
     private readonly NVMeshShader? _nvMeshShaderApi;
     private readonly bool _supportsExtMultiDrawMeshTasksIndirect;
+    private readonly OpenGLMeshShaderDialectCapabilities _meshShaderCapabilities;
     private readonly ArbES2Compatibility _shaderBinaryApi;
     private readonly ArbGlSpirv? _spirvApi;
     private readonly ArbComputeShader _computeShaderApi;
@@ -81,6 +82,7 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
     internal OpenGLExtMeshShader? MeshShaderApi => _meshShaderApi;
     internal NVMeshShader? NvMeshShaderApi => _nvMeshShaderApi;
     internal bool SupportsExtMultiDrawMeshTasksIndirect => _supportsExtMultiDrawMeshTasksIndirect;
+    internal OpenGLMeshShaderDialectCapabilities MeshShaderCapabilities => _meshShaderCapabilities;
     internal ArbES2Compatibility ShaderBinaryApi => _shaderBinaryApi;
     internal ArbGlSpirv? SpirVApi => _spirvApi;
     internal bool DebugLayerEnabled => _debugLayerEnabled;
@@ -110,6 +112,7 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
         OpenGLExtMeshShader? meshShaderApi,
         NVMeshShader? nvMeshShaderApi,
         bool supportsExtMultiDrawMeshTasksIndirect,
+        OpenGLMeshShaderDialectCapabilities meshShaderCapabilities,
         ArbES2Compatibility shaderBinaryApi,
         ArbGlSpirv? spirvApi,
         OpenGLLineWidthRange supportedLineWidths,
@@ -161,6 +164,7 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
         _meshShaderApi = meshShaderApi;
         _nvMeshShaderApi = nvMeshShaderApi;
         _supportsExtMultiDrawMeshTasksIndirect = supportsExtMultiDrawMeshTasksIndirect;
+        _meshShaderCapabilities = meshShaderCapabilities;
         _shaderBinaryApi = shaderBinaryApi;
         _spirvApi = spirvApi;
         SupportedLineWidths = supportedLineWidths;
@@ -350,38 +354,46 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
             }
             if (nvMeshShaderApi is not null)
             {
-                // GL_NV_mesh_shader defines this as an ordinary GetIntegerv query. Keep
-                // native entry-point availability separate from the driver limit: a zero or
-                // invalid limit disables capability reporting/dispatch validation, but must
-                // not erase the fact that the native API was resolved.
+                // GL_NV_mesh_shader uses its own one-dimensional limit. Keep it independent
+                // from the EXT three-dimensional mesh/task limit set.
                 maxNvDrawMeshTasksCount = ToUInt(gl.GetInteger((GLEnum)0x953D)); // GL_MAX_DRAW_MESH_TASKS_COUNT_NV
-                if (meshShaderApi is null)
-                {
-                    // With NV-only support, expose the one-dimensional NV limit through the
-                    // common capability snapshot. NV pipelines retain the dedicated limit too.
-                    maxMeshWorkGroupCountX = maxNvDrawMeshTasksCount;
-                    maxMeshWorkGroupCountY = 1;
-                    maxMeshWorkGroupCountZ = 1;
-                    maxMeshWorkGroupTotalCount = maxNvDrawMeshTasksCount;
-                    maxTaskWorkGroupCountX = maxNvDrawMeshTasksCount;
-                    maxTaskWorkGroupCountY = 1;
-                    maxTaskWorkGroupCountZ = 1;
-                    maxTaskWorkGroupTotalCount = maxNvDrawMeshTasksCount;
-                }
             }
 
-            bool supportsMeshShaders = OpenGLMeshTaskValidation.IsSupported(
-                meshShaderApi is not null || nvMeshShaderApi is not null,
-                maxMeshWorkGroupCountX,
-                maxMeshWorkGroupCountY,
-                maxMeshWorkGroupCountZ,
-                maxMeshWorkGroupTotalCount);
-            bool supportsTaskShaders = supportsMeshShaders && OpenGLMeshTaskValidation.IsSupported(
-                meshShaderApi is not null || nvMeshShaderApi is not null,
-                maxTaskWorkGroupCountX,
-                maxTaskWorkGroupCountY,
-                maxTaskWorkGroupCountZ,
-                maxTaskWorkGroupTotalCount);
+            OpenGLMeshShaderDialectCapabilities meshShaderCapabilities =
+                OpenGLMeshShaderDialectCapabilities.Detect(
+                    hasExtMeshShader,
+                    hasNvMeshShader,
+                    meshShaderEntryPoints,
+                    maxMeshWorkGroupCountX,
+                    maxMeshWorkGroupCountY,
+                    maxMeshWorkGroupCountZ,
+                    maxMeshWorkGroupTotalCount,
+                    maxTaskWorkGroupCountX,
+                    maxTaskWorkGroupCountY,
+                    maxTaskWorkGroupCountZ,
+                    maxTaskWorkGroupTotalCount,
+                    maxNvDrawMeshTasksCount);
+
+            // GraphicsDeviceLimits has one public mesh/task limit set. Prefer the EXT 3D
+            // limits when that dialect is usable; otherwise publish the independent NV limits.
+            uint reportedMeshCountX = meshShaderCapabilities.ExtMeshShaders
+                ? maxMeshWorkGroupCountX
+                : meshShaderCapabilities.NvMeshShaders ? maxNvDrawMeshTasksCount : 0;
+            uint reportedMeshCountY = meshShaderCapabilities.ExtMeshShaders ? maxMeshWorkGroupCountY : meshShaderCapabilities.NvMeshShaders ? 1u : 0u;
+            uint reportedMeshCountZ = meshShaderCapabilities.ExtMeshShaders ? maxMeshWorkGroupCountZ : meshShaderCapabilities.NvMeshShaders ? 1u : 0u;
+            uint reportedMeshTotalCount = meshShaderCapabilities.ExtMeshShaders
+                ? maxMeshWorkGroupTotalCount
+                : meshShaderCapabilities.NvMeshShaders ? maxNvDrawMeshTasksCount : 0;
+
+            uint reportedTaskCountX = meshShaderCapabilities.ExtTaskShaders
+                ? maxTaskWorkGroupCountX
+                : meshShaderCapabilities.NvTaskShaders ? maxNvDrawMeshTasksCount : 0;
+            uint reportedTaskCountY = meshShaderCapabilities.ExtTaskShaders ? maxTaskWorkGroupCountY : meshShaderCapabilities.NvTaskShaders ? 1u : 0u;
+            uint reportedTaskCountZ = meshShaderCapabilities.ExtTaskShaders ? maxTaskWorkGroupCountZ : meshShaderCapabilities.NvTaskShaders ? 1u : 0u;
+            uint reportedTaskTotalCount = meshShaderCapabilities.ExtTaskShaders
+                ? maxTaskWorkGroupTotalCount
+                : meshShaderCapabilities.NvTaskShaders ? maxNvDrawMeshTasksCount : 0;
+
             GraphicsDeviceCapabilities capabilities = QueryCapabilities(
                 gl, major, minor, internalFormatQuery!, uniformBufferObjectApi!,
                 contextProvider.SupportsPresentation,
@@ -389,17 +401,17 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
                 depthBoundsApi is not null,
                 polygonOffsetClampApi is not null,
                 spirvApi is not null,
-                supportsMeshShaders,
-                supportsTaskShaders,
+                meshShaderCapabilities.SupportsMeshShaders,
+                meshShaderCapabilities.SupportsTaskShaders,
                 supportedLineWidths,
-                maxMeshWorkGroupCountX,
-                maxMeshWorkGroupCountY,
-                maxMeshWorkGroupCountZ,
-                maxMeshWorkGroupTotalCount,
-                maxTaskWorkGroupCountX,
-                maxTaskWorkGroupCountY,
-                maxTaskWorkGroupCountZ,
-                maxTaskWorkGroupTotalCount);
+                reportedMeshCountX,
+                reportedMeshCountY,
+                reportedMeshCountZ,
+                reportedMeshTotalCount,
+                reportedTaskCountX,
+                reportedTaskCountY,
+                reportedTaskCountZ,
+                reportedTaskTotalCount);
 
             cancellationToken.ThrowIfCancellationRequested();
 
@@ -409,7 +421,7 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
                 baseInstanceApi, drawIndirectApi, multiDrawIndirectApi, imageLoadStoreApi,
                 drawBuffersBlendApi, indexedDrawBuffersApi, depthBoundsApi, polygonOffsetClampApi,
                 meshShaderApi, nvMeshShaderApi, supportsExtMultiDrawMeshTasksIndirect,
-                shaderBinaryApi!, spirvApi, supportedLineWidths, computeShaderApi!, uniformBufferObjectApi!,
+                meshShaderCapabilities, shaderBinaryApi!, spirvApi, supportedLineWidths, computeShaderApi!, uniformBufferObjectApi!,
                 maxComputeWorkGroupCountX, maxComputeWorkGroupCountY, maxComputeWorkGroupCountZ,
                 maxMeshWorkGroupCountX, maxMeshWorkGroupCountY, maxMeshWorkGroupCountZ,
                 maxMeshWorkGroupTotalCount,
