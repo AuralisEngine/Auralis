@@ -475,8 +475,13 @@ public sealed class OpenGLBackendTests
             new(0, GraphicsDescriptorType.StorageBuffer, 1, GraphicsShaderStages.Compute)
         ]);
 
+        var device = new GraphicsDeviceFactoryTests.TestDevice(
+            GraphicsBackend.OpenGL, GraphicsFeature.None, GraphicsQueueCapabilities.Graphics);
+        using var firstLayout = new OpenGLGraphicsBindingLayout(device, firstSet);
+        using var secondLayout = new OpenGLGraphicsBindingLayout(device, secondSet);
+
         OpenGLDescriptorMapping[] mappings = OpenGLDescriptorBindingAllocator.Allocate(
-            [firstSet, secondSet],
+            [firstLayout, secondLayout],
             maxUniformBufferBindings: 4,
             maxStorageBufferBindings: 4,
             maxTextureUnits: 4,
@@ -513,9 +518,13 @@ public sealed class OpenGLBackendTests
             new(0, GraphicsDescriptorType.UniformBuffer, 2, GraphicsShaderStages.Vertex)
         ]);
 
+        var device = new GraphicsDeviceFactoryTests.TestDevice(
+            GraphicsBackend.OpenGL, GraphicsFeature.None, GraphicsQueueCapabilities.Graphics);
+        using var bindingLayout = new OpenGLGraphicsBindingLayout(device, layout);
+
         Assert.Throws<GraphicsValidationException>(() =>
             OpenGLDescriptorBindingAllocator.Allocate(
-                [layout],
+                [bindingLayout],
                 maxUniformBufferBindings: 1,
                 maxStorageBufferBindings: 1,
                 maxTextureUnits: 1,
