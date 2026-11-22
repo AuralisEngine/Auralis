@@ -61,11 +61,11 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
 
     [UnmanagedFunctionPointer(CallingConvention.Winapi)]
     internal unsafe delegate void MultiDrawArraysIndirectExtDelegate(
-        PrimitiveType mode, void* indirect, uint drawCount, uint stride);
+        PrimitiveType mode, void* indirect, int drawCount, int stride);
 
     [UnmanagedFunctionPointer(CallingConvention.Winapi)]
     internal unsafe delegate void MultiDrawElementsIndirectExtDelegate(
-        PrimitiveType mode, DrawElementsType type, void* indirect, uint drawCount, uint stride);
+        PrimitiveType mode, DrawElementsType type, void* indirect, int drawCount, int stride);
 
     [UnmanagedFunctionPointer(CallingConvention.Winapi)]
     internal delegate void CopyImageSubDataOesDelegate(
