@@ -277,6 +277,13 @@ internal sealed class OpenGLESGraphicsBindingSet : GraphicsDeviceObject, IGraphi
         ThrowIfDisposed();
         ArgumentNullException.ThrowIfNull(textureView);
         EnsureOwned(textureView);
+        if (textureView is OpenGLESGraphicsTextureView nativeView &&
+            nativeView.IsFramebufferSubresourceAlias)
+        {
+            throw new GraphicsValidationException(
+                "This GLES subresource alias is framebuffer-attachment-only. " +
+                "Sampling/storage-image use requires GL_EXT_texture_view or GL_OES_texture_view.");
+        }
 
         if (!_layout.TryGetEntry(binding, out GraphicsBindingLayoutEntry entry, out int offset))
             throw new GraphicsValidationException($"Binding {binding} is not declared.");
