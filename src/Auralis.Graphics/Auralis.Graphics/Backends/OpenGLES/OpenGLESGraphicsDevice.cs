@@ -466,7 +466,7 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
             ThrowIfGlesErrors(gl, $"glGetStringi(GL_EXTENSIONS, {i})");
         }
 
-        return OpenGLESCapabilityProfile.Create(
+        return OpenGLESCapabilityProfile.CreateFromOwnedExtensions(
             version, extensions, supportsPresentation,
             multiDrawIndirectEntryPointsAvailable,
             indexedBlendEntryPointsAvailable,
@@ -904,31 +904,43 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
         if (count <= 0)
             return GraphicsSampleCountFlags.One;
 
-        Span<int> nativeCounts = count <= 64 ? stackalloc int[count] : new int[count];
-        gl.GetInternalformat(
-            TextureTarget.Texture2DMultisample,
-            (GLEnum)internalFormat,
-            InternalFormatPName.Samples,
-            nativeCounts);
-        ThrowIfGlesErrors(gl,
-            $"glGetInternalformativ(GL_TEXTURE_2D_MULTISAMPLE, {internalFormat}, GL_SAMPLES) for {format}");
-
-        GraphicsSampleCountFlags supported = GraphicsSampleCountFlags.One;
-        for (int i = 0; i < nativeCounts.Length; i++)
+        Span<int> stackCounts = stackalloc int[64];
+        int[]? rentedCounts = null;
+        Span<int> nativeCounts = count <= stackCounts.Length
+            ? stackCounts[..count]
+            : (rentedCounts = ArrayPool<int>.Shared.Rent(count)).AsSpan(0, count);
+        try
         {
-            supported |= nativeCounts[i] switch
-            {
-                2 => GraphicsSampleCountFlags.Two,
-                4 => GraphicsSampleCountFlags.Four,
-                8 => GraphicsSampleCountFlags.Eight,
-                16 => GraphicsSampleCountFlags.Sixteen,
-                32 => GraphicsSampleCountFlags.ThirtyTwo,
-                64 => GraphicsSampleCountFlags.SixtyFour,
-                _ => GraphicsSampleCountFlags.None
-            };
-        }
+            gl.GetInternalformat(
+                TextureTarget.Texture2DMultisample,
+                (GLEnum)internalFormat,
+                InternalFormatPName.Samples,
+                nativeCounts);
+            ThrowIfGlesErrors(gl,
+                $"glGetInternalformativ(GL_TEXTURE_2D_MULTISAMPLE, {internalFormat}, GL_SAMPLES) for {format}");
 
-        return supported;
+            GraphicsSampleCountFlags supported = GraphicsSampleCountFlags.One;
+            for (int i = 0; i < nativeCounts.Length; i++)
+            {
+                supported |= nativeCounts[i] switch
+                {
+                    2 => GraphicsSampleCountFlags.Two,
+                    4 => GraphicsSampleCountFlags.Four,
+                    8 => GraphicsSampleCountFlags.Eight,
+                    16 => GraphicsSampleCountFlags.Sixteen,
+                    32 => GraphicsSampleCountFlags.ThirtyTwo,
+                    64 => GraphicsSampleCountFlags.SixtyFour,
+                    _ => GraphicsSampleCountFlags.None
+                };
+            }
+
+            return supported;
+        }
+        finally
+        {
+            if (rentedCounts is not null)
+                ArrayPool<int>.Shared.Return(rentedCounts);
+        }
     }
 
     internal static void ThrowIfGlesErrors(GL gl, string operation)

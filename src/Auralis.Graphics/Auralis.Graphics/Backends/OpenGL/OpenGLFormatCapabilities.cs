@@ -1,3 +1,4 @@
+using System.Buffers;
 using Auralis.Graphics.Devices;
 using Auralis.Graphics.Resources;
 using Silk.NET.OpenGL;
@@ -8,6 +9,9 @@ namespace Auralis.Graphics.Backends.OpenGL;
 /// <summary>Maps common formats to desktop OpenGL sized internal formats and queries their actual support.</summary>
 internal static class OpenGLFormatCapabilities
 {
+    private const int StackResultCapacity = 64;
+    private static readonly GraphicsFormat[] s_formats = Enum.GetValues<GraphicsFormat>();
+
     internal static GraphicsFormatCapabilities[] Query(
         GL gl,
         ArbInternalformatQuery? internalFormatQuery,
@@ -16,9 +20,18 @@ internal static class OpenGLFormatCapabilities
         if (internalFormatQuery is null)
             return [];
 
-        List<GraphicsFormatCapabilities> formats = new(35);
+        Span<GraphicsFormatCapabilities> stackResults =
+            stackalloc GraphicsFormatCapabilities[StackResultCapacity];
+        GraphicsFormatCapabilities[]? rentedResults = null;
+        Span<GraphicsFormatCapabilities> results = s_formats.Length <= stackResults.Length
+            ? stackResults[..s_formats.Length]
+            : (rentedResults = ArrayPool<GraphicsFormatCapabilities>.Shared.Rent(s_formats.Length))
+                .AsSpan(0, s_formats.Length);
         Span<int> queriedSamples = stackalloc int[64];
-        foreach (GraphicsFormat format in Enum.GetValues<GraphicsFormat>())
+        int resultCount = 0;
+        try
+        {
+        foreach (GraphicsFormat format in s_formats)
         {
             if (format == GraphicsFormat.Unknown ||
                 !TryGetInternalFormat(format, out SizedInternalFormat internalFormat, out string? requiredExtension))
@@ -132,10 +145,18 @@ internal static class OpenGLFormatCapabilities
 
             }
 
-            formats.Add(new GraphicsFormatCapabilities(format, support, sampleCounts));
+            results[resultCount++] = new GraphicsFormatCapabilities(format, support, sampleCounts);
         }
 
-        return formats.ToArray();
+        GraphicsFormatCapabilities[] result = new GraphicsFormatCapabilities[resultCount];
+        results[..resultCount].CopyTo(result);
+        return result;
+        }
+        finally
+        {
+            if (rentedResults is not null)
+                ArrayPool<GraphicsFormatCapabilities>.Shared.Return(rentedResults);
+        }
     }
 
     internal static bool TryGetInternalFormat(

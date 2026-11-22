@@ -147,21 +147,44 @@ public sealed class OpenGLESCapabilityProfile
         bool baseVertexEntryPointsAvailable = true,
         bool baseInstanceEntryPointsAvailable = true,
         bool textureViewEntryPointAvailable = true,
+        bool meshShaderEntryPointsAvailable = true) =>
+        CreateFromOwnedExtensions(
+            version,
+            extensions.ToArray(),
+            supportsPresentation,
+            multiDrawIndirectEntryPointsAvailable,
+            indexedBlendEntryPointsAvailable,
+            baseVertexEntryPointsAvailable,
+            baseInstanceEntryPointsAvailable,
+            textureViewEntryPointAvailable,
+            meshShaderEntryPointsAvailable);
+
+    internal static OpenGLESCapabilityProfile CreateFromOwnedExtensions(
+        OpenGLESVersion version,
+        string[] extensions,
+        bool supportsPresentation,
+        bool multiDrawIndirectEntryPointsAvailable = true,
+        bool indexedBlendEntryPointsAvailable = true,
+        bool baseVertexEntryPointsAvailable = true,
+        bool baseInstanceEntryPointsAvailable = true,
+        bool textureViewEntryPointAvailable = true,
         bool meshShaderEntryPointsAvailable = true)
     {
+        ArgumentNullException.ThrowIfNull(extensions);
         if (version.Major < 1 || version.Minor < 0)
             throw new ArgumentOutOfRangeException(nameof(version));
 
-        string[] extensionCopy = extensions.ToArray();
-        for (int i = 0; i < extensionCopy.Length; i++)
+        // Ownership of this array transfers to the profile. Public Create continues to copy
+        // caller-owned spans before entering this method.
+        for (int i = 0; i < extensions.Length; i++)
         {
-            if (string.IsNullOrWhiteSpace(extensionCopy[i]) ||
-                extensionCopy[i].IndexOfAny([' ', '\t', '\r', '\n']) >= 0)
+            if (string.IsNullOrWhiteSpace(extensions[i]) ||
+                extensions[i].IndexOfAny([' ', '\t', '\r', '\n']) >= 0)
                 throw new ArgumentException("Each GLES extension must be one non-empty token.", nameof(extensions));
             for (int j = 0; j < i; j++)
             {
-                if (string.Equals(extensionCopy[i], extensionCopy[j], StringComparison.Ordinal))
-                    throw new ArgumentException($"GLES extension '{extensionCopy[i]}' is duplicated.", nameof(extensions));
+                if (string.Equals(extensions[i], extensions[j], StringComparison.Ordinal))
+                    throw new ArgumentException($"GLES extension '{extensions[i]}' is duplicated.", nameof(extensions));
             }
         }
 
@@ -182,7 +205,7 @@ public sealed class OpenGLESCapabilityProfile
             features |= GraphicsFeature.GeometryShaders | GraphicsFeature.TessellationShaders;
         }
 
-        if (Contains(extensionCopy, "GL_EXT_texture_filter_anisotropic"))
+        if (Contains(extensions, "GL_EXT_texture_filter_anisotropic"))
             features |= GraphicsFeature.SamplerAnisotropy;
 
         // These features are exposed only when the exact GLES extension is advertised.
@@ -217,7 +240,7 @@ public sealed class OpenGLESCapabilityProfile
 
         return new OpenGLESCapabilityProfile(
             version,
-            extensionCopy,
+            extensions,
             new GraphicsFeatureSet(features),
             queues);
     }
