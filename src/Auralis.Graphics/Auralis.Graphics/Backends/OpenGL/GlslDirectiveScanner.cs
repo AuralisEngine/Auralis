@@ -68,7 +68,13 @@ internal static class GlslDirectiveScanner
                 }
                 else
                 {
-                    rentedLineBuffer = ArrayPool<char>.Shared.Rent(sourceLine.Length);
+                    if (rentedLineBuffer is null || rentedLineBuffer.Length < sourceLine.Length)
+                    {
+                        if (rentedLineBuffer is not null)
+                            ArrayPool<char>.Shared.Return(rentedLineBuffer);
+                        rentedLineBuffer = ArrayPool<char>.Shared.Rent(sourceLine.Length);
+                    }
+
                     normalizedLine = rentedLineBuffer.AsSpan(0, sourceLine.Length);
                 }
 
@@ -158,12 +164,6 @@ internal static class GlslDirectiveScanner
                             behaviorText = behavior;
                         }
                     }
-                }
-
-                if (rentedLineBuffer is not null)
-                {
-                    ArrayPool<char>.Shared.Return(rentedLineBuffer);
-                    rentedLineBuffer = null;
                 }
 
                 if (lineEnd == sourceSpan.Length)
