@@ -42,20 +42,26 @@ public sealed class GraphicsReviewRegressionTests
     {
         object gate = new();
         using ManualResetEventSlim started = new();
-        Task<bool> waiter;
+        using ManualResetEventSlim completed = new();
+        bool acquired = true;
+        Thread waiter = new(() =>
+        {
+            started.Set();
+            acquired = GraphicsContextGate.TryEnter(
+                gate, TimeSpan.FromMilliseconds(30), CancellationToken.None);
+            completed.Set();
+        });
         long start = System.Diagnostics.Stopwatch.GetTimestamp();
 
         lock (gate)
         {
-            waiter = Task.Run(() =>
-            {
-                started.Set();
-                return GraphicsContextGate.TryEnter(gate, TimeSpan.FromMilliseconds(30), CancellationToken.None);
-            });
+            waiter.Start();
             Assert.True(started.Wait(TimeSpan.FromSeconds(1)));
-            Assert.False(waiter.GetAwaiter().GetResult());
+            Assert.True(completed.Wait(TimeSpan.FromSeconds(1)));
+            Assert.False(acquired);
         }
 
+        Assert.True(waiter.Join(TimeSpan.FromSeconds(1)));
         TimeSpan elapsed = System.Diagnostics.Stopwatch.GetElapsedTime(start);
         Assert.InRange(elapsed.TotalMilliseconds, 20, 500);
     }
