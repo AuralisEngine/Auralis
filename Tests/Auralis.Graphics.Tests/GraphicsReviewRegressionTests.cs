@@ -37,6 +37,57 @@ public sealed class GraphicsReviewRegressionTests
     }
 
     [Fact]
+    public void ContextGateAcquisitionTimesOutWhenAnotherThreadHoldsTheGate()
+    {
+        object gate = new();
+        using ManualResetEventSlim started = new();
+        Task<bool> waiter;
+        long start = System.Diagnostics.Stopwatch.GetTimestamp();
+
+        lock (gate)
+        {
+            waiter = Task.Run(() =>
+            {
+                started.Set();
+                return GraphicsContextGate.TryEnter(gate, TimeSpan.FromMilliseconds(30), CancellationToken.None);
+            });
+            Assert.True(started.Wait(TimeSpan.FromSeconds(1)));
+            Assert.False(waiter.GetAwaiter().GetResult());
+        }
+
+        TimeSpan elapsed = System.Diagnostics.Stopwatch.GetElapsedTime(start);
+        Assert.InRange(elapsed.TotalMilliseconds, 20, 500);
+    }
+
+    [Theory]
+    [InlineData(16)]
+    [InlineData(20)]
+    [InlineData(12)]
+    public void IndirectZeroCountIsAValidatedNoOpForAllDrawCommandLayouts(uint commandSize)
+    {
+        GraphicsBufferDescription description = new(
+            128,
+            GraphicsBufferUsage.IndirectArguments,
+            GraphicsMemoryAccess.CpuToGpu);
+
+        Assert.False(GraphicsCommandValidation.TryValidateIndirectCommandSequence(
+            description, offset: 0, drawCount: 0, commandSize, stride: 0, out uint effectiveStride));
+        Assert.Equal(commandSize, effectiveStride);
+
+        Assert.True(GraphicsCommandValidation.TryValidateIndirectCommandSequence(
+            description, offset: 0, drawCount: 1, commandSize, stride: 0, out _));
+        Assert.Throws<GraphicsValidationException>(() =>
+            GraphicsCommandValidation.TryValidateIndirectCommandSequence(
+                description, offset: 2, drawCount: 0, commandSize, stride: 0, out _));
+        Assert.Throws<GraphicsValidationException>(() =>
+            GraphicsCommandValidation.TryValidateIndirectCommandSequence(
+                description, offset: 0, drawCount: 0, commandSize, stride: commandSize - 4, out _));
+        Assert.Throws<GraphicsValidationException>(() =>
+            GraphicsCommandValidation.TryValidateIndirectCommandSequence(
+                description, offset: 128, drawCount: 1, commandSize, stride: 0, out _));
+    }
+
+    [Fact]
     public void RenderTargetValidationChecksOwnershipExtentSamplesUsageAndFormats()
     {
         var colorCapabilities = new GraphicsFormatCapabilities(

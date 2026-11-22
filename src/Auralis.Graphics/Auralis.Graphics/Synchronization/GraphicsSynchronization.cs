@@ -455,10 +455,10 @@ public interface IGraphicsFence : IGraphicsDeviceObject
     /// </summary>
     void Signal(ulong value);
 
-    /// <summary>Waits on the CPU for a previously submitted or CPU-signaled timeline value.</summary>
+    /// <summary>Waits on the CPU until the requested timeline value has completed or the timeout expires.</summary>
     /// <remarks>
-    /// OpenGL GPU-side queue waits require an existing synchronization object. A value that has not
-    /// yet been submitted or CPU-signaled cannot be waited on as a future signal by an OpenGL queue.
+    /// The CPU wait may remain pending until the corresponding value is signaled and completed.
+    /// The separate GPU-side queue wait has stricter GL synchronization-object availability requirements.
     /// </remarks>
     bool Wait(ulong value, TimeSpan timeout, CancellationToken cancellationToken = default);
 }

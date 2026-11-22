@@ -745,18 +745,14 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
     {
         ArgumentNullException.ThrowIfNull(arguments);
         EnsureOwned(arguments);
-        if ((arguments.Description.Usage & GraphicsBufferUsage.IndirectArguments) == 0)
-            throw new GraphicsValidationException("Indirect argument buffers require IndirectArguments usage.");
-        if (offset % 4 != 0 || offset > (ulong)nint.MaxValue)
-            throw new GraphicsValidationException("Indirect argument offset must be four-byte aligned and natively addressable.");
-        if (stride == 0)
-            stride = commandSize;
-        if (stride < commandSize || stride % 4 != 0)
-            throw new GraphicsValidationException("Indirect command stride must be at least the command size and four-byte aligned.");
-        ulong byteCount = drawCount == 0 ? 0 : checked((ulong)(drawCount - 1) * stride + commandSize);
-        if (offset > arguments.Description.SizeInBytes ||
-            byteCount > arguments.Description.SizeInBytes - offset)
-            throw new GraphicsValidationException("Indirect arguments exceed the buffer range.");
+        _ = GraphicsCommandValidation.TryValidateIndirectCommandSequence(
+            arguments.Description,
+            offset,
+            drawCount,
+            commandSize,
+            stride,
+            out uint effectiveStride);
+        stride = effectiveStride;
     }
 
     private void EnsureConventionalPipeline()

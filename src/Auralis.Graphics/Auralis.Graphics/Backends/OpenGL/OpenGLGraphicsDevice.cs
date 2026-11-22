@@ -656,58 +656,29 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
         out T result)
     {
         ArgumentNullException.ThrowIfNull(action);
-        if (timeout < TimeSpan.Zero && timeout != Timeout.InfiniteTimeSpan)
-            throw new ArgumentOutOfRangeException(nameof(timeout));
-
-        long start = Stopwatch.GetTimestamp();
-        long timeoutTicks = timeout == Timeout.InfiniteTimeSpan
-            ? long.MaxValue
-            : (long)(timeout.TotalSeconds * Stopwatch.Frequency);
-
-        while (true)
+        if (!GraphicsContextGate.TryEnter(_contextGate, timeout, cancellationToken))
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            int waitMilliseconds = timeoutTicks == long.MaxValue ||
-                timeoutTicks - (Stopwatch.GetTimestamp() - start) >= Stopwatch.Frequency / 1000
-                ? 1
-                : 0;
+            result = default!;
+            return false;
+        }
 
-            if (!Monitor.TryEnter(_contextGate, waitMilliseconds))
-            {
-                if (timeoutTicks != long.MaxValue &&
-                    Stopwatch.GetTimestamp() - start >= timeoutTicks)
-                {
-                    result = default!;
-                    return false;
-                }
-                continue;
-            }
-
+        try
+        {
+            ObjectDisposedException.ThrowIf(IsDisposed, this);
+            _contextActivation.Enter();
             try
             {
-                if (timeoutTicks != long.MaxValue &&
-                    Stopwatch.GetTimestamp() - start >= timeoutTicks)
-                {
-                    result = default!;
-                    return false;
-                }
-
-                ObjectDisposedException.ThrowIf(IsDisposed, this);
-                _contextActivation.Enter();
-                try
-                {
-                    result = action(_gl);
-                    return true;
-                }
-                finally
-                {
-                    _contextActivation.Exit();
-                }
+                result = action(_gl);
+                return true;
             }
             finally
             {
-                Monitor.Exit(_contextGate);
+                _contextActivation.Exit();
             }
+        }
+        finally
+        {
+            Monitor.Exit(_contextGate);
         }
     }
 

@@ -523,8 +523,7 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
     {
         EnsureRecording();
         EnsureGraphicsReady();
-        ValidateIndirect(arguments, offset, drawCount, 16, stride);
-        if (drawCount == 0)
+        if (!ValidateIndirect(arguments, offset, drawCount, 16, stride))
             return;
         _commands.Add(new OpenGLESCmd
         {
@@ -543,8 +542,7 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
         if (_indexBuffer is null)
             throw new GraphicsValidationException("Set an index buffer before issuing indexed indirect drawing.");
         GraphicsCommandValidation.ValidateIndexedIndirectIndexBufferOffset(_indexOffset);
-        ValidateIndirect(arguments, offset, drawCount, 20, stride);
-        if (drawCount == 0)
+        if (!ValidateIndirect(arguments, offset, drawCount, 20, stride))
             return;
         _commands.Add(new OpenGLESCmd
         {
@@ -587,8 +585,7 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
     {
         EnsureRecording();
         _ = EnsureMeshPipeline();
-        ValidateIndirect(arguments, offset, drawCount, 12, stride);
-        if (drawCount == 0)
+        if (!ValidateIndirect(arguments, offset, drawCount, 12, stride))
             return;
 
         _commands.Add(new OpenGLESCmd
@@ -1462,7 +1459,7 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
         }
     }
 
-    private void ValidateIndirect(
+    private bool ValidateIndirect(
         IGraphicsBuffer arguments,
         ulong offset,
         uint drawCount,
@@ -1471,24 +1468,13 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
     {
         ArgumentNullException.ThrowIfNull(arguments);
         EnsureOwned(arguments);
-        if ((arguments.Description.Usage & GraphicsBufferUsage.IndirectArguments) == 0)
-            throw new GraphicsValidationException("Indirect commands require IndirectArguments buffer usage.");
-        if ((offset & 3) != 0 || offset > (ulong)nint.MaxValue)
-            throw new GraphicsValidationException("The indirect command offset must be four-byte aligned and natively addressable.");
-        if (stride != 0 && (stride < commandSize || (stride & 3) != 0))
-            throw new GraphicsValidationException(
-                $"Indirect command stride must be zero or a four-byte-aligned value at least {commandSize} bytes.");
-        if (drawCount == 0)
-        {
-            if (offset > arguments.Description.SizeInBytes)
-                throw new GraphicsValidationException("The zero-count indirect command offset exceeds the argument buffer.");
-            return;
-        }
-        uint effectiveStride = stride == 0 ? commandSize : stride;
-        ulong lastCommandOffset = checked(offset + checked((ulong)(drawCount - 1) * effectiveStride));
-        ulong requiredEnd = checked(lastCommandOffset + commandSize);
-        if (requiredEnd > arguments.Description.SizeInBytes || lastCommandOffset > (ulong)nint.MaxValue)
-            throw new GraphicsValidationException("The indirect command sequence reads outside the argument buffer or native offset range.");
+        return GraphicsCommandValidation.TryValidateIndirectCommandSequence(
+            arguments.Description,
+            offset,
+            drawCount,
+            commandSize,
+            stride,
+            out _);
     }
 
     private void ValidateRenderTarget(
