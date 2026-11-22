@@ -115,12 +115,9 @@ Current work in the branch includes:
 **Status:** Open · Draft  
 **Branch:** `feature/opengl-backend-silknet`
 
-This PR continues the existing graphics abstraction with two concrete Silk.NET backends in the same `Auralis.Graphics` assembly:
+This PR continues the existing graphics abstraction with two concrete Silk.NET backends in the same `Auralis.Graphics` assembly: desktop OpenGL 4.5 Core and OpenGL ES 3.1+. Both use host-supplied context providers; neither creates a native window or context. The implementation preserves the existing resource, command-list, pipeline, descriptor-snapshot, synchronization, and deferred native-resource lifetime architecture.
 
-- Desktop OpenGL 4.5 Core Profile.
-- OpenGL ES 3.1+.
-
-The implementation uses host-supplied context providers and keeps native window/context creation outside the graphics library. It preserves the common resource, command-list, pipeline, descriptor-snapshot, synchronization, and deferred native-resource lifetime contracts.
+The detailed and authoritative backend capability matrix, implementation behavior, limitations, and test instructions are maintained in the [Auralis.Graphics documentation](src/Auralis.Graphics/Auralis.Graphics/README.md).
 
 Current work in the branch includes:
 
@@ -139,7 +136,7 @@ Current work in the branch includes:
 - Descriptor indexing, update-after-bind, variable descriptor counts, sparse residency, timestamp-query result retrieval, and multi-viewport remain unimplemented because the current common contracts do not express their required semantics.
 - Desktop NV indirect mesh drawing remains rejected because its argument layout is incompatible with the common indirect command.
 
-**Validation:** the latest successful Graphics validation run available during this update, [run #44947648797](https://github.com/mahdikshk/Auralis/actions/runs/44947648797), built the hardware-independent graphics tests, desktop integration runner, GLES integration runner, and benchmark project, then passed **232 hardware-independent tests** (0 failed, 0 skipped). That run validated commit `0077928756400bd28cea4f5286b64364f52fd81b`, not the current PR head. The current branch head still requires a fresh CI run. The integration runners are opt-in and have not been executed against real hardware during this continuation; no current driver or GPU result is claimed.
+**Validation:** the latest successful Graphics validation run at the time of this README synchronization, [run #457](https://github.com/mahdikshk/Auralis/actions/runs/45019926459), built the graphics test project, both hardware integration runners, and the BenchmarkDotNet project, then passed **241 hardware-independent tests** (0 failed, 0 skipped) on commit `30399fb5f0ec95ffdf729fa6db98b93436c39705`. The current branch has advanced since that run, so the final head still requires a fresh CI result. The opt-in desktop/GLES runners and benchmarks are not executed by CI; no driver-level validation or benchmark result is claimed here.
 ## Planned areas
 
 The solution reserves space for additional engine subsystems, but they should not be considered available features until implementation work lands. Areas include rendering, physics, audio, animation, scene/world management, platform integration, editor tooling, and a serialized asset format.
