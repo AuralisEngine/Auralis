@@ -261,7 +261,7 @@ To request the discrete GPU for a hardware-test run:
 
 On Windows 10 version 2004 (20H1) and later, including Windows 11, Windows' per-application graphics preference takes precedence over the preferred-graphics-processor setting in NVIDIA Control Panel. Configure the executable in Windows Graphics settings rather than relying only on NVIDIA Control Panel. See [NVIDIA's Windows GPU-preference explanation](https://nvidia.custhelp.com/app/answers/detail/a_id/5035).
 
-The reported `GL_RENDERER` and `GL_VENDOR` identify the adapter/driver actually backing the context. A setting change is not proof that the discrete GPU was selected: rerun the test and inspect those values. The backend must continue to use only the extensions advertised by that active context. An NVIDIA GPU elsewhere in the system does not make `GL_NV_mesh_shader` available to an OpenGL context created on Intel or another adapter.
+The reported `GL_RENDERER` and `GL_VENDOR` are the driver-provided identity strings for the active context; the renderer string usually identifies the GPU model and makes integrated-versus-discrete selection visible. The injected-context contract does not expose a PCI/device ID, so do not infer a physical adapter identity beyond what the driver reports. A setting change is not proof that the discrete GPU was selected: rerun the test and inspect those values. The backend must continue to use only the extensions advertised by that active context. An NVIDIA GPU elsewhere in the system does not make `GL_NV_mesh_shader` available to an OpenGL context created on Intel or another adapter.
 
 To run only the four desktop mesh-shader integration tests after changing the GPU preference:
 
