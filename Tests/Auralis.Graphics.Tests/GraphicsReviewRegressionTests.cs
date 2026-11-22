@@ -161,6 +161,80 @@ public sealed class GraphicsReviewRegressionTests
             GraphicsRenderTargetValidation.Validate(device, [sampledOnlyView]));
     }
 
+
+    [Fact]
+    public void RenderTargetValidationAcceptsDisposedParentOwnerWhileLiveViewRetainsBackingStorage()
+    {
+        var colorCapabilities = new GraphicsFormatCapabilities(
+            GraphicsFormat.RGBA8UNorm,
+            GraphicsFormatSupport.ColorAttachment,
+            GraphicsSampleCountFlags.One);
+        var device = CreateDevice(GraphicsFeature.None, colorCapabilities);
+        var texture = new RetainedTestTexture(device, new GraphicsTextureDescription(
+            GraphicsTextureDimension.Texture2D,
+            GraphicsFormat.RGBA8UNorm,
+            128, 64, 1, 1, 1, 1,
+            GraphicsTextureUsage.ColorAttachment));
+        var view = new RetainedTestTextureView(texture, new GraphicsTextureViewDescription(
+            GraphicsFormat.Unknown, GraphicsTextureViewType.Texture2D, 0, 1, 0, 1));
+
+        Assert.Equal(
+            new GraphicsRenderTargetExtent(128, 64, 1),
+            GraphicsRenderTargetValidation.Validate(device, [view]));
+
+        texture.Dispose();
+
+        Assert.True(texture.IsDisposed);
+        Assert.False(view.IsDisposed);
+        Assert.Equal(0, texture.NativeReleaseCount);
+        Assert.Equal(
+            new GraphicsRenderTargetExtent(128, 64, 1),
+            GraphicsRenderTargetValidation.Validate(device, [view]));
+
+        view.Dispose();
+        Assert.Equal(1, texture.NativeReleaseCount);
+        view.Dispose();
+        Assert.Equal(1, texture.NativeReleaseCount);
+    }
+
+    [Fact]
+    public void RenderTargetValidationRejectsDisposedViewsDevicesAndForeignBackingTextures()
+    {
+        var colorCapabilities = new GraphicsFormatCapabilities(
+            GraphicsFormat.RGBA8UNorm,
+            GraphicsFormatSupport.ColorAttachment,
+            GraphicsSampleCountFlags.One);
+        var device = CreateDevice(GraphicsFeature.None, colorCapabilities);
+        GraphicsTextureDescription textureDescription = CreateTextureDescription(
+            GraphicsTextureUsage.ColorAttachment);
+        GraphicsTextureViewDescription viewDescription = new(
+            GraphicsFormat.Unknown, GraphicsTextureViewType.Texture2D, 0, 1, 0, 1);
+
+        var disposedViewTexture = new TestTexture(device, textureDescription);
+        var disposedView = new TestTextureView(disposedViewTexture, viewDescription);
+        disposedView.Dispose();
+        Assert.Throws<ObjectDisposedException>(() =>
+            GraphicsRenderTargetValidation.Validate(device, [disposedView]));
+
+        var foreignDevice = CreateDevice(GraphicsFeature.None, colorCapabilities);
+        var foreignTexture = new TestTexture(foreignDevice, textureDescription);
+        var foreignView = new TestTextureView(foreignTexture, viewDescription);
+        Assert.Throws<ArgumentException>(() =>
+            GraphicsRenderTargetValidation.Validate(device, [foreignView]));
+
+        // The view itself belongs to the command-list device, but its backing texture does not.
+        var foreignBackingView = new TestTextureView(device, foreignTexture, viewDescription);
+        Assert.Throws<ArgumentException>(() =>
+            GraphicsRenderTargetValidation.Validate(device, [foreignBackingView]));
+
+        var disposedDevice = CreateDevice(GraphicsFeature.None, colorCapabilities);
+        var deviceTexture = new TestTexture(disposedDevice, textureDescription);
+        var deviceView = new TestTextureView(deviceTexture, viewDescription);
+        disposedDevice.Dispose();
+        Assert.Throws<ObjectDisposedException>(() =>
+            GraphicsRenderTargetValidation.Validate(disposedDevice, [deviceView]));
+    }
+
     [Fact]
     public void RenderTargetValidationComparesEffectiveMipExtentsRatherThanParentExtents()
     {
