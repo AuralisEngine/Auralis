@@ -1,3 +1,5 @@
+using System.Diagnostics;
+
 namespace Auralis.Graphics.Backends;
 
 /// <summary>
