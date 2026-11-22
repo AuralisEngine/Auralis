@@ -22,6 +22,12 @@ public sealed partial class OpenGLIntegrationTests : IClassFixture<OpenGLHardwar
     private void RunHardwareTest(Action<GlfwOpenGLHardwareSession> test)
     {
         GlfwOpenGLHardwareSession session = _fixture.GetSessionOrSkip();
+        OpenGLGraphicsDevice nativeDevice = (OpenGLGraphicsDevice)session.Device;
+        Console.WriteLine(
+            $"Desktop OpenGL context: vendor='{nativeDevice.Info.DriverName}', " +
+            $"renderer='{nativeDevice.Info.Name}', driver='{nativeDevice.Info.DriverVersion}', " +
+            $"API='{nativeDevice.Info.ApiVersion}', EXT_mesh_shader={nativeDevice.MeshShaderApi is not null}, " +
+            $"NV_mesh_shader={nativeDevice.NvMeshShaderApi is not null}, process='{Environment.ProcessPath}'.");
         try
         {
             test(session);
@@ -934,7 +940,7 @@ public sealed partial class OpenGLIntegrationTests : IClassFixture<OpenGLHardwar
         if (dialect == OpenGLMeshShaderDialect.None)
         {
             throw new HardwareTestSkippedException(
-                "Neither GL_EXT_mesh_shader nor GL_NV_mesh_shader exposes usable mesh-shader limits on this context.");
+                $"Neither GL_EXT_mesh_shader nor GL_NV_mesh_shader exposes usable mesh-shader limits. Active adapter: {nativeDevice.Info.DriverName} / {nativeDevice.Info.Name} (GL {nativeDevice.Info.DriverVersion}); process: {Environment.ProcessPath}.");
         }
 
         RequireFormat(device, GraphicsFormat.RGBA8UNorm, GraphicsFormatSupport.ColorAttachment);
@@ -1008,7 +1014,7 @@ public sealed partial class OpenGLIntegrationTests : IClassFixture<OpenGLHardwar
             }
 
             throw new HardwareTestSkippedException(
-                "Neither GL_EXT_mesh_shader nor GL_NV_mesh_shader exposes usable task-shader limits on this context.");
+                $"Neither GL_EXT_mesh_shader nor GL_NV_mesh_shader exposes usable task-shader limits. Active adapter: {nativeDevice.Info.DriverName} / {nativeDevice.Info.Name} (GL {nativeDevice.Info.DriverVersion}); process: {Environment.ProcessPath}.");
         }
 
         RequireFormat(device, GraphicsFormat.RGBA8UNorm, GraphicsFormatSupport.ColorAttachment);
@@ -1068,7 +1074,7 @@ public sealed partial class OpenGLIntegrationTests : IClassFixture<OpenGLHardwar
         IGraphicsDevice device = session.Device;
         OpenGLGraphicsDevice nativeDevice = (OpenGLGraphicsDevice)device;
         if (nativeDevice.NvMeshShaderApi is null)
-            throw new HardwareTestSkippedException("The context does not advertise GL_NV_mesh_shader.");
+            throw new HardwareTestSkippedException($"The context does not advertise GL_NV_mesh_shader. Active adapter: {nativeDevice.Info.DriverName} / {nativeDevice.Info.Name} (GL {nativeDevice.Info.DriverVersion}); process: {Environment.ProcessPath}.");
         if (nativeDevice.MaxNvDrawMeshTasksCount == 0)
             throw new HardwareTestSkippedException("GL_MAX_DRAW_MESH_TASKS_COUNT_NV is zero.");
 
