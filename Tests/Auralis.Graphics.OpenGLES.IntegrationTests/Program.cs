@@ -250,7 +250,7 @@ internal static class Program
                 throw new TimeoutException("The GLES native image-copy fence did not complete.");
         }
 
-        AssertPixelNear(ReadRgba8Pixel(device, context, destinationView), 32, 32, 64, 96, 223, 255);
+        AssertPixelNear(ReadRgba8Pixel(device, context, destinationView), 32, 96, 223, 255);
         Console.WriteLine("Validated full-resource GL_EXT/GL_OES_copy_image GPU output and destination operation without ColorAttachment usage; self-copy is rejected.");
     }
 
