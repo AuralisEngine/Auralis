@@ -207,14 +207,20 @@ internal sealed unsafe class OpenGLESGraphicsBuffer : OpenGLESNativeDeviceObject
             if (_mappedMode is GraphicsMapMode.Write or GraphicsMapMode.ReadWrite)
             {
                 ReadOnlySpan<byte> data = manager.GetSpan();
-                gl.BindBuffer(BufferTargetARB.CopyWriteBuffer, Handle);
-                fixed (byte* pointer = data)
-                    gl.BufferSubData(
-                        BufferTargetARB.CopyWriteBuffer,
-                        (nint)_mappedOffset,
-                        (nuint)data.Length,
-                        pointer);
-                gl.BindBuffer(BufferTargetARB.CopyWriteBuffer, 0);
+                try
+                {
+                    gl.BindBuffer(BufferTargetARB.CopyWriteBuffer, Handle);
+                    fixed (byte* pointer = data)
+                        gl.BufferSubData(
+                            BufferTargetARB.CopyWriteBuffer,
+                            (nint)_mappedOffset,
+                            (nuint)data.Length,
+                            pointer);
+                }
+                finally
+                {
+                    gl.BindBuffer(BufferTargetARB.CopyWriteBuffer, 0);
+                }
             }
 
             _mapped = null;
