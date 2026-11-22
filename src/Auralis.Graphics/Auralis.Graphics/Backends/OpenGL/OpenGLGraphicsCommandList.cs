@@ -678,6 +678,10 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
         GraphicsFeature requiredFeature = usesTaskStage
             ? GraphicsFeature.TaskShaders
             : GraphicsFeature.MeshShaders;
+        if (pipeline.MeshShaderDialect == OpenGLMeshShaderDialect.Ext &&
+            !device.SupportsExtDirectMeshTasks)
+            throw new GraphicsFeatureNotSupportedException(requiredFeature, requiredFeature);
+
         if (pipeline.MeshShaderDialect == OpenGLMeshShaderDialect.Nv)
         {
             OpenGLMeshTaskValidation.Validate(
@@ -724,6 +728,11 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
             throw new GraphicsValidationException(
                 "GL_NV_mesh_shader indirect commands use a two-field { count, first } layout, " +
                 "while the common Auralis command uses three-dimensional { groupCountX, groupCountY, groupCountZ } arguments.");
+        }
+        if (drawCount == 1 && !device.SupportsExtIndirectMeshTasks)
+        {
+            throw new GraphicsFeatureNotSupportedException(
+                GraphicsFeature.MeshShaders, GraphicsFeature.MeshShaders);
         }
         if (drawCount > 1 && !device.SupportsExtMultiDrawMeshTasksIndirect)
         {
@@ -1158,6 +1167,8 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
                             throw new GraphicsValidationException("A supported mesh-shader pipeline must be active before mesh-task drawing.");
                         if (activePipeline.MeshShaderDialect == OpenGLMeshShaderDialect.Ext)
                         {
+                            if (!((OpenGLGraphicsDevice)Device).SupportsExtDirectMeshTasks)
+                                throw new GraphicsException("glDrawMeshTasksEXT was not resolved for this OpenGL context.");
                             (meshShaderApi ?? throw new GraphicsFeatureNotSupportedException(
                                 GraphicsFeature.MeshShaders, GraphicsFeature.MeshShaders)).DrawMeshTask(
                                     command.GroupCountX,
@@ -1184,9 +1195,12 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
                             activePipeline.MeshShaderDialect != OpenGLMeshShaderDialect.Ext ||
                             meshShaderApi is null)
                             throw new GraphicsValidationException(
-                                "Indirect mesh-task drawing requires an EXT mesh-shader pipeline and its direct/single-indirect native entry points.");
+                                "Indirect mesh-task drawing requires an EXT mesh-shader pipeline.");
+                        OpenGLGraphicsDevice device = (OpenGLGraphicsDevice)Device;
+                        if (command.DrawCount == 1 && !device.SupportsExtIndirectMeshTasks)
+                            throw new GraphicsException("glDrawMeshTasksIndirectEXT was not resolved for this OpenGL context.");
                         if (command.DrawCount > 1 &&
-                            !((OpenGLGraphicsDevice)Device).SupportsExtMultiDrawMeshTasksIndirect)
+                            !device.SupportsExtMultiDrawMeshTasksIndirect)
                             throw new GraphicsException(
                                 "glMultiDrawMeshTasksIndirectEXT was not resolved for this OpenGL context.");
                         gl.BindBuffer(
