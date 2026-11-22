@@ -1025,7 +1025,8 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
         ObjectDisposedException.ThrowIf(IsDisposed, this);
         GraphicsBufferDescription copy = description;
         Capabilities.ValidateBufferDescription(copy);
-        return WithContext(gl => OpenGLESGraphicsBuffer.CreateUnderContext(this, gl, copy));
+        using OpenGLESContextScope context = AcquireContext();
+        return OpenGLESGraphicsBuffer.CreateUnderContext(this, context.Gl, copy);
     }
 
     public IGraphicsTexture CreateTexture(in GraphicsTextureDescription description)
@@ -1033,7 +1034,8 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
         ObjectDisposedException.ThrowIf(IsDisposed, this);
         GraphicsTextureDescription copy = description;
         Capabilities.ValidateTextureDescription(copy);
-        return WithContext(gl => OpenGLESGraphicsTexture.CreateUnderContext(this, gl, copy));
+        using OpenGLESContextScope context = AcquireContext();
+        return OpenGLESGraphicsTexture.CreateUnderContext(this, context.Gl, copy);
     }
 
     public IGraphicsSampler CreateSampler(in GraphicsSamplerDescription description)
@@ -1041,14 +1043,16 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
         ObjectDisposedException.ThrowIf(IsDisposed, this);
         GraphicsSamplerDescription copy = description;
         Capabilities.ValidateSamplerDescription(copy);
-        return WithContext(gl => OpenGLESGraphicsSampler.CreateUnderContext(this, gl, copy));
+        using OpenGLESContextScope context = AcquireContext();
+        return OpenGLESGraphicsSampler.CreateUnderContext(this, context.Gl, copy);
     }
 
     public IGraphicsShader CreateShader(in GraphicsShaderDescription description)
     {
         ObjectDisposedException.ThrowIf(IsDisposed, this);
         GraphicsShaderDescription copy = description;
-        return WithContext(gl => OpenGLESGraphicsShader.CreateUnderContext(this, gl, copy));
+        using OpenGLESContextScope context = AcquireContext();
+        return OpenGLESGraphicsShader.CreateUnderContext(this, context.Gl, copy);
     }
 
     public IGraphicsBindingLayout CreateBindingLayout(GraphicsBindingLayoutDescription description)
@@ -1088,12 +1092,10 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
     public IGraphicsFence CreateFence(ulong initialValue = 0)
     {
         ObjectDisposedException.ThrowIf(IsDisposed, this);
-        return WithContext(gl =>
-        {
-            OpenGLESGraphicsFence fence = new(this, initialValue);
-            RegisterUnderContext(fence);
-            return (IGraphicsFence)fence;
-        });
+        using OpenGLESContextScope context = AcquireContext();
+        OpenGLESGraphicsFence fence = new(this, initialValue);
+        RegisterUnderContext(fence);
+        return fence;
     }
 
     public IGraphicsPresentationSurface CreatePresentationSurface(IGraphicsPresentationTarget target)

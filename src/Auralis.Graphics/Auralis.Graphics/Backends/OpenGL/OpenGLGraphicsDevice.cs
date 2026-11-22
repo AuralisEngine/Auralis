@@ -832,31 +832,30 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
         if (sizeInBytes > (ulong)nuint.MaxValue)
             throw new GraphicsValidationException("The requested buffer is larger than the native addressable size.");
 
-        return WithContext(gl =>
+        using OpenGLContextScope context = AcquireContext();
+        GL gl = context.Gl;
+        _directStateAccess.CreateBuffers(1, out uint buffer);
+        if (buffer == 0)
+            throw new GraphicsException("OpenGL failed to create a buffer object.");
+
+        try
         {
-            _directStateAccess.CreateBuffers(1, out uint buffer);
-            if (buffer == 0)
-                throw new GraphicsException("OpenGL failed to create a buffer object.");
+            _directStateAccess.NamedBufferStorage(
+                buffer,
+                (nuint)sizeInBytes,
+                null,
+                OpenGLBufferStorageMapping.GetStorageFlags(bufferDescription));
+            LabelObject(ObjectIdentifier.Buffer, buffer, "Auralis Buffer");
 
-            try
-            {
-                _directStateAccess.NamedBufferStorage(
-                    buffer,
-                    (nuint)sizeInBytes,
-                    null,
-                    OpenGLBufferStorageMapping.GetStorageFlags(bufferDescription));
-                LabelObject(ObjectIdentifier.Buffer, buffer, "Auralis Buffer");
-
-                OpenGLGraphicsBuffer resource = new(this, bufferDescription, buffer);
-                RegisterUnderContext(resource);
-                return (IGraphicsBuffer)resource;
-            }
-            catch
-            {
-                gl.DeleteBuffer(buffer);
-                throw;
-            }
-        });
+            OpenGLGraphicsBuffer resource = new(this, bufferDescription, buffer);
+            RegisterUnderContext(resource);
+            return resource;
+        }
+        catch
+        {
+            gl.DeleteBuffer(buffer);
+            throw;
+        }
     }
 
     public IGraphicsShader CreateShader(in GraphicsShaderDescription description)
@@ -873,8 +872,9 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
         if ((textureDescription.CreationOptions & GraphicsResourceCreationOptions.AllowAliasing) != 0)
             throw new GraphicsValidationException("OpenGL does not expose resource aliasing through this backend.");
 
-        return WithContext(gl => OpenGLGraphicsTexture.CreateUnderContext(
-            this, gl, _directStateAccess, textureDescription));
+        using OpenGLContextScope context = AcquireContext();
+        return OpenGLGraphicsTexture.CreateUnderContext(
+            this, context.Gl, _directStateAccess, textureDescription);
     }
 
     public IGraphicsSampler CreateSampler(in GraphicsSamplerDescription description)
@@ -883,8 +883,9 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
         GraphicsSamplerDescription samplerDescription = description;
         Capabilities.ValidateSamplerDescription(samplerDescription);
 
-        return WithContext(gl => OpenGLGraphicsSampler.CreateUnderContext(
-            this, _directStateAccess, _samplerObjects, samplerDescription));
+        using OpenGLContextScope context = AcquireContext();
+        return OpenGLGraphicsSampler.CreateUnderContext(
+            this, _directStateAccess, _samplerObjects, samplerDescription);
     }
 
     public IGraphicsBindingLayout CreateBindingLayout(GraphicsBindingLayoutDescription description)
@@ -924,12 +925,10 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
     public IGraphicsFence CreateFence(ulong initialValue = 0)
     {
         ObjectDisposedException.ThrowIf(IsDisposed, this);
-        return WithContext(gl =>
-        {
-            OpenGLGraphicsFence fence = new(this, _syncApi, initialValue);
-            RegisterUnderContext(fence);
-            return (IGraphicsFence)fence;
-        });
+        using OpenGLContextScope context = AcquireContext();
+        OpenGLGraphicsFence fence = new(this, _syncApi, initialValue);
+        RegisterUnderContext(fence);
+        return fence;
     }
 
     public IGraphicsPresentationSurface CreatePresentationSurface(IGraphicsPresentationTarget target)

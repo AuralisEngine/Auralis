@@ -161,56 +161,52 @@ internal sealed unsafe class OpenGLGraphicsBuffer : OpenGLNativeDeviceObject, IG
 
         // Context serialization is acquired before the per-buffer mapping lock. Resource release
         // follows the same lock order, preventing Map/Dispose lock inversion.
-        return _device.WithContext(gl =>
+        using OpenGLContextScope context = _device.AcquireContext();
+        lock (_mappingGate)
         {
-            lock (_mappingGate)
+            ThrowIfDisposed();
+            if (_isMapped)
+                throw new InvalidOperationException("The buffer is already mapped.");
+
+            MapBufferAccessMask access = mode switch
             {
-                ThrowIfDisposed();
-                if (_isMapped)
-                    throw new InvalidOperationException("The buffer is already mapped.");
+                GraphicsMapMode.Read => MapBufferAccessMask.ReadBit,
+                GraphicsMapMode.Write =>
+                    MapBufferAccessMask.WriteBit | MapBufferAccessMask.InvalidateRangeBit,
+                GraphicsMapMode.ReadWrite =>
+                    MapBufferAccessMask.ReadBit | MapBufferAccessMask.WriteBit,
+                _ => throw new ArgumentOutOfRangeException(nameof(mode))
+            };
 
-                MapBufferAccessMask access = mode switch
-                {
-                    GraphicsMapMode.Read => MapBufferAccessMask.ReadBit,
-                    GraphicsMapMode.Write =>
-                        MapBufferAccessMask.WriteBit | MapBufferAccessMask.InvalidateRangeBit,
-                    GraphicsMapMode.ReadWrite =>
-                        MapBufferAccessMask.ReadBit | MapBufferAccessMask.WriteBit,
-                    _ => throw new ArgumentOutOfRangeException(nameof(mode))
-                };
+            void* pointer = _device.DirectStateAccess.MapNamedBufferRange(
+                _handle, (nint)offset, (nuint)size, access);
+            if (pointer == null)
+                throw new GraphicsException("OpenGL failed to map the requested buffer range.");
 
-                void* pointer = _device.DirectStateAccess.MapNamedBufferRange(
-                    _handle, (nint)offset, (nuint)size, access);
-                if (pointer == null)
-                    throw new GraphicsException("OpenGL failed to map the requested buffer range.");
-
-                OpenGLMappedMemoryManager manager = new(pointer, (int)size);
-                _mapped = manager;
-                _isMapped = true;
-                return manager.Memory;
-            }
-        });
+            OpenGLMappedMemoryManager manager = new(pointer, (int)size);
+            _mapped = manager;
+            _isMapped = true;
+            return manager.Memory;
+        }
     }
 
     public void Unmap()
     {
         ThrowIfDisposed();
-        bool contentsValid = _device.WithContext(gl =>
+        using OpenGLContextScope context = _device.AcquireContext();
+        bool contentsValid;
+        lock (_mappingGate)
         {
-            lock (_mappingGate)
-            {
-                ThrowIfDisposed();
-                OpenGLMappedMemoryManager manager = _mapped ??
-                    throw new InvalidOperationException("The buffer is not mapped.");
+            ThrowIfDisposed();
+            OpenGLMappedMemoryManager manager = _mapped ??
+                throw new InvalidOperationException("The buffer is not mapped.");
 
-                manager.ValidateCanUnmap();
-                bool valid = _device.DirectStateAccess.UnmapNamedBuffer(_handle);
-                _isMapped = false;
-                _mapped = null;
-                manager.Invalidate();
-                return valid;
-            }
-        });
+            manager.ValidateCanUnmap();
+            contentsValid = _device.DirectStateAccess.UnmapNamedBuffer(_handle);
+            _isMapped = false;
+            _mapped = null;
+            manager.Invalidate();
+        }
 
         if (!contentsValid)
             throw new GraphicsException("OpenGL reported that the mapped buffer contents became corrupted during Unmap.");

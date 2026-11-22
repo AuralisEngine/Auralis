@@ -131,63 +131,62 @@ internal sealed unsafe class OpenGLESGraphicsBuffer : OpenGLESNativeDeviceObject
             }
         }
 
-        return _device.WithContext(gl =>
+        using OpenGLESContextScope context = _device.AcquireContext();
+        GL gl = context.Gl;
+        lock (_mapGate)
         {
-            lock (_mapGate)
+            ThrowIfDisposed();
+            if (_mapped is not null)
+                throw new InvalidOperationException("The buffer is already mapped.");
+
+            OpenGLESMappedStagingMemoryManager manager = new((int)size);
+            try
             {
-                ThrowIfDisposed();
-                if (_mapped is not null)
-                    throw new InvalidOperationException("The buffer is already mapped.");
-
-                OpenGLESMappedStagingMemoryManager manager = new((int)size);
-                try
+                if (mode is GraphicsMapMode.Read or GraphicsMapMode.ReadWrite)
                 {
-                    if (mode is GraphicsMapMode.Read or GraphicsMapMode.ReadWrite)
+                    gl.BindBuffer(BufferTargetARB.CopyReadBuffer, Handle);
+                    void* pointer = null;
+                    bool unmapAttempted = false;
+                    try
                     {
-                        gl.BindBuffer(BufferTargetARB.CopyReadBuffer, Handle);
-                        void* pointer = null;
-                        bool unmapAttempted = false;
-                        try
-                        {
-                            pointer = gl.MapBufferRange(
-                                BufferTargetARB.CopyReadBuffer,
-                                (nint)offset,
-                                (nuint)size,
-                                MapBufferAccessMask.ReadBit);
-                            if (pointer == null)
-                                throw new GraphicsException("OpenGL ES failed to map the requested buffer range for reading.");
+                        pointer = gl.MapBufferRange(
+                            BufferTargetARB.CopyReadBuffer,
+                            (nint)offset,
+                            (nuint)size,
+                            MapBufferAccessMask.ReadBit);
+                        if (pointer == null)
+                            throw new GraphicsException("OpenGL ES failed to map the requested buffer range for reading.");
 
-                            new ReadOnlySpan<byte>(pointer, (int)size).CopyTo(manager.GetSpan());
-                            unmapAttempted = true;
-                            if (!gl.UnmapBuffer(BufferTargetARB.CopyReadBuffer))
-                                throw new GraphicsException("OpenGL ES reported corrupted buffer contents while unmapping a read range.");
-                        }
-                        finally
+                        new ReadOnlySpan<byte>(pointer, (int)size).CopyTo(manager.GetSpan());
+                        unmapAttempted = true;
+                        if (!gl.UnmapBuffer(BufferTargetARB.CopyReadBuffer))
+                            throw new GraphicsException("OpenGL ES reported corrupted buffer contents while unmapping a read range.");
+                    }
+                    finally
+                    {
+                        if (pointer != null && !unmapAttempted)
                         {
-                            if (pointer != null && !unmapAttempted)
-                            {
-                                try { gl.UnmapBuffer(BufferTargetARB.CopyReadBuffer); }
-                                finally { gl.BindBuffer(BufferTargetARB.CopyReadBuffer, 0); }
-                            }
-                            else
-                            {
-                                gl.BindBuffer(BufferTargetARB.CopyReadBuffer, 0);
-                            }
+                            try { gl.UnmapBuffer(BufferTargetARB.CopyReadBuffer); }
+                            finally { gl.BindBuffer(BufferTargetARB.CopyReadBuffer, 0); }
+                        }
+                        else
+                        {
+                            gl.BindBuffer(BufferTargetARB.CopyReadBuffer, 0);
                         }
                     }
+                }
 
-                    _mapped = manager;
-                    _mappedOffset = offset;
-                    _mappedMode = mode;
-                    return manager.Memory;
-                }
-                catch
-                {
-                    manager.Invalidate();
-                    throw;
-                }
+                _mapped = manager;
+                _mappedOffset = offset;
+                _mappedMode = mode;
+                return manager.Memory;
             }
-        });
+            catch
+            {
+                manager.Invalidate();
+                throw;
+            }
+        }
     }
 
     /// <summary>
@@ -197,32 +196,31 @@ internal sealed unsafe class OpenGLESGraphicsBuffer : OpenGLESNativeDeviceObject
     public void Unmap()
     {
         ThrowIfDisposed();
-        _device.WithContext(gl =>
+        using OpenGLESContextScope context = _device.AcquireContext();
+        GL gl = context.Gl;
+        lock (_mapGate)
         {
-            lock (_mapGate)
+            ThrowIfDisposed();
+            OpenGLESMappedStagingMemoryManager manager = _mapped ??
+                throw new InvalidOperationException("The buffer is not mapped.");
+
+            if (_mappedMode is GraphicsMapMode.Write or GraphicsMapMode.ReadWrite)
             {
-                ThrowIfDisposed();
-                OpenGLESMappedStagingMemoryManager manager = _mapped ??
-                    throw new InvalidOperationException("The buffer is not mapped.");
-
-                if (_mappedMode is GraphicsMapMode.Write or GraphicsMapMode.ReadWrite)
-                {
-                    ReadOnlySpan<byte> data = manager.GetSpan();
-                    gl.BindBuffer(BufferTargetARB.CopyWriteBuffer, Handle);
-                    fixed (byte* pointer = data)
-                        gl.BufferSubData(
-                            BufferTargetARB.CopyWriteBuffer,
-                            (nint)_mappedOffset,
-                            (nuint)data.Length,
-                            pointer);
-                    gl.BindBuffer(BufferTargetARB.CopyWriteBuffer, 0);
-                }
-
-                _mapped = null;
-                _mappedOffset = 0;
-                manager.Invalidate();
+                ReadOnlySpan<byte> data = manager.GetSpan();
+                gl.BindBuffer(BufferTargetARB.CopyWriteBuffer, Handle);
+                fixed (byte* pointer = data)
+                    gl.BufferSubData(
+                        BufferTargetARB.CopyWriteBuffer,
+                        (nint)_mappedOffset,
+                        (nuint)data.Length,
+                        pointer);
+                gl.BindBuffer(BufferTargetARB.CopyWriteBuffer, 0);
             }
-        });
+
+            _mapped = null;
+            _mappedOffset = 0;
+            manager.Invalidate();
+        }
     }
 
     protected override void DisposeCore()
