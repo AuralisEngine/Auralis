@@ -47,7 +47,7 @@ public sealed partial class OpenGLIntegrationTests : IClassFixture<OpenGLHardwar
     [Fact] public void ConventionalDirectAndIndirectGraphicsDrawsWork() => RunHardwareTest(ConventionalDirectAndIndirectDraw);
     [Fact] public void MeshShaderDirectAndIndirectDrawsWork() => RunHardwareTest(MeshShaderDirectAndIndirectDraw);
     [Fact] public void TaskAndMeshShaderPipelineWorks() => RunHardwareTest(TaskAndMeshShaderDraw);
-    [Fact] public void NvMeshShaderDirectAndIndirectDrawsWork() => RunHardwareTest(NvMeshShaderDirectDraw);
+    [Fact] public void NvMeshShaderDirectAndIndirectDrawsWork() => RunHardwareTest(NvMeshShaderDirectAndIndirectDraw);
     [Fact] public void NvTaskAndMeshShaderPipelineWorks() => RunHardwareTest(NvTaskAndMeshShaderDraw);
 
 
@@ -1063,7 +1063,7 @@ public sealed partial class OpenGLIntegrationTests : IClassFixture<OpenGLHardwar
         AssertPixelNear(pixels, 32, 16, 16, 26, 77, 230, 255);
     }
 
-    private static void NvMeshShaderDirectDraw(GlfwOpenGLHardwareSession session)
+    private static void NvMeshShaderDirectAndIndirectDraw(GlfwOpenGLHardwareSession session)
     {
         IGraphicsDevice device = session.Device;
         OpenGLGraphicsDevice nativeDevice = (OpenGLGraphicsDevice)device;
