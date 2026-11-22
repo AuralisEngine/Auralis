@@ -29,51 +29,6 @@ internal sealed class OpenGLESGraphicsTexture : OpenGLESNativeDeviceObject, IGra
 
     internal TextureTarget Target { get; }
 
-    /// <summary>
-    /// True when this view aliases one 2D mip or one 2D-array layer of its parent and is
-    /// implemented only through framebuffer attachment selection because native GLES
-    /// texture-view support is unavailable. Such a view cannot be sampled or bound as an image.
-    /// </summary>
-    internal bool IsFramebufferSubresourceAlias => _isFramebufferSubresourceAlias;
-
-    internal void AttachToFramebuffer(GL gl, FramebufferTarget framebufferTarget, GLEnum attachment)
-    {
-        ArgumentNullException.ThrowIfNull(gl);
-        uint handle = Handle;
-        if (!_isFramebufferSubresourceAlias)
-        {
-            gl.FramebufferTexture2D(framebufferTarget, attachment, Target, handle, 0);
-            return;
-        }
-
-        // GLES 3.x can select a mip of a 2D texture or a single layer of a 2D array
-        // directly when attaching the parent object to an FBO. This preserves true
-        // storage aliasing without pretending to create a sampleable GL texture view.
-        if (_texture.Target == TextureTarget.Texture2D)
-        {
-            gl.FramebufferTexture2D(
-                framebufferTarget,
-                attachment,
-                TextureTarget.Texture2D,
-                handle,
-                checked((int)Description.BaseMipLevel));
-        }
-        else if (_texture.Target == TextureTarget.Texture2DArray)
-        {
-            gl.FramebufferTextureLayer(
-                framebufferTarget,
-                attachment,
-                handle,
-                checked((int)Description.BaseMipLevel),
-                checked((int)Description.BaseArrayLayer));
-        }
-        else
-        {
-            throw new GraphicsValidationException(
-                $"Framebuffer-only GLES subresource aliases do not support parent target {_texture.Target}.");
-        }
-    }
-
     internal uint Handle
     {
         get
@@ -260,6 +215,52 @@ internal sealed class OpenGLESGraphicsTextureView : OpenGLESNativeDeviceObject, 
     public string? DebugName => null;
 
     internal TextureTarget Target { get; }
+
+    /// <summary>
+    /// True when this view aliases one 2D mip or one 2D-array layer of its parent and is
+    /// implemented only through framebuffer attachment selection because native GLES
+    /// texture-view support is unavailable. Such a view cannot be sampled or bound as an image.
+    /// </summary>
+    internal bool IsFramebufferSubresourceAlias => _isFramebufferSubresourceAlias;
+
+    internal void AttachToFramebuffer(GL gl, FramebufferTarget framebufferTarget, GLEnum attachment)
+    {
+        ArgumentNullException.ThrowIfNull(gl);
+        uint handle = Handle;
+        if (!_isFramebufferSubresourceAlias)
+        {
+            gl.FramebufferTexture2D(framebufferTarget, attachment, Target, handle, 0);
+            return;
+        }
+
+        // GLES 3.x can select a mip of a 2D texture or a single layer of a 2D array
+        // directly when attaching the parent object to an FBO. This preserves true
+        // storage aliasing without pretending to create a sampleable GL texture view.
+        if (_texture.Target == TextureTarget.Texture2D)
+        {
+            gl.FramebufferTexture2D(
+                framebufferTarget,
+                attachment,
+                TextureTarget.Texture2D,
+                handle,
+                checked((int)Description.BaseMipLevel));
+        }
+        else if (_texture.Target == TextureTarget.Texture2DArray)
+        {
+            gl.FramebufferTextureLayer(
+                framebufferTarget,
+                attachment,
+                handle,
+                checked((int)Description.BaseMipLevel),
+                checked((int)Description.BaseArrayLayer));
+        }
+        else
+        {
+            throw new GraphicsValidationException(
+                $"Framebuffer-only GLES subresource aliases do not support parent target {_texture.Target}.");
+        }
+    }
+
 
     internal uint Handle
     {
