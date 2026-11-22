@@ -144,6 +144,38 @@ public sealed class OpenGLBackendTests
     }
 
     [Fact]
+    public void ExtMeshTaskDrawEntryPointsRemainIndependent()
+    {
+        OpenGLMeshShaderEntryPoints directOnly = new(
+            ExtDirect: true,
+            ExtIndirect: false,
+            ExtMultiDrawIndirect: false,
+            NvDirect: false);
+        Assert.True(directOnly.SupportsExtMeshShader(extensionPresent: true));
+        Assert.True(directOnly.SupportsExtDirectMeshTasks(extensionPresent: true));
+        Assert.False(directOnly.SupportsExtIndirectMeshTasks(extensionPresent: true));
+        Assert.False(directOnly.SupportsExtMultiDrawMeshTasksIndirect(extensionPresent: true));
+
+        OpenGLMeshShaderEntryPoints indirectOnly = new(
+            ExtDirect: false,
+            ExtIndirect: true,
+            ExtMultiDrawIndirect: false,
+            NvDirect: false);
+        Assert.True(indirectOnly.SupportsExtMeshShader(extensionPresent: true));
+        Assert.False(indirectOnly.SupportsExtDirectMeshTasks(extensionPresent: true));
+        Assert.True(indirectOnly.SupportsExtIndirectMeshTasks(extensionPresent: true));
+
+        OpenGLMeshShaderEntryPoints multiDrawOnly = new(
+            ExtDirect: false,
+            ExtIndirect: false,
+            ExtMultiDrawIndirect: true,
+            NvDirect: false);
+        Assert.True(multiDrawOnly.SupportsExtMeshShader(extensionPresent: true));
+        Assert.True(multiDrawOnly.SupportsExtMultiDrawMeshTasksIndirect(extensionPresent: true));
+        Assert.False(multiDrawOnly.SupportsExtMeshShader(extensionPresent: false));
+    }
+
+    [Fact]
     public void MeshShaderNativeEntryPointGatesRemainDialectSpecific()
     {
         static nint ResolveExtOnly(string name) => name switch
