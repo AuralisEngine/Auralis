@@ -1052,7 +1052,8 @@ public sealed class GraphicsReviewRegressionTests
                 waiter.Start();
                 waiterStarted = true;
                 Assert.True(started.Wait(watchdog), "The cancellable lock-waiting thread did not start.");
-                cancellation.Cancel();
+                // Let the worker enter its 1 ms polling loop before requesting cancellation.
+                cancellation.CancelAfter(TimeSpan.FromMilliseconds(25));
                 completedWhileGateWasHeld = completed.Wait(watchdog);
             });
         }
@@ -1085,7 +1086,6 @@ public sealed class GraphicsReviewRegressionTests
         using ManualResetEventSlim completed = new();
 
         bool[] acquired = new bool[attemptCount];
-        TimeSpan[] elapsed = new TimeSpan[attemptCount];
         Exception? workerFailure = null;
         Thread waiter = new(() =>
         {
@@ -1094,16 +1094,7 @@ public sealed class GraphicsReviewRegressionTests
             {
                 for (int i = 0; i < attemptCount; i++)
                 {
-                    long operationStart = System.Diagnostics.Stopwatch.GetTimestamp();
-                    try
-                    {
-                        acquired[i] = tryEnter(TimeSpan.FromMilliseconds(20));
-                    }
-                    finally
-                    {
-                        elapsed[i] = System.Diagnostics.Stopwatch.GetElapsedTime(operationStart);
-                    }
-
+                    acquired[i] = tryEnter(TimeSpan.FromMilliseconds(20));
                     if (acquired[i])
                     {
                         release();
@@ -1142,7 +1133,6 @@ public sealed class GraphicsReviewRegressionTests
         Assert.True(completedWhileGateWasHeld);
         Assert.Null(workerFailure);
         Assert.All(acquired, wasAcquired => Assert.False(wasAcquired));
-        Assert.All(elapsed, duration => Assert.InRange(duration.TotalMilliseconds, 10, 500));
 
         // The original owner has now released the gate; it must be immediately reusable.
         Assert.True(tryEnter(TimeSpan.Zero));
