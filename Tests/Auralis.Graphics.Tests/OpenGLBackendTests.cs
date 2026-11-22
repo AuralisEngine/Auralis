@@ -117,93 +117,48 @@ public sealed class OpenGLBackendTests
     }
 
     [Fact]
-    public void MeshShaderNativeEntryPointsAreDetectedIndependently()
+    public void AdvertisedMeshShaderExtensionsUseTheirOwnValidatedLimits()
     {
-        static nint ResolveAllExceptMulti(string name) => name switch
-        {
-            "glDrawMeshTasksEXT" => (nint)1,
-            "glDrawMeshTasksIndirectEXT" => (nint)2,
-            "glDrawMeshTasksNV" => (nint)3,
-            _ => 0
-        };
+        // Extension advertisement makes the matching Silk.NET dialect binding available.
+        // A separate proc-address probe must not suppress either native API; limits are
+        // validated independently for each dialect and stage.
+        OpenGLMeshShaderDialectCapabilities ext =
+            OpenGLMeshShaderDialectCapabilities.Detect(
+                extApiAvailable: true,
+                nvApiAvailable: false,
+                extMeshCountX: 64,
+                extMeshCountY: 32,
+                extMeshCountZ: 8,
+                extMeshTotalCount: 4096,
+                extTaskCountX: 32,
+                extTaskCountY: 16,
+                extTaskCountZ: 4,
+                extTaskTotalCount: 2048,
+                nvDrawMeshTasksCount: 0);
 
-        OpenGLMeshShaderEntryPoints withoutMulti =
-            OpenGLMeshShaderEntryPoints.Resolve(ResolveAllExceptMulti);
+        Assert.True(ext.ExtMeshShaders);
+        Assert.True(ext.ExtTaskShaders);
+        Assert.False(ext.NvMeshShaders);
+        Assert.False(ext.NvTaskShaders);
 
-        Assert.True(withoutMulti.ExtDirect);
-        Assert.True(withoutMulti.ExtIndirect);
-        Assert.False(withoutMulti.ExtMultiDrawIndirect);
-        Assert.True(withoutMulti.NvDirect);
-        Assert.True(withoutMulti.SupportsExtMeshShader(extensionPresent: true));
-        Assert.False(withoutMulti.SupportsExtMultiDrawMeshTasksIndirect(extensionPresent: true));
-        Assert.True(withoutMulti.SupportsNvMeshShader(extensionPresent: true));
+        OpenGLMeshShaderDialectCapabilities nv =
+            OpenGLMeshShaderDialectCapabilities.Detect(
+                extApiAvailable: false,
+                nvApiAvailable: true,
+                extMeshCountX: 0,
+                extMeshCountY: 0,
+                extMeshCountZ: 0,
+                extMeshTotalCount: 0,
+                extTaskCountX: 0,
+                extTaskCountY: 0,
+                extTaskCountZ: 0,
+                extTaskTotalCount: 0,
+                nvDrawMeshTasksCount: 65_535);
 
-        // Neither extension may be inferred from an entry point alone.
-        Assert.False(withoutMulti.SupportsExtMeshShader(extensionPresent: false));
-        Assert.False(withoutMulti.SupportsNvMeshShader(extensionPresent: false));
-    }
-
-    [Fact]
-    public void ExtMeshTaskDrawEntryPointsRemainIndependent()
-    {
-        OpenGLMeshShaderEntryPoints directOnly = new(
-            ExtDirect: true,
-            ExtIndirect: false,
-            ExtMultiDrawIndirect: false,
-            NvDirect: false);
-        Assert.True(directOnly.SupportsExtMeshShader(extensionPresent: true));
-        Assert.True(directOnly.SupportsExtDirectMeshTasks(extensionPresent: true));
-        Assert.False(directOnly.SupportsExtIndirectMeshTasks(extensionPresent: true));
-        Assert.False(directOnly.SupportsExtMultiDrawMeshTasksIndirect(extensionPresent: true));
-
-        OpenGLMeshShaderEntryPoints indirectOnly = new(
-            ExtDirect: false,
-            ExtIndirect: true,
-            ExtMultiDrawIndirect: false,
-            NvDirect: false);
-        Assert.True(indirectOnly.SupportsExtMeshShader(extensionPresent: true));
-        Assert.False(indirectOnly.SupportsExtDirectMeshTasks(extensionPresent: true));
-        Assert.True(indirectOnly.SupportsExtIndirectMeshTasks(extensionPresent: true));
-
-        OpenGLMeshShaderEntryPoints multiDrawOnly = new(
-            ExtDirect: false,
-            ExtIndirect: false,
-            ExtMultiDrawIndirect: true,
-            NvDirect: false);
-        Assert.True(multiDrawOnly.SupportsExtMeshShader(extensionPresent: true));
-        Assert.True(multiDrawOnly.SupportsExtMultiDrawMeshTasksIndirect(extensionPresent: true));
-        Assert.False(multiDrawOnly.SupportsExtMeshShader(extensionPresent: false));
-    }
-
-    [Fact]
-    public void MeshShaderNativeEntryPointGatesRemainDialectSpecific()
-    {
-        static nint ResolveExtOnly(string name) => name switch
-        {
-            "glDrawMeshTasksEXT" => (nint)1,
-            "glDrawMeshTasksIndirectEXT" => (nint)2,
-            "glMultiDrawMeshTasksIndirectEXT" => (nint)3,
-            _ => 0
-        };
-
-        OpenGLMeshShaderEntryPoints extOnly =
-            OpenGLMeshShaderEntryPoints.Resolve(ResolveExtOnly);
-
-        Assert.True(extOnly.SupportsExtMeshShader(extensionPresent: true));
-        Assert.True(extOnly.SupportsExtMultiDrawMeshTasksIndirect(extensionPresent: true));
-        Assert.False(extOnly.SupportsNvMeshShader(extensionPresent: true));
-
-        // A missing single-indirect function is independent of direct-draw and NV support.
-        OpenGLMeshShaderEntryPoints directAndNvOnly =
-            OpenGLMeshShaderEntryPoints.Resolve(name =>
-                name is "glDrawMeshTasksEXT" or "glDrawMeshTasksNV" ? (nint)1 : 0);
-
-        Assert.True(directAndNvOnly.ExtDirect);
-        Assert.False(directAndNvOnly.ExtIndirect);
-        Assert.True(directAndNvOnly.SupportsExtMeshShader(extensionPresent: true));
-        Assert.False(directAndNvOnly.SupportsExtIndirectMeshTasks(extensionPresent: true));
-        Assert.True(directAndNvOnly.SupportsExtDirectMeshTasks(extensionPresent: true));
-        Assert.True(directAndNvOnly.SupportsNvMeshShader(extensionPresent: true));
+        Assert.False(nv.ExtMeshShaders);
+        Assert.False(nv.ExtTaskShaders);
+        Assert.True(nv.NvMeshShaders);
+        Assert.True(nv.NvTaskShaders);
     }
 
     [Fact]
@@ -222,17 +177,10 @@ public sealed class OpenGLBackendTests
     [Fact]
     public void MeshShaderDialectsRemainIndependentWhenBothExtensionsArePresent()
     {
-        OpenGLMeshShaderEntryPoints bothEntryPoints = new(
-            ExtDirect: true,
-            ExtIndirect: true,
-            ExtMultiDrawIndirect: true,
-            NvDirect: true);
-
         OpenGLMeshShaderDialectCapabilities nvOnlyBecauseExtLimitsAreInvalid =
             OpenGLMeshShaderDialectCapabilities.Detect(
-                extExtensionPresent: true,
-                nvExtensionPresent: true,
-                bothEntryPoints,
+                extApiAvailable: true,
+                nvApiAvailable: true,
                 extMeshCountX: 0,
                 extMeshCountY: 0,
                 extMeshCountZ: 0,
@@ -255,9 +203,8 @@ public sealed class OpenGLBackendTests
 
         OpenGLMeshShaderDialectCapabilities both =
             OpenGLMeshShaderDialectCapabilities.Detect(
-                extExtensionPresent: true,
-                nvExtensionPresent: true,
-                bothEntryPoints,
+                extApiAvailable: true,
+                nvApiAvailable: true,
                 extMeshCountX: 64,
                 extMeshCountY: 32,
                 extMeshCountZ: 8,
@@ -275,9 +222,8 @@ public sealed class OpenGLBackendTests
 
         OpenGLMeshShaderDialectCapabilities taskLimitsWithoutMesh =
             OpenGLMeshShaderDialectCapabilities.Detect(
-                extExtensionPresent: true,
-                nvExtensionPresent: false,
-                bothEntryPoints,
+                extApiAvailable: true,
+                nvApiAvailable: false,
                 extMeshCountX: 0,
                 extMeshCountY: 0,
                 extMeshCountZ: 0,
@@ -296,17 +242,10 @@ public sealed class OpenGLBackendTests
     [Fact]
     public void MeshAndTaskDialectCapabilitiesUseIndependentExtensionAndStageLimits()
     {
-        OpenGLMeshShaderEntryPoints entries = new(
-            ExtDirect: true,
-            ExtIndirect: true,
-            ExtMultiDrawIndirect: false,
-            NvDirect: false);
-
         OpenGLMeshShaderDialectCapabilities meshOnlyExt =
             OpenGLMeshShaderDialectCapabilities.Detect(
-                extExtensionPresent: true,
-                nvExtensionPresent: false,
-                entries,
+                extApiAvailable: true,
+                nvApiAvailable: false,
                 extMeshCountX: 64,
                 extMeshCountY: 32,
                 extMeshCountZ: 8,

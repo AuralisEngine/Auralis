@@ -32,9 +32,8 @@ internal readonly record struct OpenGLMeshShaderDialectCapabilities(
     };
 
     internal static OpenGLMeshShaderDialectCapabilities Detect(
-        bool extExtensionPresent,
-        bool nvExtensionPresent,
-        OpenGLMeshShaderEntryPoints entryPoints,
+        bool extApiAvailable,
+        bool nvApiAvailable,
         uint extMeshCountX,
         uint extMeshCountY,
         uint extMeshCountZ,
@@ -45,8 +44,6 @@ internal readonly record struct OpenGLMeshShaderDialectCapabilities(
         uint extTaskTotalCount,
         uint nvDrawMeshTasksCount)
     {
-        bool extApiAvailable = entryPoints.SupportsExtMeshShader(extExtensionPresent);
-        bool nvApiAvailable = entryPoints.SupportsNvMeshShader(nvExtensionPresent);
 
         bool extMesh = OpenGLMeshTaskValidation.IsSupported(
             extApiAvailable, extMeshCountX, extMeshCountY, extMeshCountZ, extMeshTotalCount);

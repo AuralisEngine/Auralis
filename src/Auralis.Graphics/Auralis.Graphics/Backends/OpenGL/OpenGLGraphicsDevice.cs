@@ -291,23 +291,22 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
                 polygonOffsetClampApi = new ArbPolygonOffsetClamp(gl.Context);
             bool hasExtMeshShader = gl.IsExtensionPresent(OpenGLExtMeshShader.ExtensionName);
             bool hasNvMeshShader = gl.IsExtensionPresent(NVMeshShader.ExtensionName);
-            OpenGLMeshShaderEntryPoints meshShaderEntryPoints =
-                OpenGLMeshShaderEntryPoints.Resolve(contextProvider);
-
-            // The EXT direct and single-indirect functions are sufficient for the existing
-            // backend paths. Multi-draw is a separate optional operation and must not gate them.
-            if (meshShaderEntryPoints.SupportsExtMeshShader(hasExtMeshShader))
+            // Extension advertisement is the normative capability contract. Do not suppress
+            // a conformant extension because a separate provider-level proc-address probe
+            // reports zero; the Silk.NET binding resolves its functions through the current
+            // native context when the extension API is used.
+            if (hasExtMeshShader)
             {
                 meshShaderApi = new OpenGLExtMeshShader(gl.Context);
-                supportsExtDirectMeshTasks =
-                    meshShaderEntryPoints.SupportsExtDirectMeshTasks(hasExtMeshShader);
-                supportsExtIndirectMeshTasks =
-                    meshShaderEntryPoints.SupportsExtIndirectMeshTasks(hasExtMeshShader);
+                supportsExtDirectMeshTasks = true;
+                supportsExtIndirectMeshTasks = true;
+
+                // Multi-draw remains an independent optional path.
                 supportsExtMultiDrawMeshTasksIndirect =
-                    meshShaderEntryPoints.SupportsExtMultiDrawMeshTasksIndirect(hasExtMeshShader);
+                    contextProvider.GetProcAddress("glMultiDrawMeshTasksIndirectEXT") != 0;
             }
 
-            if (meshShaderEntryPoints.SupportsNvMeshShader(hasNvMeshShader))
+            if (hasNvMeshShader)
                 nvMeshShaderApi = new NVMeshShader(gl.Context);
             shaderBinaryApi = new ArbES2Compatibility(gl.Context);
             if (gl.IsExtensionPresent(ArbGlSpirv.ExtensionName))
@@ -375,9 +374,8 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
 
             OpenGLMeshShaderDialectCapabilities meshShaderCapabilities =
                 OpenGLMeshShaderDialectCapabilities.Detect(
-                    hasExtMeshShader,
-                    hasNvMeshShader,
-                    meshShaderEntryPoints,
+                    meshShaderApi is not null,
+                    nvMeshShaderApi is not null,
                     maxMeshWorkGroupCountX,
                     maxMeshWorkGroupCountY,
                     maxMeshWorkGroupCountZ,
