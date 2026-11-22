@@ -129,7 +129,16 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
 
     public GraphicsQueueType QueueType => _queue.QueueType;
     public GraphicsCommandListUsage Usage { get; }
-    public GraphicsCommandListState State => _lifecycle.State;
+    public GraphicsCommandListState State
+    {
+        get
+        {
+            // Match desktop OpenGL: observing State polls completed queue submissions so a
+            // signaled fence cannot leave a reusable command list observably Pending.
+            _queue.PollPending();
+            return _lifecycle.State;
+        }
+    }
 
     // Internal-only hooks keep backend diagnostics and alternate-path coverage out of the public API.
     internal bool ForceIndirectDrawFallbackForTesting { get; set; }
