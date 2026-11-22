@@ -54,7 +54,7 @@ public sealed unsafe class OpenGLApiComparisonBenchmarks
             _auralisDestination = _device.CreateBuffer(new GraphicsBufferDescription(
                 BufferSize, GraphicsBufferUsage.CopyDestination, GraphicsMemoryAccess.GpuToCpu));
             Memory<byte> mapped = AuralisSource.Map(GraphicsMapMode.Write, 0, BufferSize);
-            try { _sourceBytes.CopyTo(mapped); }
+            try { _sourceBytes.AsSpan().CopyTo(mapped.Span); }
             finally { AuralisSource.Unmap(); }
 
             _commandList = CopyQueue.CreateCommandList(GraphicsCommandListUsage.Reusable);
