@@ -1151,6 +1151,7 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
                 _resources.Clear();
 
                 DisposeNativeApi(_uniformBufferObjectApi, ref cleanupFailure);
+                DisposeNativeApi(_nvMeshShaderApi, ref cleanupFailure);
                 DisposeNativeApi(_meshShaderApi, ref cleanupFailure);
                 DisposeNativeApi(_computeShaderApi, ref cleanupFailure);
                 DisposeNativeApi(_spirvApi, ref cleanupFailure);
