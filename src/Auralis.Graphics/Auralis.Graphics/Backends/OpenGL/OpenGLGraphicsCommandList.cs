@@ -725,6 +725,12 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
                 "GL_NV_mesh_shader indirect commands use a two-field { count, first } layout, " +
                 "while the common Auralis command uses three-dimensional { groupCountX, groupCountY, groupCountZ } arguments.");
         }
+        if (drawCount > 1 && !device.SupportsExtMultiDrawMeshTasksIndirect)
+        {
+            throw new GraphicsValidationException(
+                "This EXT mesh-shader context does not expose glMultiDrawMeshTasksIndirectEXT. " +
+                "Use single-indirect commands or a context with the native multi-draw entry point.");
+        }
 
         _commands.Add(new OpenGLRecordedCommand
         {
@@ -1178,7 +1184,11 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
                             activePipeline.MeshShaderDialect != OpenGLMeshShaderDialect.Ext ||
                             meshShaderApi is null)
                             throw new GraphicsValidationException(
-                                "Indirect mesh-task drawing requires an EXT mesh-shader pipeline and its three-dimensional indirect command path.");
+                                "Indirect mesh-task drawing requires an EXT mesh-shader pipeline and its direct/single-indirect native entry points.");
+                        if (command.DrawCount > 1 &&
+                            !((OpenGLGraphicsDevice)Device).SupportsExtMultiDrawMeshTasksIndirect)
+                            throw new GraphicsException(
+                                "glMultiDrawMeshTasksIndirectEXT was not resolved for this OpenGL context.");
                         gl.BindBuffer(
                             BufferTargetARB.DrawIndirectBuffer,
                             ((OpenGLGraphicsBuffer)command.SourceBuffer!).Handle);
