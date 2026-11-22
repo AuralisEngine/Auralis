@@ -31,126 +31,126 @@ internal static class OpenGLFormatCapabilities
         int resultCount = 0;
         try
         {
-        foreach (GraphicsFormat format in s_formats)
-        {
-            if (format == GraphicsFormat.Unknown ||
-                !TryGetInternalFormat(format, out SizedInternalFormat internalFormat, out string? requiredExtension))
-                continue;
-
-            if (requiredExtension is not null && !gl.IsExtensionPresent(requiredExtension))
-                continue;
-
-            InternalFormat queryFormat = (InternalFormat)internalFormat;
-            int supported = internalFormatQuery.GetInternalformat(
-                TextureTarget.Texture2D,
-                queryFormat,
-                InternalFormatPName.InternalformatSupported);
-
-            if (supported == 0)
-                continue;
-
-            GraphicsFormatSupport support = GraphicsFormatSupport.Sampled |
-                                            GraphicsFormatSupport.CopySource |
-                                            GraphicsFormatSupport.CopyDestination;
-
-            if (hasInternalFormatQuery2)
+            foreach (GraphicsFormat format in s_formats)
             {
-                if (internalFormatQuery.GetInternalformat(
-                        TextureTarget.Texture2D,
-                        queryFormat,
-                        InternalFormatPName.Filter) != 0)
-                {
-                    support |= GraphicsFormatSupport.LinearFiltering;
-                }
+                if (format == GraphicsFormat.Unknown ||
+                    !TryGetInternalFormat(format, out SizedInternalFormat internalFormat, out string? requiredExtension))
+                    continue;
 
-                if (IsDepthStencil(format))
+                if (requiredExtension is not null && !gl.IsExtensionPresent(requiredExtension))
+                    continue;
+
+                InternalFormat queryFormat = (InternalFormat)internalFormat;
+                int supported = internalFormatQuery.GetInternalformat(
+                    TextureTarget.Texture2D,
+                    queryFormat,
+                    InternalFormatPName.InternalformatSupported);
+
+                if (supported == 0)
+                    continue;
+
+                GraphicsFormatSupport support = GraphicsFormatSupport.Sampled |
+                                                GraphicsFormatSupport.CopySource |
+                                                GraphicsFormatSupport.CopyDestination;
+
+                if (hasInternalFormatQuery2)
                 {
-                    bool depthRenderable = internalFormatQuery.GetInternalformat(
-                        TextureTarget.Texture2D,
-                        queryFormat,
-                        InternalFormatPName.DepthRenderable) != 0;
-                    bool requiresStencil = format is GraphicsFormat.D24UNormS8UInt or GraphicsFormat.D32FloatS8UInt;
-                    bool stencilRenderable = !requiresStencil ||
+                    if (internalFormatQuery.GetInternalformat(
+                            TextureTarget.Texture2D,
+                            queryFormat,
+                            InternalFormatPName.Filter) != 0)
+                    {
+                        support |= GraphicsFormatSupport.LinearFiltering;
+                    }
+
+                    if (IsDepthStencil(format))
+                    {
+                        bool depthRenderable = internalFormatQuery.GetInternalformat(
+                            TextureTarget.Texture2D,
+                            queryFormat,
+                            InternalFormatPName.DepthRenderable) != 0;
+                        bool requiresStencil = format is GraphicsFormat.D24UNormS8UInt or GraphicsFormat.D32FloatS8UInt;
+                        bool stencilRenderable = !requiresStencil ||
+                            internalFormatQuery.GetInternalformat(
+                                TextureTarget.Texture2D,
+                                queryFormat,
+                                InternalFormatPName.StencilRenderable) != 0;
+
+                        if (depthRenderable && stencilRenderable)
+                            support |= GraphicsFormatSupport.DepthStencilAttachment;
+                    }
+                    else
+                    {
+                        if (internalFormatQuery.GetInternalformat(
+                                TextureTarget.Texture2D,
+                                queryFormat,
+                                InternalFormatPName.ColorRenderable) != 0)
+                        {
+                            support |= GraphicsFormatSupport.ColorAttachment;
+                        }
+
+                        if (internalFormatQuery.GetInternalformat(
+                                TextureTarget.Texture2D,
+                                queryFormat,
+                                InternalFormatPName.FramebufferBlend) != 0)
+                        {
+                            support |= GraphicsFormatSupport.Blend;
+                        }
+                    }
+
+                    if (internalFormatQuery.GetInternalformat(
+                            TextureTarget.Texture2D,
+                            queryFormat,
+                            InternalFormatPName.ShaderImageLoad) != 0 &&
                         internalFormatQuery.GetInternalformat(
                             TextureTarget.Texture2D,
                             queryFormat,
-                            InternalFormatPName.StencilRenderable) != 0;
-
-                    if (depthRenderable && stencilRenderable)
-                        support |= GraphicsFormatSupport.DepthStencilAttachment;
-                }
-                else
-                {
-                    if (internalFormatQuery.GetInternalformat(
-                            TextureTarget.Texture2D,
-                            queryFormat,
-                            InternalFormatPName.ColorRenderable) != 0)
+                            InternalFormatPName.ShaderImageStore) != 0)
                     {
-                        support |= GraphicsFormatSupport.ColorAttachment;
-                    }
-
-                    if (internalFormatQuery.GetInternalformat(
-                            TextureTarget.Texture2D,
-                            queryFormat,
-                            InternalFormatPName.FramebufferBlend) != 0)
-                    {
-                        support |= GraphicsFormatSupport.Blend;
+                        support |= GraphicsFormatSupport.Storage;
                     }
                 }
 
-                if (internalFormatQuery.GetInternalformat(
-                        TextureTarget.Texture2D,
-                        queryFormat,
-                        InternalFormatPName.ShaderImageLoad) != 0 &&
-                    internalFormatQuery.GetInternalformat(
-                        TextureTarget.Texture2D,
-                        queryFormat,
-                        InternalFormatPName.ShaderImageStore) != 0)
-                {
-                    support |= GraphicsFormatSupport.Storage;
-                }
-            }
+                if (IsVertexFormat(format))
+                    support |= GraphicsFormatSupport.VertexBuffer;
 
-            if (IsVertexFormat(format))
-                support |= GraphicsFormatSupport.VertexBuffer;
-
-            GraphicsSampleCountFlags sampleCounts = GraphicsSampleCountFlags.One;
-            int count = internalFormatQuery.GetInternalformat(
-                TextureTarget.Texture2DMultisample,
-                queryFormat,
-                InternalFormatPName.NumSampleCounts);
-
-            if (count > 0 && count <= 64)
-            {
-                Span<int> queriedCounts = queriedSamples[..count];
-                internalFormatQuery.GetInternalformat(
+                GraphicsSampleCountFlags sampleCounts = GraphicsSampleCountFlags.One;
+                int count = internalFormatQuery.GetInternalformat(
                     TextureTarget.Texture2DMultisample,
                     queryFormat,
-                    InternalFormatPName.Samples,
-                    queriedCounts);
-                for (int i = 0; i < queriedCounts.Length; i++)
+                    InternalFormatPName.NumSampleCounts);
+
+                if (count > 0 && count <= 64)
                 {
-                    sampleCounts |= queriedCounts[i] switch
+                    Span<int> queriedCounts = queriedSamples[..count];
+                    internalFormatQuery.GetInternalformat(
+                        TextureTarget.Texture2DMultisample,
+                        queryFormat,
+                        InternalFormatPName.Samples,
+                        queriedCounts);
+                    for (int i = 0; i < queriedCounts.Length; i++)
                     {
-                        1 => GraphicsSampleCountFlags.One,
-                        2 => GraphicsSampleCountFlags.Two,
-                        4 => GraphicsSampleCountFlags.Four,
-                        8 => GraphicsSampleCountFlags.Eight,
-                        16 => GraphicsSampleCountFlags.Sixteen,
-                        32 => GraphicsSampleCountFlags.ThirtyTwo,
-                        64 => GraphicsSampleCountFlags.SixtyFour,
-                        _ => GraphicsSampleCountFlags.None
-                    };
+                        sampleCounts |= queriedCounts[i] switch
+                        {
+                            1 => GraphicsSampleCountFlags.One,
+                            2 => GraphicsSampleCountFlags.Two,
+                            4 => GraphicsSampleCountFlags.Four,
+                            8 => GraphicsSampleCountFlags.Eight,
+                            16 => GraphicsSampleCountFlags.Sixteen,
+                            32 => GraphicsSampleCountFlags.ThirtyTwo,
+                            64 => GraphicsSampleCountFlags.SixtyFour,
+                            _ => GraphicsSampleCountFlags.None
+                        };
+                    }
+
                 }
 
+                results[resultCount++] = new GraphicsFormatCapabilities(format, support, sampleCounts);
             }
 
-            results[resultCount++] = new GraphicsFormatCapabilities(format, support, sampleCounts);
-        }
-
-        GraphicsFormatCapabilities[] result = new GraphicsFormatCapabilities[resultCount];
-        results[..resultCount].CopyTo(result);
-        return result;
+            GraphicsFormatCapabilities[] result = new GraphicsFormatCapabilities[resultCount];
+            results[..resultCount].CopyTo(result);
+            return result;
         }
         finally
         {

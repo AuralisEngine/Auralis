@@ -759,6 +759,7 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
             fullFloatStorageSupport |= GraphicsFormatSupport.CopySource | GraphicsFormatSupport.CopyDestination;
         }
 
+        // 34 core formats plus at most 11 optional depth/compression formats fit in this scratch span.
         Span<GraphicsFormatCapabilities> formatBuffer = stackalloc GraphicsFormatCapabilities[48];
         int formatCount = 0;
         formatBuffer[formatCount++] = new(GraphicsFormat.R8UNorm, normalizedSingleSupport, GetSampleCounts(formatSampleCounts, GraphicsFormat.R8UNorm))
