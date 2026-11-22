@@ -364,56 +364,58 @@ internal sealed class OpenGLGraphicsCommandQueue : IGraphicsCommandQueue
             bool hasCompletedSubmission = false;
             bool recoveredUnqueuedSubmission = false;
 
-            using OpenGLContextScope context = _device.AcquireContext();
-            GL gl = context.Gl;
-            bool foundSubmission = false;
             {
-                lock (_gate)
+                using OpenGLContextScope context = _device.AcquireContext();
+                GL gl = context.Gl;
+                bool foundSubmission = false;
                 {
-                    for (int i = _pending.Count - 1; i >= 0; i--)
+                    lock (_gate)
                     {
-                        PendingSubmission submission = _pending[i];
-                        bool contains = false;
-                        for (int j = 0; j < submission.Count; j++)
-                            contains |= ReferenceEquals(submission.CommandLists[j], commandList);
-                        if (!contains)
-                            continue;
-
-                        foundSubmission = true;
-
-                        // Wait only for the submission that owns this command list. The bounded
-                        // wait returns the context to other device callers between iterations.
-                        ARB status = _device.SyncApi.ClientWaitSync(
-                            submission.Sync,
-                            (SyncObjectMask)0,
-                            1_000_000);
-                        if (status == ARB.WaitFailed)
-                            throw new GraphicsException("OpenGL failed while waiting for command-list completion.");
-                        if (status is not (ARB.AlreadySignaled or ARB.ConditionSatisfied or ARB.TimeoutExpired))
-                            throw new GraphicsException($"OpenGL returned unexpected command-list sync status {status}.");
-
-                        if (status is ARB.AlreadySignaled or ARB.ConditionSatisfied)
+                        for (int i = _pending.Count - 1; i >= 0; i--)
                         {
-                            _device.SyncApi.DeleteSync(submission.Sync);
-                            MarkSubmissionCompleted(submission);
-                            _pending.RemoveAt(i);
-                            completedSubmission = submission;
-                            hasCompletedSubmission = true;
+                            PendingSubmission submission = _pending[i];
+                            bool contains = false;
+                            for (int j = 0; j < submission.Count; j++)
+                                contains |= ReferenceEquals(submission.CommandLists[j], commandList);
+                            if (!contains)
+                                continue;
+
+                            foundSubmission = true;
+
+                            // Wait only for the submission that owns this command list. The bounded
+                            // wait returns the context to other device callers between iterations.
+                            ARB status = _device.SyncApi.ClientWaitSync(
+                                submission.Sync,
+                                (SyncObjectMask)0,
+                                1_000_000);
+                            if (status == ARB.WaitFailed)
+                                throw new GraphicsException("OpenGL failed while waiting for command-list completion.");
+                            if (status is not (ARB.AlreadySignaled or ARB.ConditionSatisfied or ARB.TimeoutExpired))
+                                throw new GraphicsException($"OpenGL returned unexpected command-list sync status {status}.");
+
+                            if (status is ARB.AlreadySignaled or ARB.ConditionSatisfied)
+                            {
+                                _device.SyncApi.DeleteSync(submission.Sync);
+                                MarkSubmissionCompleted(submission);
+                                _pending.RemoveAt(i);
+                                completedSubmission = submission;
+                                hasCompletedSubmission = true;
+                            }
+
+                            break;
                         }
-
-                        break;
                     }
-                }
 
-                if (!foundSubmission && commandList.Lifecycle.State == GraphicsCommandListState.Pending)
-                {
-                    // The submission may have failed after marking Pending but before queueing its
-                    // record. This exceptional path finishes the stream but leaves unrelated queue
-                    // records intact; only the orphaned list is recovered here.
-                    gl.Finish();
-                    if (commandList.Lifecycle.State == GraphicsCommandListState.Pending)
-                        commandList.MarkCompletedAfterGpu();
-                    recoveredUnqueuedSubmission = true;
+                    if (!foundSubmission && commandList.Lifecycle.State == GraphicsCommandListState.Pending)
+                    {
+                        // The submission may have failed after marking Pending but before queueing its
+                        // record. This exceptional path finishes the stream but leaves unrelated queue
+                        // records intact; only the orphaned list is recovered here.
+                        gl.Finish();
+                        if (commandList.Lifecycle.State == GraphicsCommandListState.Pending)
+                            commandList.MarkCompletedAfterGpu();
+                        recoveredUnqueuedSubmission = true;
+                    }
                 }
             }
 

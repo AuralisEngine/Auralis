@@ -258,53 +258,55 @@ internal sealed class OpenGLESGraphicsCommandQueue : IGraphicsCommandQueue
             bool hasCompletedSubmission = false;
             bool recoveredUnqueuedSubmission = false;
 
-            using OpenGLESContextScope context = _device.AcquireContext();
-            GL gl = context.Gl;
-            bool foundSubmission = false;
             {
-                lock (_gate)
+                using OpenGLESContextScope context = _device.AcquireContext();
+                GL gl = context.Gl;
+                bool foundSubmission = false;
                 {
-                    for (int i = _pending.Count - 1; i >= 0; i--)
+                    lock (_gate)
                     {
-                        PendingSubmission submission = _pending[i];
-                        bool contains = false;
-                        for (int j = 0; j < submission.Count; j++)
-                            contains |= ReferenceEquals(submission.CommandLists[j], commandList);
-                        if (!contains)
-                            continue;
-
-                        foundSubmission = true;
-
-                        GLEnum status = gl.ClientWaitSync(
-                            submission.Sync,
-                            (SyncObjectMask)SyncObjectMask.Bit,
-                            1_000_000);
-                        if (status == GLEnum.WaitFailed)
-                            throw new GraphicsException("OpenGL ES failed while waiting for command-list completion.");
-                        if (status is not (GLEnum.AlreadySignaled or GLEnum.ConditionSatisfied or GLEnum.TimeoutExpired))
-                            throw new GraphicsException($"OpenGL ES returned unexpected sync status {status}.");
-
-                        if (status is GLEnum.AlreadySignaled or GLEnum.ConditionSatisfied)
+                        for (int i = _pending.Count - 1; i >= 0; i--)
                         {
-                            gl.DeleteSync(submission.Sync);
-                            MarkSubmissionCompleted(submission);
-                            _pending.RemoveAt(i);
-                            completedSubmission = submission;
-                            hasCompletedSubmission = true;
+                            PendingSubmission submission = _pending[i];
+                            bool contains = false;
+                            for (int j = 0; j < submission.Count; j++)
+                                contains |= ReferenceEquals(submission.CommandLists[j], commandList);
+                            if (!contains)
+                                continue;
+
+                            foundSubmission = true;
+
+                            GLEnum status = gl.ClientWaitSync(
+                                submission.Sync,
+                                (SyncObjectMask)SyncObjectMask.Bit,
+                                1_000_000);
+                            if (status == GLEnum.WaitFailed)
+                                throw new GraphicsException("OpenGL ES failed while waiting for command-list completion.");
+                            if (status is not (GLEnum.AlreadySignaled or GLEnum.ConditionSatisfied or GLEnum.TimeoutExpired))
+                                throw new GraphicsException($"OpenGL ES returned unexpected sync status {status}.");
+
+                            if (status is GLEnum.AlreadySignaled or GLEnum.ConditionSatisfied)
+                            {
+                                gl.DeleteSync(submission.Sync);
+                                MarkSubmissionCompleted(submission);
+                                _pending.RemoveAt(i);
+                                completedSubmission = submission;
+                                hasCompletedSubmission = true;
+                            }
+
+                            break;
                         }
-
-                        break;
                     }
-                }
 
-                if (!foundSubmission && commandList.Lifecycle.State == GraphicsCommandListState.Pending)
-                {
-                    // This is the exceptional no-record recovery path after submission failure.
-                    // Do not drain unrelated queue records.
-                    gl.Finish();
-                    if (commandList.Lifecycle.State == GraphicsCommandListState.Pending)
-                        commandList.MarkCompletedAfterGpu();
-                    recoveredUnqueuedSubmission = true;
+                    if (!foundSubmission && commandList.Lifecycle.State == GraphicsCommandListState.Pending)
+                    {
+                        // This is the exceptional no-record recovery path after submission failure.
+                        // Do not drain unrelated queue records.
+                        gl.Finish();
+                        if (commandList.Lifecycle.State == GraphicsCommandListState.Pending)
+                            commandList.MarkCompletedAfterGpu();
+                        recoveredUnqueuedSubmission = true;
+                    }
                 }
             }
 
