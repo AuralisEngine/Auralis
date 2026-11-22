@@ -354,6 +354,137 @@ public sealed class OpenGLESCapabilityProfileTests
     }
 }
 
+public sealed class OpenGLESMultisampleQueryEligibilityTests
+{
+    private static OpenGLESCapabilityProfile CreateProfile(params string[] extensions) =>
+        OpenGLESCapabilityProfile.Create(
+            new OpenGLESVersion(3, 1),
+            extensions,
+            supportsPresentation: false);
+
+    [Fact]
+    public void Es31_MultisampleQueriesAreLimitedToCoreRenderableFormats()
+    {
+        OpenGLESCapabilityProfile profile = CreateProfile();
+
+        foreach (GraphicsFormat format in new[]
+        {
+            GraphicsFormat.R8UNorm,
+            GraphicsFormat.RG8UNorm,
+            GraphicsFormat.RGBA8UNorm,
+            GraphicsFormat.RGBA8UNormSrgb,
+            GraphicsFormat.R8UInt,
+            GraphicsFormat.R8SInt,
+            GraphicsFormat.RG8UInt,
+            GraphicsFormat.RG8SInt,
+            GraphicsFormat.RGBA8UInt,
+            GraphicsFormat.RGBA8SInt,
+            GraphicsFormat.R16UInt,
+            GraphicsFormat.R16SInt,
+            GraphicsFormat.RG16UInt,
+            GraphicsFormat.RG16SInt,
+            GraphicsFormat.RGBA16UInt,
+            GraphicsFormat.RGBA16SInt,
+            GraphicsFormat.R32UInt,
+            GraphicsFormat.R32SInt,
+            GraphicsFormat.RG32UInt,
+            GraphicsFormat.RG32SInt,
+            GraphicsFormat.RGBA32UInt,
+            GraphicsFormat.RGBA32SInt,
+            GraphicsFormat.D16UNorm,
+            GraphicsFormat.D24UNormS8UInt
+        })
+        {
+            Assert.True(
+                OpenGLESGraphicsDevice.IsMultisampleQueryFormatRenderable(profile, format),
+                $"GLES 3.1 core-renderable format {format} should be queried.");
+        }
+
+        foreach (GraphicsFormat format in new[]
+        {
+            GraphicsFormat.R8SNorm,
+            GraphicsFormat.RG8SNorm,
+            GraphicsFormat.RGBA8SNorm,
+            GraphicsFormat.R16Float,
+            GraphicsFormat.RG16Float,
+            GraphicsFormat.RGBA16Float,
+            GraphicsFormat.R32Float,
+            GraphicsFormat.RG32Float,
+            GraphicsFormat.RGB32Float,
+            GraphicsFormat.RGBA32Float,
+            GraphicsFormat.D32Float,
+            GraphicsFormat.D32FloatS8UInt
+        })
+        {
+            Assert.False(
+                OpenGLESGraphicsDevice.IsMultisampleQueryFormatRenderable(profile, format),
+                $"GLES 3.1 non-renderable/extension-gated format {format} must not be passed to glGetInternalformativ.");
+        }
+    }
+
+    [Fact]
+    public void HalfFloatMultisampleQueriesRequireColorBufferExtension()
+    {
+        OpenGLESCapabilityProfile baseline = CreateProfile();
+        OpenGLESCapabilityProfile halfFloat = CreateProfile("GL_EXT_color_buffer_half_float");
+        OpenGLESCapabilityProfile fullFloat = CreateProfile("GL_EXT_color_buffer_float");
+
+        foreach (GraphicsFormat format in new[]
+        {
+            GraphicsFormat.R16Float,
+            GraphicsFormat.RG16Float,
+            GraphicsFormat.RGBA16Float
+        })
+        {
+            Assert.False(OpenGLESGraphicsDevice.IsMultisampleQueryFormatRenderable(baseline, format));
+            Assert.True(OpenGLESGraphicsDevice.IsMultisampleQueryFormatRenderable(halfFloat, format));
+            Assert.True(OpenGLESGraphicsDevice.IsMultisampleQueryFormatRenderable(fullFloat, format));
+        }
+    }
+
+    [Fact]
+    public void FullFloatMultisampleQueriesRequireColorBufferFloatAndExcludeRgb32()
+    {
+        OpenGLESCapabilityProfile baseline = CreateProfile();
+        OpenGLESCapabilityProfile halfFloat = CreateProfile("GL_EXT_color_buffer_half_float");
+        OpenGLESCapabilityProfile fullFloat = CreateProfile("GL_EXT_color_buffer_float");
+
+        foreach (GraphicsFormat format in new[]
+        {
+            GraphicsFormat.R32Float,
+            GraphicsFormat.RG32Float,
+            GraphicsFormat.RGBA32Float
+        })
+        {
+            Assert.False(OpenGLESGraphicsDevice.IsMultisampleQueryFormatRenderable(baseline, format));
+            Assert.False(OpenGLESGraphicsDevice.IsMultisampleQueryFormatRenderable(halfFloat, format));
+            Assert.True(OpenGLESGraphicsDevice.IsMultisampleQueryFormatRenderable(fullFloat, format));
+        }
+
+        Assert.False(OpenGLESGraphicsDevice.IsMultisampleQueryFormatRenderable(
+            fullFloat, GraphicsFormat.RGB32Float));
+    }
+
+    [Fact]
+    public void Depth32MultisampleQueriesRequireEs32()
+    {
+        OpenGLESCapabilityProfile es31 = CreateProfile();
+        OpenGLESCapabilityProfile es32 = OpenGLESCapabilityProfile.Create(
+            new OpenGLESVersion(3, 2),
+            ReadOnlySpan<string>.Empty,
+            supportsPresentation: false);
+
+        Assert.False(OpenGLESGraphicsDevice.IsMultisampleQueryFormatRenderable(
+            es31, GraphicsFormat.D32Float));
+        Assert.False(OpenGLESGraphicsDevice.IsMultisampleQueryFormatRenderable(
+            es31, GraphicsFormat.D32FloatS8UInt));
+        Assert.True(OpenGLESGraphicsDevice.IsMultisampleQueryFormatRenderable(
+            es32, GraphicsFormat.D32Float));
+        Assert.True(OpenGLESGraphicsDevice.IsMultisampleQueryFormatRenderable(
+            es32, GraphicsFormat.D32FloatS8UInt));
+    }
+}
+
 public sealed class OpenGLESResourceReferenceStateTests
 {
     [Fact]
