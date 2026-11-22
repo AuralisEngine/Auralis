@@ -50,6 +50,8 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
     private readonly ArbPolygonOffsetClamp? _polygonOffsetClampApi;
     private readonly OpenGLExtMeshShader? _meshShaderApi;
     private readonly NVMeshShader? _nvMeshShaderApi;
+    private readonly bool _supportsExtDirectMeshTasks;
+    private readonly bool _supportsExtIndirectMeshTasks;
     private readonly bool _supportsExtMultiDrawMeshTasksIndirect;
     private readonly OpenGLMeshShaderDialectCapabilities _meshShaderCapabilities;
     private readonly ArbES2Compatibility _shaderBinaryApi;
@@ -81,6 +83,8 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
     internal ArbPolygonOffsetClamp? PolygonOffsetClampApi => _polygonOffsetClampApi;
     internal OpenGLExtMeshShader? MeshShaderApi => _meshShaderApi;
     internal NVMeshShader? NvMeshShaderApi => _nvMeshShaderApi;
+    internal bool SupportsExtDirectMeshTasks => _supportsExtDirectMeshTasks;
+    internal bool SupportsExtIndirectMeshTasks => _supportsExtIndirectMeshTasks;
     internal bool SupportsExtMultiDrawMeshTasksIndirect => _supportsExtMultiDrawMeshTasksIndirect;
     internal OpenGLMeshShaderDialectCapabilities MeshShaderCapabilities => _meshShaderCapabilities;
     internal ArbES2Compatibility ShaderBinaryApi => _shaderBinaryApi;
@@ -111,6 +115,8 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
         ArbPolygonOffsetClamp? polygonOffsetClampApi,
         OpenGLExtMeshShader? meshShaderApi,
         NVMeshShader? nvMeshShaderApi,
+        bool supportsExtDirectMeshTasks,
+        bool supportsExtIndirectMeshTasks,
         bool supportsExtMultiDrawMeshTasksIndirect,
         OpenGLMeshShaderDialectCapabilities meshShaderCapabilities,
         ArbES2Compatibility shaderBinaryApi,
@@ -163,6 +169,8 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
         _polygonOffsetClampApi = polygonOffsetClampApi;
         _meshShaderApi = meshShaderApi;
         _nvMeshShaderApi = nvMeshShaderApi;
+        _supportsExtDirectMeshTasks = supportsExtDirectMeshTasks;
+        _supportsExtIndirectMeshTasks = supportsExtIndirectMeshTasks;
         _supportsExtMultiDrawMeshTasksIndirect = supportsExtMultiDrawMeshTasksIndirect;
         _meshShaderCapabilities = meshShaderCapabilities;
         _shaderBinaryApi = shaderBinaryApi;
@@ -226,6 +234,8 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
         ArbPolygonOffsetClamp? polygonOffsetClampApi = null;
         OpenGLExtMeshShader? meshShaderApi = null;
         NVMeshShader? nvMeshShaderApi = null;
+        bool supportsExtDirectMeshTasks = false;
+        bool supportsExtIndirectMeshTasks = false;
         bool supportsExtMultiDrawMeshTasksIndirect = false;
         ArbES2Compatibility? shaderBinaryApi = null;
         ArbGlSpirv? spirvApi = null;
@@ -289,6 +299,10 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
             if (meshShaderEntryPoints.SupportsExtMeshShader(hasExtMeshShader))
             {
                 meshShaderApi = new OpenGLExtMeshShader(gl.Context);
+                supportsExtDirectMeshTasks =
+                    meshShaderEntryPoints.SupportsExtDirectMeshTasks(hasExtMeshShader);
+                supportsExtIndirectMeshTasks =
+                    meshShaderEntryPoints.SupportsExtIndirectMeshTasks(hasExtMeshShader);
                 supportsExtMultiDrawMeshTasksIndirect =
                     meshShaderEntryPoints.SupportsExtMultiDrawMeshTasksIndirect(hasExtMeshShader);
             }
@@ -420,8 +434,10 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
                 internalFormatQuery, syncApi, copyImageApi, viewportApi,
                 baseInstanceApi, drawIndirectApi, multiDrawIndirectApi, imageLoadStoreApi,
                 drawBuffersBlendApi, indexedDrawBuffersApi, depthBoundsApi, polygonOffsetClampApi,
-                meshShaderApi, nvMeshShaderApi, supportsExtMultiDrawMeshTasksIndirect,
-                meshShaderCapabilities, shaderBinaryApi!, spirvApi, supportedLineWidths, computeShaderApi!, uniformBufferObjectApi!,
+                meshShaderApi, nvMeshShaderApi,
+                supportsExtDirectMeshTasks, supportsExtIndirectMeshTasks,
+                supportsExtMultiDrawMeshTasksIndirect, meshShaderCapabilities,
+                shaderBinaryApi!, spirvApi, supportedLineWidths, computeShaderApi!, uniformBufferObjectApi!,
                 maxComputeWorkGroupCountX, maxComputeWorkGroupCountY, maxComputeWorkGroupCountZ,
                 maxMeshWorkGroupCountX, maxMeshWorkGroupCountY, maxMeshWorkGroupCountZ,
                 maxMeshWorkGroupTotalCount,
