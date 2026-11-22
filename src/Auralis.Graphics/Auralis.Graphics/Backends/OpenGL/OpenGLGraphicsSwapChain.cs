@@ -46,7 +46,8 @@ internal sealed class OpenGLGraphicsSwapChain : OpenGLNativeDeviceObject, IGraph
         _description = description;
         _surfaceRevision = snapshot.Revision;
         _images = CreateImages(description);
-        _device.WithContext(_ => _device.RegisterUnderContext(this));
+        using OpenGLContextScope context = _device.AcquireContext();
+        _device.RegisterUnderContext(this);
     }
 
     public GraphicsSwapChainDescription Description
@@ -100,9 +101,12 @@ internal sealed class OpenGLGraphicsSwapChain : OpenGLNativeDeviceObject, IGraph
         {
             ulong remainingNanoseconds = GetRemainingNanoseconds(start, timeoutTicks);
 
-            GraphicsAcquireResult result = _device.WithContext(gl =>
+            GraphicsAcquireResult result;
+            using (OpenGLContextScope context = _device.AcquireContext())
             {
+                GL gl = context.Gl;
                 int imageCount = _images.Length;
+                result = new GraphicsAcquireResult(GraphicsAcquireStatus.Timeout, default);
                 for (int attempt = 0; attempt < imageCount; attempt++)
                 {
                     uint index = (_nextImage + (uint)attempt) % (uint)imageCount;
@@ -128,13 +132,12 @@ internal sealed class OpenGLGraphicsSwapChain : OpenGLNativeDeviceObject, IGraph
 
                     image.Acquired = true;
                     _nextImage = (index + 1) % (uint)imageCount;
-                    return new GraphicsAcquireResult(
+                    result = new GraphicsAcquireResult(
                         GraphicsAcquireStatus.Success,
                         new GraphicsAcquiredImage(index, _generation, image.Texture));
+                    break;
                 }
-
-                return new GraphicsAcquireResult(GraphicsAcquireStatus.Timeout, default);
-            });
+            }
 
             if (result.HasImage)
                 return result;
@@ -200,8 +203,9 @@ internal sealed class OpenGLGraphicsSwapChain : OpenGLNativeDeviceObject, IGraph
                 throw new GraphicsValidationException("The present wait fence must belong to this OpenGL device.");
         }
 
-        _device.WithContext(gl =>
+        using (OpenGLContextScope context = _device.AcquireContext())
         {
+            GL gl = context.Gl;
             if (openGlFence is not null)
                 openGlFence.EnqueueGpuWait(gl, waitValue);
 
@@ -239,7 +243,7 @@ internal sealed class OpenGLGraphicsSwapChain : OpenGLNativeDeviceObject, IGraph
             slot.Acquired = false;
 
             _device.ContextProvider.SwapBuffers();
-        });
+        }
 
         return GraphicsPresentStatus.Presented;
     }
@@ -262,11 +266,11 @@ internal sealed class OpenGLGraphicsSwapChain : OpenGLNativeDeviceObject, IGraph
         // Resize invalidates every acquired image and waits for all previous presentation blits
         // before releasing their backing textures/framebuffers.
         OpenGLSwapChainImage[] oldImages = _images;
-        _device.WithContext(gl =>
+        using (OpenGLContextScope context = _device.AcquireContext())
         {
-            gl.Finish();
-            ReleaseImageNative(gl, oldImages);
-        });
+            context.Gl.Finish();
+            ReleaseImageNative(context.Gl, oldImages);
+        }
 
         for (int i = 0; i < oldImages.Length; i++)
             oldImages[i].Texture.Dispose();
@@ -309,8 +313,9 @@ internal sealed class OpenGLGraphicsSwapChain : OpenGLNativeDeviceObject, IGraph
                 uint framebuffer = 0;
                 try
                 {
-                    framebuffer = _device.WithContext(gl =>
+                    using (OpenGLContextScope context = _device.AcquireContext())
                     {
+                        GL gl = context.Gl;
                         _device.DirectStateAccess.CreateFramebuffers(1, out uint handle);
                         if (handle == 0)
                             throw new GraphicsException("OpenGL failed to create a swapchain framebuffer.");
@@ -331,14 +336,14 @@ internal sealed class OpenGLGraphicsSwapChain : OpenGLNativeDeviceObject, IGraph
                             if (status != ARB.FramebufferComplete)
                                 throw new GraphicsException($"Swapchain framebuffer is incomplete: {status}.");
 
-                            return handle;
+                            framebuffer = handle;
                         }
                         catch
                         {
                             gl.DeleteFramebuffer(handle);
                             throw;
                         }
-                    });
+                    }
 
                     images[i] = new OpenGLSwapChainImage
                     {
@@ -357,7 +362,8 @@ internal sealed class OpenGLGraphicsSwapChain : OpenGLNativeDeviceObject, IGraph
         }
         catch
         {
-            _device.WithContext(gl => ReleaseImageNative(gl, images));
+            using OpenGLContextScope context = _device.AcquireContext();
+            ReleaseImageNative(context.Gl, images);
             for (int i = 0; i < images.Length; i++)
                 images[i]?.Texture.Dispose();
             throw;

@@ -137,7 +137,8 @@ internal sealed class OpenGLESGraphicsSwapChain : OpenGLESNativeDeviceObject, IG
         _description = description;
         _surfaceRevision = snapshot.Revision;
         _images = CreateImages(description);
-        _device.WithContext(_ => _device.RegisterUnderContext(this));
+        using OpenGLESContextScope context = _device.AcquireContext();
+        _device.RegisterUnderContext(this);
     }
 
     public GraphicsSwapChainDescription Description
@@ -172,9 +173,13 @@ internal sealed class OpenGLESGraphicsSwapChain : OpenGLESNativeDeviceObject, IG
 
         while (true)
         {
-            (int index, bool anyUnacquired) result = _device.WithContext(gl =>
+            (int index, bool anyUnacquired) result;
+            using (OpenGLESContextScope context = _device.AcquireContext())
             {
-                bool anyUnacquired = false;
+                GL gl = context.Gl;
+                bool foundIndex = false;
+                int acquiredIndex = -1;
+                bool hasUnacquired = false;
                 for (int attempt = 0; attempt < _images.Length; attempt++)
                 {
                     uint index = (_nextImage + (uint)attempt) % (uint)_images.Length;
@@ -182,7 +187,7 @@ internal sealed class OpenGLESGraphicsSwapChain : OpenGLESNativeDeviceObject, IG
                     if (image.Acquired)
                         continue;
 
-                    anyUnacquired = true;
+                    hasUnacquired = true;
                     if (image.PresentSync != 0)
                     {
                         GLEnum status = gl.ClientWaitSync(image.PresentSync, (uint)0, 0);
@@ -196,11 +201,13 @@ internal sealed class OpenGLESGraphicsSwapChain : OpenGLESNativeDeviceObject, IG
 
                     image.Acquired = true;
                     _nextImage = (index + 1) % (uint)_images.Length;
-                    return ((int)index, true);
+                    acquiredIndex = (int)index;
+                    foundIndex = true;
+                    break;
                 }
 
-                return (-1, anyUnacquired);
-            });
+                result = (foundIndex ? acquiredIndex : -1, hasUnacquired);
+            }
 
             if (result.index >= 0)
             {
@@ -255,8 +262,9 @@ internal sealed class OpenGLESGraphicsSwapChain : OpenGLESNativeDeviceObject, IG
                 throw new GraphicsValidationException("The wait fence must belong to this GLES device.");
         }
 
-        _device.WithContext(gl =>
+        using (OpenGLESContextScope context = _device.AcquireContext())
         {
+            GL gl = context.Gl;
             fence?.EnqueueGpuWait(gl, waitValue);
             gl.BindFramebuffer(FramebufferTarget.ReadFramebuffer, slot.Framebuffer);
             gl.BindFramebuffer(FramebufferTarget.DrawFramebuffer, 0);
@@ -280,7 +288,7 @@ internal sealed class OpenGLESGraphicsSwapChain : OpenGLESNativeDeviceObject, IG
             gl.Flush();
             _device.ContextProvider.SwapBuffers();
             slot.Acquired = false;
-        });
+        }
 
         return GraphicsPresentStatus.Presented;
     }
@@ -306,15 +314,16 @@ internal sealed class OpenGLESGraphicsSwapChain : OpenGLESNativeDeviceObject, IG
         OpenGLESSwapChainImage[] old = _images;
         try
         {
-            _device.WithContext(gl =>
+            using (OpenGLESContextScope context = _device.AcquireContext())
             {
-                gl.Finish();
-                ReleaseImageNative(gl, old);
-            });
+                context.Gl.Finish();
+                ReleaseImageNative(context.Gl, old);
+            }
         }
         catch
         {
-            _device.WithContext(gl => ReleaseImageNative(gl, replacement));
+            using (OpenGLESContextScope context = _device.AcquireContext())
+                ReleaseImageNative(context.Gl, replacement);
             for (int i = 0; i < replacement.Length; i++)
                 replacement[i].Texture.Dispose();
             throw;
@@ -355,8 +364,9 @@ internal sealed class OpenGLESGraphicsSwapChain : OpenGLESNativeDeviceObject, IG
                 uint framebuffer = 0;
                 try
                 {
-                    framebuffer = _device.WithContext(gl =>
+                    using (OpenGLESContextScope context = _device.AcquireContext())
                     {
+                        GL gl = context.Gl;
                         uint handle = gl.GenFramebuffer();
                         if (handle == 0)
                             throw new GraphicsException("OpenGL ES failed to create a swapchain framebuffer.");
@@ -373,14 +383,14 @@ internal sealed class OpenGLESGraphicsSwapChain : OpenGLESNativeDeviceObject, IG
                             if (status != GLEnum.FramebufferComplete)
                                 throw new GraphicsException($"GLES swapchain framebuffer is incomplete: {status}.");
                             gl.BindFramebuffer(FramebufferTarget.Framebuffer, 0);
-                            return handle;
+                            framebuffer = handle;
                         }
                         catch
                         {
                             gl.DeleteFramebuffer(handle);
                             throw;
                         }
-                    });
+                    }
                     images[i] = new OpenGLESSwapChainImage { Texture = texture, Framebuffer = framebuffer };
                 }
                 catch
@@ -393,7 +403,8 @@ internal sealed class OpenGLESGraphicsSwapChain : OpenGLESNativeDeviceObject, IG
         }
         catch
         {
-            _device.WithContext(gl => ReleaseImageNative(gl, images));
+            using OpenGLESContextScope context = _device.AcquireContext();
+            ReleaseImageNative(context.Gl, images);
             for (int i = 0; i < images.Length; i++)
                 images[i]?.Texture.Dispose();
             throw;
