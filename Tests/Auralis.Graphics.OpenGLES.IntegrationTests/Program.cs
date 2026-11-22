@@ -838,6 +838,14 @@ internal static class Program
         GlfwOpenGLESContextProvider context)
     {
         OpenGLESGraphicsDevice gles = (OpenGLESGraphicsDevice)device;
+        gles.WithContext(outer =>
+        {
+            string? version = outer.GetStringS(StringName.Version);
+            gles.WithContext(inner => _ = inner.GetError());
+            if (string.IsNullOrWhiteSpace(version))
+                throw new GraphicsException("Nested GLES device WithContext lost the current context.");
+        });
+
         context.MakeCurrent();
         try
         {

@@ -90,6 +90,15 @@ internal static class Program
     private static void NestedContextProviderActivation(GlfwOpenGLHardwareSession session)
     {
         GlfwOpenGLContextProvider context = session.ContextProvider;
+        OpenGLGraphicsDevice device = (OpenGLGraphicsDevice)session.Device;
+        device.WithContext(outer =>
+        {
+            string? version = outer.GetStringS(Silk.NET.OpenGL.StringName.Version);
+            device.WithContext(inner => _ = inner.GetError());
+            if (string.IsNullOrWhiteSpace(version))
+                throw new GraphicsException("Nested desktop device WithContext lost the current context.");
+        });
+
         context.MakeCurrent();
         try
         {

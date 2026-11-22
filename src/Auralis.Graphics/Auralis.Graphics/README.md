@@ -14,6 +14,7 @@ The implementation uses the directories already declared by `Auralis.Graphics.cs
 - `Pipelines`: shader-stage, vertex-input, descriptor-layout, and pipeline descriptions.
 - `Presentation`: native target descriptors, presentation surfaces, image acquisition, and swapchains.
 - `Backends/OpenGL` contains the desktop OpenGL implementation and its Silk.NET context-provider integration.
+- `Backends/OpenGLES` contains the separate OpenGL ES 3.1+ implementation and its Silk.NET context-provider integration.
 - `Backends/Direct3D12`, `Backends/Vulkan`, and `Backends/Metal` remain reserved for future implementations.
 
 The OpenGL provider is included in this assembly but is never registered automatically. Applications opt into it by registering an `OpenGLGraphicsBackendProvider` explicitly.
