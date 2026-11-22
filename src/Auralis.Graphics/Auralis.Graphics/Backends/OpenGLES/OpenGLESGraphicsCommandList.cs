@@ -1418,12 +1418,10 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
                 if (textureView.Target is not (TextureTarget.Texture2D or TextureTarget.Texture2DMultisample))
                     throw new GraphicsValidationException("GLES framebuffer color views must be 2D or 2D-multisample.");
                 GLEnum attachment = (GLEnum)((uint)GLEnum.ColorAttachment0 + (uint)i);
-                gl.FramebufferTexture2D(
+                textureView.AttachToFramebuffer(
+                    gl,
                     FramebufferTarget.Framebuffer,
-                    attachment,
-                    textureView.Target,
-                    textureView.Handle,
-                    0);
+                    attachment);
                 drawBuffers[i] = attachment;
             }
 
@@ -1449,12 +1447,10 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
                 GLEnum attachment = format is GraphicsFormat.D24UNormS8UInt or GraphicsFormat.D32FloatS8UInt
                     ? GLEnum.DepthStencilAttachment
                     : GLEnum.DepthAttachment;
-                gl.FramebufferTexture2D(
+                depthView.AttachToFramebuffer(
+                    gl,
                     FramebufferTarget.Framebuffer,
-                    attachment,
-                    depthView.Target,
-                    depthView.Handle,
-                    0);
+                    attachment);
             }
 
             GLEnum status = gl.CheckFramebufferStatus(FramebufferTarget.Framebuffer);
