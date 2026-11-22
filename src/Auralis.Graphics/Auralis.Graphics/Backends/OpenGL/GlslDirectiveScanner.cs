@@ -61,7 +61,7 @@ internal static class GlslDirectiveScanner
                     lineEnd += lineStart;
 
                 ReadOnlySpan<char> sourceLine = sourceSpan[lineStart..lineEnd];
-                Span<char> normalizedLine;
+                scoped Span<char> normalizedLine;
                 if (sourceLine.Length <= stackLineBuffer.Length)
                 {
                     normalizedLine = stackLineBuffer[..sourceLine.Length];
