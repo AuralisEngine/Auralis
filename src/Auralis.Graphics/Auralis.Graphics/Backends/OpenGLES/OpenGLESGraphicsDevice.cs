@@ -936,16 +936,17 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
         ArgumentNullException.ThrowIfNull(gl);
         ArgumentException.ThrowIfNullOrWhiteSpace(operation);
 
-        List<GLEnum> errors = new(2);
+        GLEnum firstError = gl.GetError();
+        if (firstError == GLEnum.NoError)
+            return;
+
+        List<GLEnum> errors = new(2) { firstError };
         GLEnum error;
         while ((error = gl.GetError()) != GLEnum.NoError)
             errors.Add(error);
 
-        if (errors.Count != 0)
-        {
-            throw new GraphicsException(
-                $"OpenGL ES reported {string.Join(", ", errors)} after {operation}.");
-        }
+        throw new GraphicsException(
+            $"OpenGL ES reported {string.Join(", ", errors)} after {operation}.");
     }
 
     private static bool HasEntryPoints(IOpenGLESContextProvider contextProvider, params string[] entryPoints)

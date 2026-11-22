@@ -1699,7 +1699,7 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
         _ => throw new GraphicsValidationException($"Primitive topology {topology} is not supported by OpenGL ES.")
     };
 
-    internal static void ReleaseRetainedResources(IEnumerable<IOpenGLESNativeResource> resources)
+    internal static void ReleaseRetainedResources(HashSet<IOpenGLESNativeResource> resources)
     {
         ArgumentNullException.ThrowIfNull(resources);
         List<Exception>? failures = null;

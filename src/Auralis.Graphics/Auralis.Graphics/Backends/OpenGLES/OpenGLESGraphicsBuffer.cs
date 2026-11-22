@@ -273,6 +273,8 @@ internal sealed unsafe class OpenGLESMappedStagingMemoryManager : MemoryManager<
     {
         lock (_gate)
         {
+            if (_disposeRequested)
+                throw new ObjectDisposedException(nameof(OpenGLESMappedStagingMemoryManager));
             byte[] buffer = _buffer ??
                 throw new ObjectDisposedException(nameof(OpenGLESMappedStagingMemoryManager));
             return buffer.AsSpan(0, _length);
@@ -283,6 +285,8 @@ internal sealed unsafe class OpenGLESMappedStagingMemoryManager : MemoryManager<
     {
         lock (_gate)
         {
+            if (_disposeRequested)
+                throw new ObjectDisposedException(nameof(OpenGLESMappedStagingMemoryManager));
             byte[] buffer = _buffer ??
                 throw new ObjectDisposedException(nameof(OpenGLESMappedStagingMemoryManager));
             if ((uint)elementIndex > (uint)_length)
