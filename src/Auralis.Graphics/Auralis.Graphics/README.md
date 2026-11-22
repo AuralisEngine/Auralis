@@ -239,7 +239,7 @@ The ordinary graphics test suite includes hardware-independent tests for provide
 
 #### Latest CI validation record
 
-[Graphics validation run #463](https://github.com/mahdikshk/Auralis/actions/runs/45020432687) validates commit `56aec62a8780fe4a60a4a53c2e49b91806c1f0aa`. The workflow restored and built the hardware-independent graphics test project, the desktop OpenGL integration runner, the GLES integration runner, and the BenchmarkDotNet project. All four Release build steps succeeded with **0 warnings and 0 errors**. The hardware-independent test result was **242 passed, 0 failed, 0 skipped**. The two hardware runners and the benchmark suite were build-only: neither was executed by CI. No real driver/GPU validation or numerical benchmark result is claimed for this run.
+[Graphics validation run #464](https://github.com/mahdikshk/Auralis/actions/runs/45020550627) validates commit `67045ac89e45ebe4f5bd91bceff5cc70ce8c92a1`. The workflow restored and built the hardware-independent graphics test project, the desktop OpenGL integration runner, the GLES integration runner, and the BenchmarkDotNet project. All four Release build steps succeeded with **0 warnings and 0 errors**. The hardware-independent test result was **242 passed, 0 failed, 0 skipped**. The two hardware runners and the benchmark suite were build-only: neither was executed by CI. No real driver/GPU validation or numerical benchmark result is claimed for this run.
 
 #### Opt-in hardware integration tests
 
