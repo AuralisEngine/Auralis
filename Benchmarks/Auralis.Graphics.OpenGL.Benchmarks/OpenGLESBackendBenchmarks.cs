@@ -206,7 +206,10 @@ public class OpenGLESBackendBenchmarks
     {
         Console.WriteLine($"Graphics backend: {_device.Backend}");
         Console.WriteLine($"Graphics adapter: {_device.Adapter}");
-        Console.WriteLine($"Graphics device/API: {_device.Info}");
+        Console.WriteLine($"GPU vendor: {_device.Info.DriverName}");
+        Console.WriteLine($"Renderer: {_device.Info.Name}");
+        Console.WriteLine($"Graphics API version: {_device.Info.ApiVersion}");
+        Console.WriteLine($"Driver/device information: {_device.Info}");
         Console.WriteLine($".NET runtime: {RuntimeInformation.FrameworkDescription}");
         Console.WriteLine($"Runtime version: {Environment.Version}");
         Console.WriteLine($"Operating system: {RuntimeInformation.OSDescription}");
