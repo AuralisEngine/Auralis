@@ -104,6 +104,16 @@ internal sealed class OpenGLGraphicsRenderPipeline : OpenGLNativeDeviceObject, I
                 if (openGlShader.MeshShaderDialect == OpenGLMeshShaderDialect.None)
                     throw new GraphicsValidationException(
                         "Mesh/task shaders must declare a validated EXT or NV mesh-shader dialect.");
+                bool dialectStageSupported = stage == GraphicsShaderStage.Mesh
+                    ? device.MeshShaderCapabilities.SupportsMeshShader(openGlShader.MeshShaderDialect)
+                    : device.MeshShaderCapabilities.SupportsTaskShader(openGlShader.MeshShaderDialect);
+                if (!dialectStageSupported)
+                {
+                    GraphicsFeature requiredFeature = stage == GraphicsShaderStage.Mesh
+                        ? GraphicsFeature.MeshShaders
+                        : GraphicsFeature.TaskShaders;
+                    throw new GraphicsFeatureNotSupportedException(requiredFeature, requiredFeature);
+                }
                 if (meshShaderDialect != OpenGLMeshShaderDialect.None &&
                     meshShaderDialect != openGlShader.MeshShaderDialect)
                 {
