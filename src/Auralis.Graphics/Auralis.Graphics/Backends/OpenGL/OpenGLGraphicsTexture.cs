@@ -190,6 +190,9 @@ internal sealed class OpenGLGraphicsTextureView : OpenGLNativeDeviceObject, IGra
 
         try
         {
+            // glTextureView creates a distinct texture object that shares the parent's immutable
+            // data store. OpenGL keeps that store alive until every texture object referencing it,
+            // including this view, has been deleted; the original texture name need not be retained.
             textureViewApi.TextureView(
                 handle,
                 target,

@@ -885,14 +885,83 @@ public sealed class GraphicsReviewRegressionTests
         protected override void DisposeCore() { }
     }
 
-    private sealed class TestTextureView(
-        IGraphicsTexture texture,
-        GraphicsTextureViewDescription description) : GraphicsDeviceObject(texture.Device), IGraphicsTextureView
+    private sealed class TestTextureView : GraphicsDeviceObject, IGraphicsTextureView
     {
+        public TestTextureView(IGraphicsTexture texture, GraphicsTextureViewDescription description)
+            : this(texture.Device, texture, description)
+        {
+        }
+
+        public TestTextureView(
+            IGraphicsDevice device,
+            IGraphicsTexture texture,
+            GraphicsTextureViewDescription description) : base(device)
+        {
+            Texture = texture;
+            Description = description;
+        }
+
         public string? DebugName => null;
-        public IGraphicsTexture Texture { get; } = texture;
-        public GraphicsTextureViewDescription Description { get; } = description;
+        public IGraphicsTexture Texture { get; }
+        public GraphicsTextureViewDescription Description { get; }
         protected override void DisposeCore() { }
+    }
+
+    /// <summary>A hardware-independent texture whose backing storage is retained by each live view.</summary>
+    private sealed class RetainedTestTexture(
+        IGraphicsDevice device,
+        GraphicsTextureDescription description) : GraphicsDeviceObject(device), IGraphicsTexture
+    {
+        private readonly OpenGLESResourceReferenceState _references = new();
+        private int _nativeReleaseCount;
+
+        public string? DebugName => null;
+        public GraphicsTextureDescription Description { get; } = description;
+        internal int NativeReleaseCount => Volatile.Read(ref _nativeReleaseCount);
+
+        public IGraphicsTextureView CreateView(in GraphicsTextureViewDescription viewDescription)
+        {
+            ThrowIfDisposed();
+            GraphicsTextureViewDescription copy = viewDescription;
+            copy.Validate(Description);
+            return new RetainedTestTextureView(this, copy);
+        }
+
+        internal bool TryRetainView() => _references.TryRetain();
+
+        internal void ReleaseViewReference()
+        {
+            if (_references.ReleaseReference())
+                Interlocked.Increment(ref _nativeReleaseCount);
+        }
+
+        protected override void DisposeCore()
+        {
+            if (_references.CloseOwner())
+                Interlocked.Increment(ref _nativeReleaseCount);
+        }
+    }
+
+    private sealed class RetainedTestTextureView : GraphicsDeviceObject, IGraphicsTextureView
+    {
+        private readonly RetainedTestTexture _texture;
+
+        internal RetainedTestTextureView(
+            RetainedTestTexture texture,
+            GraphicsTextureViewDescription description) : base(texture.Device)
+        {
+            if (!texture.TryRetainView())
+                throw new ObjectDisposedException(nameof(RetainedTestTexture));
+
+            _texture = texture;
+            Description = description;
+        }
+
+        public string? DebugName => null;
+        public IGraphicsTexture Texture => _texture;
+        public GraphicsTextureViewDescription Description { get; }
+
+        protected override void DisposeCore() => _texture.ReleaseViewReference();
     }
 
     private sealed class TestPipelineLayout(IGraphicsDevice device)

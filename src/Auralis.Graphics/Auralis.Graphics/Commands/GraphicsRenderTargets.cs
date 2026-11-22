@@ -108,7 +108,9 @@ public static class GraphicsRenderTargetValidation
 
         IGraphicsTexture texture = view.Texture ??
             throw new ArgumentException("A texture view must reference a texture.", nameof(view));
-        if (texture.IsDisposed || texture.Device.IsDisposed)
+        // The texture owner may be disposed while this live view still owns a backing-resource
+        // reference. The view contract, not the owner's public disposal state, governs validity.
+        if (texture.Device.IsDisposed)
             throw new ObjectDisposedException(nameof(texture));
         if (!ReferenceEquals(texture.Device, device))
             throw new ArgumentException("Render attachment textures must belong to the command list's device.", nameof(view));

@@ -244,6 +244,9 @@ internal sealed class OpenGLESGraphicsTextureView : OpenGLESNativeDeviceObject, 
             viewFormat);
         OpenGLESTextureViewValidation.EnsureNativeSupport(isIdentity, textureViewApi is not null);
 
+        // Retain the parent's native object for the full view lifetime. This is essential for
+        // identity views, whose handle aliases the parent name, and also makes subresource-view
+        // storage lifetime explicit and consistent with the common API contract.
         if (!texture.TryRetain())
             throw new ObjectDisposedException(nameof(OpenGLESGraphicsTexture));
 
@@ -302,6 +305,8 @@ internal sealed class OpenGLESGraphicsTextureView : OpenGLESNativeDeviceObject, 
     public override void ReleaseNative(GL gl)
     {
         uint handle = Interlocked.Exchange(ref _handle, 0);
+        // Delete a separately-created subresource view before releasing its parent dependency.
+        // Identity views alias the parent handle and must never delete it themselves.
         if (_ownsNativeHandle && handle != 0)
             gl.DeleteTexture(handle);
 

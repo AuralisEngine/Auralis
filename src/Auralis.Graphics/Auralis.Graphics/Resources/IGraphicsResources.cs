@@ -35,8 +35,19 @@ public interface IGraphicsTexture : IGraphicsResource
     IGraphicsTextureView CreateView(in GraphicsTextureViewDescription description);
 }
 
+/// <summary>
+/// A view retains the backing texture resource independently of the original texture owner's public
+/// lifetime. Disposing <see cref="Texture"/> does not invalidate an already-created live view: its
+/// backing native storage remains alive until all dependent views and recorded/submitted command
+/// references have been released. Disposing this view releases its backing-resource reference.
+/// Disposing the graphics device invalidates the view and all device resources.
+</summary>
 public interface IGraphicsTextureView : IGraphicsResource
 {
+    /// <summary>
+    /// Gets the texture from which this view was created. The returned owner may be disposed while
+    /// this view remains live; its immutable description remains available for view validation.
+    /// </summary>
     IGraphicsTexture Texture { get; }
 
     GraphicsTextureViewDescription Description { get; }
