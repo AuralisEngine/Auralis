@@ -45,8 +45,8 @@ public sealed partial class OpenGLIntegrationTests : IClassFixture<OpenGLHardwar
     [Fact] public void ComputeDescriptorCategoriesSnapshotsAndResourceRetentionWork() => RunHardwareTest(ComputeDescriptorTypesAndSnapshots);
     [Fact] public void OffscreenGraphicsDrawAndTextureCopyReadbackWork() => RunHardwareTest(OffscreenGraphicsDrawAndTextureCopyReadback);
     [Fact] public void ConventionalDirectAndIndirectGraphicsDrawsWork() => RunHardwareTest(ConventionalDirectAndIndirectDraw);
-    [Fact] public void ExtMeshShaderDirectAndIndirectDrawsWork() => RunHardwareTest(MeshShaderDirectAndIndirectDraw);
-    [Fact] public void ExtTaskAndMeshShaderPipelineWorks() => RunHardwareTest(TaskAndMeshShaderDraw);
+    [Fact] public void MeshShaderDirectAndIndirectDrawsWork() => RunHardwareTest(MeshShaderDirectAndIndirectDraw);
+    [Fact] public void TaskAndMeshShaderPipelineWorks() => RunHardwareTest(TaskAndMeshShaderDraw);
     [Fact] public void NvMeshShaderDirectDrawWorks() => RunHardwareTest(NvMeshShaderDirectDraw);
     [Fact] public void NvTaskAndMeshShaderPipelineWorks() => RunHardwareTest(NvTaskAndMeshShaderDraw);
 
@@ -924,14 +924,26 @@ public sealed partial class OpenGLIntegrationTests : IClassFixture<OpenGLHardwar
     private static void MeshShaderDirectAndIndirectDraw(GlfwOpenGLHardwareSession session)
     {
         IGraphicsDevice device = session.Device;
-        if (((OpenGLGraphicsDevice)device).MeshShaderApi is null)
-            throw new HardwareTestSkippedException("The context does not advertise GL_EXT_mesh_shader.");
+        OpenGLGraphicsDevice nativeDevice = (OpenGLGraphicsDevice)device;
+        OpenGLMeshShaderDialect dialect =
+            nativeDevice.MeshShaderCapabilities.SupportsMeshShader(OpenGLMeshShaderDialect.Ext)
+                ? OpenGLMeshShaderDialect.Ext
+                : nativeDevice.MeshShaderCapabilities.SupportsMeshShader(OpenGLMeshShaderDialect.Nv)
+                    ? OpenGLMeshShaderDialect.Nv
+                    : OpenGLMeshShaderDialect.None;
+        if (dialect == OpenGLMeshShaderDialect.None)
+        {
+            throw new HardwareTestSkippedException(
+                "Neither GL_EXT_mesh_shader nor GL_NV_mesh_shader exposes usable mesh-shader limits on this context.");
+        }
 
         RequireFormat(device, GraphicsFormat.RGBA8UNorm, GraphicsFormatSupport.ColorAttachment);
         using IGraphicsTexture colorTarget = CreateColorTarget(device);
         using IGraphicsTextureView colorView = colorTarget.CreateView(new GraphicsTextureViewDescription(
             GraphicsFormat.Unknown, GraphicsTextureViewType.Texture2D, 0, 1, 0, 1));
-        using IGraphicsShader meshShader = CreateMeshShader(device);
+        using IGraphicsShader meshShader = dialect == OpenGLMeshShaderDialect.Ext
+            ? CreateMeshShader(device)
+            : CreateNvMeshShader(device);
         using IGraphicsShader fragmentShader = CreateShader(
             device,
             GraphicsShaderStage.Fragment,
@@ -949,9 +961,18 @@ public sealed partial class OpenGLIntegrationTests : IClassFixture<OpenGLHardwar
                 shaders,
                 GraphicsPrimitiveTopology.TriangleList,
                 colorFormats));
+
+        // EXT's indirect command is { groupCountX, groupCountY, groupCountZ }.
+        // NV's native command is { count, first }; first=0 matches the direct call below.
+        uint[] indirectValues = dialect == OpenGLMeshShaderDialect.Ext
+            ? [1u, 1u, 1u]
+            : [1u, 0u];
         using IGraphicsBuffer indirectArguments = CreateBuffer(
-            device, 3 * sizeof(uint), GraphicsBufferUsage.IndirectArguments, GraphicsMemoryAccess.CpuToGpu);
-        WriteUInts(indirectArguments, 1, 1, 1);
+            device,
+            (ulong)(indirectValues.Length * sizeof(uint)),
+            GraphicsBufferUsage.IndirectArguments,
+            GraphicsMemoryAccess.CpuToGpu);
+        WriteUInts(indirectArguments, indirectValues);
 
         IGraphicsCommandQueue queue = device.GetQueue(GraphicsQueueType.Graphics);
         using IGraphicsCommandList commandList = queue.CreateCommandList();
@@ -978,13 +999,17 @@ public sealed partial class OpenGLIntegrationTests : IClassFixture<OpenGLHardwar
     {
         IGraphicsDevice device = session.Device;
         OpenGLGraphicsDevice nativeDevice = (OpenGLGraphicsDevice)device;
-        if (nativeDevice.MeshShaderApi is null)
-            throw new HardwareTestSkippedException("The context does not advertise GL_EXT_mesh_shader.");
-        if (!device.Capabilities.Features.Supports(GraphicsFeature.TaskShaders))
+        if (!nativeDevice.MeshShaderCapabilities.SupportsTaskShader(OpenGLMeshShaderDialect.Ext))
+        {
+            if (nativeDevice.MeshShaderCapabilities.SupportsTaskShader(OpenGLMeshShaderDialect.Nv))
+            {
+                NvTaskAndMeshShaderDraw(session);
+                return;
+            }
+
             throw new HardwareTestSkippedException(
-                $"GL_EXT_mesh_shader is advertised, but task limits are unusable: " +
-                $"count=({nativeDevice.MaxTaskWorkGroupCountX}, {nativeDevice.MaxTaskWorkGroupCountY}, {nativeDevice.MaxTaskWorkGroupCountZ}), " +
-                $"total={nativeDevice.MaxTaskWorkGroupTotalCount}.");
+                "Neither GL_EXT_mesh_shader nor GL_NV_mesh_shader exposes usable task-shader limits on this context.");
+        }
 
         RequireFormat(device, GraphicsFormat.RGBA8UNorm, GraphicsFormatSupport.ColorAttachment);
         using IGraphicsTexture colorTarget = CreateColorTarget(device);
@@ -1223,6 +1248,27 @@ public sealed partial class OpenGLIntegrationTests : IClassFixture<OpenGLHardwar
                 gl_MeshVerticesEXT[1].gl_Position = vec4( 0.6, -0.5, 0.0, 1.0);
                 gl_MeshVerticesEXT[2].gl_Position = vec4( 0.0,  0.6, 0.0, 1.0);
                 gl_PrimitiveTriangleIndicesEXT[0] = uvec3(0, 1, 2);
+            }
+            """);
+
+    private static IGraphicsShader CreateNvMeshShader(IGraphicsDevice device) =>
+        CreateShader(
+            device,
+            GraphicsShaderStage.Mesh,
+            """
+            #version 450 core
+            #extension GL_NV_mesh_shader : require
+            layout(local_size_x = 1) in;
+            layout(triangles, max_vertices = 3, max_primitives = 1) out;
+            void main()
+            {
+                gl_PrimitiveCountNV = 1;
+                gl_MeshVerticesNV[0].gl_Position = vec4(-0.6, -0.5, 0.0, 1.0);
+                gl_MeshVerticesNV[1].gl_Position = vec4( 0.6, -0.5, 0.0, 1.0);
+                gl_MeshVerticesNV[2].gl_Position = vec4( 0.0,  0.6, 0.0, 1.0);
+                gl_PrimitiveIndicesNV[0] = 0;
+                gl_PrimitiveIndicesNV[1] = 1;
+                gl_PrimitiveIndicesNV[2] = 2;
             }
             """);
 
