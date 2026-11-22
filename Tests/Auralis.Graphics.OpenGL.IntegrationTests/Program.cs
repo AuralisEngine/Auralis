@@ -94,7 +94,7 @@ internal static class Program
         device.WithContext(outer =>
         {
             string? version = outer.GetStringS(Silk.NET.OpenGL.StringName.Version);
-            device.WithContext(inner => _ = inner.GetError());
+            device.WithContext(inner => { _ = inner.GetError(); });
             if (string.IsNullOrWhiteSpace(version))
                 throw new GraphicsException("Nested desktop device WithContext lost the current context.");
         });

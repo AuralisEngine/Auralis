@@ -841,7 +841,7 @@ internal static class Program
         gles.WithContext(outer =>
         {
             string? version = outer.GetStringS(StringName.Version);
-            gles.WithContext(inner => _ = inner.GetError());
+            gles.WithContext(inner => { _ = inner.GetError(); });
             if (string.IsNullOrWhiteSpace(version))
                 throw new GraphicsException("Nested GLES device WithContext lost the current context.");
         });
