@@ -11,6 +11,18 @@ internal readonly record struct OpenGLMeshShaderEntryPoints(
     bool ExtMultiDrawIndirect,
     bool NvDirect)
 {
+    internal static OpenGLMeshShaderEntryPoints Resolve(IOpenGLContextProvider contextProvider)
+    {
+        ArgumentNullException.ThrowIfNull(contextProvider);
+
+        // Avoid creating a bound Func delegate during device initialization.
+        return new OpenGLMeshShaderEntryPoints(
+            contextProvider.GetProcAddress("glDrawMeshTasksEXT") != 0,
+            contextProvider.GetProcAddress("glDrawMeshTasksIndirectEXT") != 0,
+            contextProvider.GetProcAddress("glMultiDrawMeshTasksIndirectEXT") != 0,
+            contextProvider.GetProcAddress("glDrawMeshTasksNV") != 0);
+    }
+
     internal static OpenGLMeshShaderEntryPoints Resolve(Func<string, nint> getProcAddress)
     {
         ArgumentNullException.ThrowIfNull(getProcAddress);
