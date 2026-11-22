@@ -68,12 +68,12 @@ public sealed unsafe class OpenGLApiComparisonBenchmarks
                 _nativeSource = _gl.GenBuffer();
                 _nativeDestination = _gl.GenBuffer();
 
-                _gl.BindBuffer(BufferTargetARB.CopyReadBuffer, _nativeSource);
+                _gl.BindBuffer(GLEnum.CopyReadBuffer, _nativeSource);
                 fixed (byte* source = _sourceBytes)
-                    _gl.BufferData(BufferTargetARB.CopyReadBuffer, (nuint)BufferSize, source, BufferUsageARB.StaticDraw);
+                    _gl.BufferData(GLEnum.CopyReadBuffer, (nuint)BufferSize, source, GLEnum.StaticDraw);
 
-                _gl.BindBuffer(BufferTargetARB.CopyWriteBuffer, _nativeDestination);
-                _gl.BufferData(BufferTargetARB.CopyWriteBuffer, (nuint)BufferSize, null, BufferUsageARB.StreamRead);
+                _gl.BindBuffer(GLEnum.CopyWriteBuffer, _nativeDestination);
+                _gl.BufferData(GLEnum.CopyWriteBuffer, (nuint)BufferSize, null, GLEnum.StreamRead);
 
                 ValidateNativeCopy();
             }
@@ -103,11 +103,11 @@ public sealed unsafe class OpenGLApiComparisonBenchmarks
         try
         {
             GL gl = Gl;
-            gl.BindBuffer(BufferTargetARB.CopyReadBuffer, _nativeSource);
-            gl.BindBuffer(BufferTargetARB.CopyWriteBuffer, _nativeDestination);
+            gl.BindBuffer(GLEnum.CopyReadBuffer, _nativeSource);
+            gl.BindBuffer(GLEnum.CopyWriteBuffer, _nativeDestination);
             gl.CopyBufferSubData(
-                BufferTargetARB.CopyReadBuffer,
-                BufferTargetARB.CopyWriteBuffer,
+                GLEnum.CopyReadBuffer,
+                GLEnum.CopyWriteBuffer,
                 0, 0, (nuint)BufferSize);
 
             nint sync = gl.FenceSync(SyncCondition.SyncGpuCommandsComplete, SyncBehaviorFlags.None);
@@ -121,7 +121,7 @@ public sealed unsafe class OpenGLApiComparisonBenchmarks
                 while (true)
                 {
                     GLEnum result = gl.ClientWaitSync(
-                        sync, SyncObjectMask.SyncFlushCommandsBit, 1_000_000_000);
+                        sync, (SyncObjectMask)1, 1_000_000_000);
                     if (result is GLEnum.AlreadySignaled or GLEnum.ConditionSatisfied)
                         return 1;
                     if (result == GLEnum.WaitFailed)
@@ -203,28 +203,28 @@ public sealed unsafe class OpenGLApiComparisonBenchmarks
     private void ValidateNativeCopy()
     {
         GL gl = Gl;
-        gl.BindBuffer(BufferTargetARB.CopyReadBuffer, _nativeSource);
-        gl.BindBuffer(BufferTargetARB.CopyWriteBuffer, _nativeDestination);
-        gl.CopyBufferSubData(BufferTargetARB.CopyReadBuffer, BufferTargetARB.CopyWriteBuffer, 0, 0, (nuint)BufferSize);
+        gl.BindBuffer(GLEnum.CopyReadBuffer, _nativeSource);
+        gl.BindBuffer(GLEnum.CopyWriteBuffer, _nativeDestination);
+        gl.CopyBufferSubData(GLEnum.CopyReadBuffer, GLEnum.CopyWriteBuffer, 0, 0, (nuint)BufferSize);
         nint sync = gl.FenceSync(SyncCondition.SyncGpuCommandsComplete, SyncBehaviorFlags.None);
         if (sync == 0) throw new InvalidOperationException("Native OpenGL validation could not create a fence.");
         try
         {
             gl.Flush();
-            GLEnum result = gl.ClientWaitSync(sync, SyncObjectMask.SyncFlushCommandsBit, FenceTimeoutNanoseconds);
+            GLEnum result = gl.ClientWaitSync(sync, (SyncObjectMask)1, FenceTimeoutNanoseconds);
             if (result is not (GLEnum.AlreadySignaled or GLEnum.ConditionSatisfied))
                 throw new InvalidOperationException($"Native OpenGL validation fence returned {result}.");
         }
         finally { gl.DeleteSync(sync); }
 
-        void* data = gl.MapBufferRange(BufferTargetARB.CopyWriteBuffer, 0, (nuint)BufferSize, MapBufferAccessMask.MapReadBit);
+        void* data = gl.MapBufferRange(GLEnum.CopyWriteBuffer, 0, (nuint)BufferSize, MapBufferAccessMask.ReadBit);
         if (data is null) throw new InvalidOperationException("Native OpenGL validation could not map the copy destination.");
         try
         {
             if (!new ReadOnlySpan<byte>(data, BufferSize).SequenceEqual(_sourceBytes))
                 throw new InvalidOperationException("Native OpenGL GPU buffer-copy validation failed.");
         }
-        finally { gl.UnmapBuffer(BufferTargetARB.CopyWriteBuffer); }
+        finally { gl.UnmapBuffer(GLEnum.CopyWriteBuffer); }
     }
 
     private void ValidateAuralisCopy()
