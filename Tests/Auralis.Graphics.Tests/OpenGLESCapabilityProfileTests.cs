@@ -299,6 +299,15 @@ public sealed class OpenGLESCapabilityProfileTests
     }
 
     [Fact]
+    public void GlesVersionDirectiveAcceptsCrLfLineEndings()
+    {
+        OpenGLESShaderCompatibility.ValidateSourceVersion(
+            new OpenGLESVersion(3, 2),
+            GraphicsShaderStage.Vertex,
+            "#version 320 es\r\nvoid main() {}");
+    }
+
+    [Fact]
     public void ExtensionNames_AreValidatedAndDuplicatesAreRejected()
     {
         Assert.Throws<ArgumentException>(() => OpenGLESCapabilityProfile.Create(

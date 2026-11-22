@@ -15,6 +15,7 @@ public sealed unsafe class GlfwOpenGLContextProvider : IOpenGLContextProvider
     private readonly Glfw _glfw;
     private readonly WindowHandle* _window;
     private readonly object _contextIdentity = new();
+    private readonly ThreadLocal<int> _currentDepth = new();
     private int _disposed;
 
     private GlfwOpenGLContextProvider(Glfw glfw, WindowHandle* window)
@@ -90,9 +91,19 @@ public sealed unsafe class GlfwOpenGLContextProvider : IOpenGLContextProvider
     public void MakeCurrent()
     {
         ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+        int depth = _currentDepth.Value;
+        if (depth != 0)
+        {
+            if (_glfw.GetCurrentContext() != _window)
+                throw new InvalidOperationException("The nested desktop GL context is no longer current.");
+            _currentDepth.Value = checked(depth + 1);
+            return;
+        }
+
         _glfw.MakeContextCurrent(_window);
         if (_glfw.GetCurrentContext() != _window)
             throw new InvalidOperationException("GLFW failed to activate the hardware-test context.");
+        _currentDepth.Value = 1;
     }
 
     public void ReleaseCurrent()
@@ -100,6 +111,16 @@ public sealed unsafe class GlfwOpenGLContextProvider : IOpenGLContextProvider
         if (Volatile.Read(ref _disposed) != 0)
             return;
 
+        int depth = _currentDepth.Value;
+        if (depth <= 0)
+            throw new InvalidOperationException("The desktop GL test context was released without a matching activation.");
+        if (depth > 1)
+        {
+            _currentDepth.Value = depth - 1;
+            return;
+        }
+
+        _currentDepth.Value = 0;
         _glfw.MakeContextCurrent(null);
     }
 
@@ -147,6 +168,7 @@ public sealed unsafe class GlfwOpenGLContextProvider : IOpenGLContextProvider
 
         try
         {
+            _currentDepth.Value = 0;
             if (_glfw.GetCurrentContext() == _window)
                 _glfw.MakeContextCurrent(null);
         }

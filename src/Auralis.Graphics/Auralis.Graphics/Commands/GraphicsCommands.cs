@@ -183,6 +183,11 @@ public interface IGraphicsCommandQueue : IGraphicsQueue
         ulong signalValue = 0);
 
     /// <summary>Enqueues a GPU-side wait. This does not block the calling CPU thread.</summary>
+    /// <remarks>
+    /// OpenGL and OpenGL ES can enqueue a wait only for a synchronization object that has already
+    /// been created by a submission or CPU signal. A signal that has not yet been submitted or
+    /// CPU-signaled is an unknown future object and cannot be waited on by a GL queue.
+    /// </remarks>
     void Wait(IGraphicsFence fence, ulong value);
 }
 

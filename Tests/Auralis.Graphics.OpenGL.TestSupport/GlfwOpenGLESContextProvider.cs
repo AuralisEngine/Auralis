@@ -13,6 +13,7 @@ public sealed unsafe class GlfwOpenGLESContextProvider : IOpenGLESContextProvide
     private readonly Glfw _glfw;
     private readonly WindowHandle* _window;
     private readonly object _identity = new();
+    private readonly ThreadLocal<int> _currentDepth = new();
     private int _disposed;
 
     private GlfwOpenGLESContextProvider(Glfw glfw, WindowHandle* window)
@@ -83,15 +84,37 @@ public sealed unsafe class GlfwOpenGLESContextProvider : IOpenGLESContextProvide
     public void MakeCurrent()
     {
         ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+        int depth = _currentDepth.Value;
+        if (depth != 0)
+        {
+            if (_glfw.GetCurrentContext() != _window)
+                throw new InvalidOperationException("The nested GLES context is no longer current.");
+            _currentDepth.Value = checked(depth + 1);
+            return;
+        }
+
         _glfw.MakeContextCurrent(_window);
         if (_glfw.GetCurrentContext() != _window)
             throw new InvalidOperationException("GLFW failed to activate the OpenGL ES test context.");
+        _currentDepth.Value = 1;
     }
 
     public void ReleaseCurrent()
     {
-        if (Volatile.Read(ref _disposed) == 0)
-            _glfw.MakeContextCurrent(null);
+        if (Volatile.Read(ref _disposed) != 0)
+            return;
+
+        int depth = _currentDepth.Value;
+        if (depth <= 0)
+            throw new InvalidOperationException("The GLES test context was released without a matching activation.");
+        if (depth > 1)
+        {
+            _currentDepth.Value = depth - 1;
+            return;
+        }
+
+        _currentDepth.Value = 0;
+        _glfw.MakeContextCurrent(null);
     }
 
     public nint GetProcAddress(string name)
@@ -111,6 +134,7 @@ public sealed unsafe class GlfwOpenGLESContextProvider : IOpenGLESContextProvide
 
         try
         {
+            _currentDepth.Value = 0;
             if (_glfw.GetCurrentContext() == _window)
                 _glfw.MakeContextCurrent(null);
         }

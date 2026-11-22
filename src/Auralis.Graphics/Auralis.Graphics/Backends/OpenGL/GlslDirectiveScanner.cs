@@ -60,21 +60,21 @@ internal static class GlslDirectiveScanner
                 else if (directive.SequenceEqual("elif") && stack.Count > 0)
                 {
                     ConditionalFrame frame = stack[^1];
-                    if (frame.ElseSeen || frame.AnyEarlierBranchMatched == true)
+                    if (frame.ParentState == BranchState.Inactive)
                     {
-                        state = frame.ParentState == BranchState.Inactive
-                            ? BranchState.Inactive
-                            : BranchState.Inactive;
+                        state = BranchState.Inactive;
                     }
-                    else if (frame.ParentState == BranchState.Inactive)
+                    else if (frame.ParentState == BranchState.Ambiguous)
+                    {
+                        state = BranchState.Ambiguous;
+                    }
+                    else if (frame.ElseSeen || frame.AnyEarlierBranchMatched == true)
                     {
                         state = BranchState.Inactive;
                     }
                     else if (frame.AnyEarlierBranchMatched is null)
                     {
-                        state = frame.ParentState == BranchState.Ambiguous
-                            ? BranchState.Ambiguous
-                            : BranchState.Ambiguous;
+                        state = BranchState.Ambiguous;
                     }
                     else
                     {
@@ -112,6 +112,8 @@ internal static class GlslDirectiveScanner
                         }
                         else if (state == BranchState.Active)
                         {
+                            if (found && !string.Equals(behaviorText, behavior, StringComparison.Ordinal))
+                                ambiguous = true;
                             found = true;
                             enabled = isEnabled;
                             behaviorText = behavior;

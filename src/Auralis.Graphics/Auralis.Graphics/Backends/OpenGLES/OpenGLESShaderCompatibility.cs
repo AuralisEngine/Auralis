@@ -62,7 +62,7 @@ internal static class OpenGLESShaderCompatibility
     {
         Match match = Regex.Match(
             source,
-            @"\A[ \t]*#[ \t]*version[ \t]+(?<version>100|300|310|320)[ \t]+es(?:[ \t]|$)",
+            @"\A[ \t]*#[ \t]*version[ \t]+(?<version>100|300|310|320)[ \t]+es(?:[ \t]*(?://.*)?\r?$)",
             RegexOptions.CultureInvariant);
 
         if (!match.Success)
