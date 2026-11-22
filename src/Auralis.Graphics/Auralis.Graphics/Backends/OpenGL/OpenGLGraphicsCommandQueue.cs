@@ -401,6 +401,7 @@ internal sealed class OpenGLGraphicsCommandQueue : IGraphicsCommandQueue
                             hasCompletedSubmission = true;
                         }
 
+                        break;
                     }
                 }
 

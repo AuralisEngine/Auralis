@@ -293,6 +293,7 @@ internal sealed class OpenGLESGraphicsCommandQueue : IGraphicsCommandQueue
                             hasCompletedSubmission = true;
                         }
 
+                        break;
                     }
                 }
 
