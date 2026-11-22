@@ -37,7 +37,7 @@ public sealed class OpenGLESResourceReferenceStateTests
         Assert.Equal(1, nativeDeleteCount);
         Assert.Equal(0, references.ReferenceCount);
         Assert.False(references.CloseOwner()); // Repeated owner disposal is harmless.
-        Assert.Throws<InvalidOperationException>(references.ReleaseReference);
+        Assert.Throws<InvalidOperationException>(() => references.ReleaseReference());
     }
 
     [Fact]
