@@ -131,6 +131,82 @@ public sealed class OpenGLESCapabilityProfileTests
     }
 
     [Fact]
+    public void TextureViewCapabilityRequiresAnAdvertisedExtensionAndResolvedEntryPoint()
+    {
+        OpenGLESCapabilityProfile noExtension = OpenGLESCapabilityProfile.Create(
+            new OpenGLESVersion(3, 1),
+            ReadOnlySpan<string>.Empty,
+            supportsPresentation: false,
+            textureViewEntryPointAvailable: true);
+        Assert.False(noExtension.Features.Supports(GraphicsFeature.TextureViews));
+
+        OpenGLESCapabilityProfile extWithoutEntryPoint = OpenGLESCapabilityProfile.Create(
+            new OpenGLESVersion(3, 1),
+            ["GL_EXT_texture_view"],
+            supportsPresentation: false,
+            textureViewEntryPointAvailable: false);
+        Assert.False(extWithoutEntryPoint.Features.Supports(GraphicsFeature.TextureViews));
+
+        OpenGLESCapabilityProfile extWithEntryPoint = OpenGLESCapabilityProfile.Create(
+            new OpenGLESVersion(3, 1),
+            ["GL_EXT_texture_view"],
+            supportsPresentation: false,
+            textureViewEntryPointAvailable: true);
+        Assert.True(extWithEntryPoint.Features.Supports(GraphicsFeature.TextureViews));
+
+        OpenGLESCapabilityProfile oesWithEntryPoint = OpenGLESCapabilityProfile.Create(
+            new OpenGLESVersion(3, 1),
+            ["GL_OES_texture_view"],
+            supportsPresentation: false,
+            textureViewEntryPointAvailable: true);
+        Assert.True(oesWithEntryPoint.Features.Supports(GraphicsFeature.TextureViews));
+    }
+
+    [Fact]
+    public void IdentityTextureViewDoesNotRequireTextureViewExtensionOrEntryPoint()
+    {
+        GraphicsTextureDescription texture = new(
+            GraphicsTextureDimension.Texture2D,
+            GraphicsFormat.RGBA8UNorm,
+            64, 64, 1, 1, 1, 1,
+            GraphicsTextureUsage.ColorAttachment);
+        GraphicsTextureViewDescription identityView = new(
+            GraphicsFormat.Unknown,
+            GraphicsTextureViewType.Texture2D,
+            0, 1, 0, 1);
+
+        bool isIdentity = OpenGLESTextureViewValidation.IsIdentity(
+            texture, TextureTarget.Texture2D, identityView, TextureTarget.Texture2D, GraphicsFormat.RGBA8UNorm);
+
+        Assert.True(isIdentity);
+        OpenGLESTextureViewValidation.EnsureNativeSupport(isIdentity, nativeEntryPointAvailable: false);
+    }
+
+    [Fact]
+    public void SubresourceTextureViewIsRejectedWithoutNativeTextureViewEntryPoint()
+    {
+        GraphicsTextureDescription texture = new(
+            GraphicsTextureDimension.Texture2D,
+            GraphicsFormat.RGBA8UNorm,
+            64, 64, 1, 2, 1, 1,
+            GraphicsTextureUsage.ColorAttachment);
+        GraphicsTextureViewDescription mipView = new(
+            GraphicsFormat.Unknown,
+            GraphicsTextureViewType.Texture2D,
+            1, 1, 0, 1);
+
+        bool isIdentity = OpenGLESTextureViewValidation.IsIdentity(
+            texture, TextureTarget.Texture2D, mipView, TextureTarget.Texture2D, GraphicsFormat.RGBA8UNorm);
+
+        Assert.False(isIdentity);
+        Assert.Throws<GraphicsValidationException>(() =>
+            OpenGLESTextureViewValidation.EnsureNativeSupport(
+                isIdentity, nativeEntryPointAvailable: false));
+        OpenGLESTextureViewValidation.EnsureNativeSupport(
+            isIdentity, nativeEntryPointAvailable: true);
+    }
+
+    [Fact]
     public void FormatCapabilitiesNeverAdvertiseAnUnmappedOrExtensionUnavailableFormat()
     {
         OpenGLESCapabilityProfile baselineProfile = OpenGLESCapabilityProfile.Create(

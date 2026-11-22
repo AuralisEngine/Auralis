@@ -236,17 +236,13 @@ internal sealed class OpenGLESGraphicsTextureView : OpenGLESNativeDeviceObject, 
         SizedInternalFormat nativeFormat = OpenGLESGraphicsTexture.GetInternalFormat(viewFormat);
         TextureTarget target = GetViewTarget(copy.ViewType);
 
-        bool isIdentity =
-            copy.BaseMipLevel == 0 &&
-            copy.MipLevelCount == texture.Description.MipLevels &&
-            copy.BaseArrayLayer == 0 &&
-            copy.ArrayLayerCount == texture.Description.ArrayLayers &&
-            target == texture.Target &&
-            viewFormat == texture.Description.Format;
-
-        if (!isIdentity && textureViewApi is null)
-            throw new GraphicsValidationException(
-                "Subresource or format-reinterpreted GLES texture views require GL_EXT_texture_view.");
+        bool isIdentity = OpenGLESTextureViewValidation.IsIdentity(
+            texture.Description,
+            texture.Target,
+            copy,
+            target,
+            viewFormat);
+        OpenGLESTextureViewValidation.EnsureNativeSupport(isIdentity, textureViewApi is not null);
 
         if (!texture.TryRetain())
             throw new ObjectDisposedException(nameof(OpenGLESGraphicsTexture));
@@ -310,5 +306,33 @@ internal sealed class OpenGLESGraphicsTextureView : OpenGLESNativeDeviceObject, 
             gl.DeleteTexture(handle);
 
         ((IOpenGLESNativeResource)_texture).ReleaseReference();
+    }
+}
+
+
+/// <summary>
+/// Pure texture-view classification and support validation shared by native creation and
+/// hardware-independent tests. Identity views alias the parent texture name and need no extension.
+/// </summary>
+internal static class OpenGLESTextureViewValidation
+{
+    internal static bool IsIdentity(
+        in GraphicsTextureDescription textureDescription,
+        TextureTarget textureTarget,
+        in GraphicsTextureViewDescription viewDescription,
+        TextureTarget viewTarget,
+        GraphicsFormat viewFormat) =>
+        viewDescription.BaseMipLevel == 0 &&
+        viewDescription.MipLevelCount == textureDescription.MipLevels &&
+        viewDescription.BaseArrayLayer == 0 &&
+        viewDescription.ArrayLayerCount == textureDescription.ArrayLayers &&
+        viewTarget == textureTarget &&
+        viewFormat == textureDescription.Format;
+
+    internal static void EnsureNativeSupport(bool isIdentity, bool nativeEntryPointAvailable)
+    {
+        if (!isIdentity && !nativeEntryPointAvailable)
+            throw new GraphicsValidationException(
+                "Subresource or format-reinterpreted GLES texture views require GL_EXT_texture_view or GL_OES_texture_view and the corresponding native entry point.");
     }
 }

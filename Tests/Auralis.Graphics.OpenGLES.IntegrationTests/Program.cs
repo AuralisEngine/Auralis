@@ -132,20 +132,31 @@ public sealed partial class OpenGLESIntegrationTests : IClassFixture<OpenGLESHar
         RunHardwareTest((device, context) => RunMultiDrawIndirect(device, context));
 
     [Fact]
-    public void SubresourceTextureViewRenderingAndParentRetentionWork() =>
+    public void IdentityTextureViewAndParentRetentionWork() =>
+        RunHardwareTest((device, context) => RunIdentityTextureViewRendering(device, context));
+
+    [Fact]
+    public void SubresourceTextureViewRenderingWorks() =>
         RunHardwareTest((device, context) =>
         {
             OpenGLESGraphicsDevice gles = (OpenGLESGraphicsDevice)device;
             bool hasExt = gles.Profile.HasExtension("GL_EXT_texture_view");
             bool hasOes = gles.Profile.HasExtension("GL_OES_texture_view");
+            string? entryPointName = gles.TextureViewEntryPointName;
             bool entryPointResolved = gles.TextureViewExt is not null;
-            Console.WriteLine($"GLES texture-view support: GL_EXT_texture_view advertised={hasExt}; GL_OES_texture_view advertised={hasOes}; native entry point='{gles.TextureViewEntryPointName ?? "unresolved"}', resolved={entryPointResolved}.");
+            bool entryPointMatchesExtension =
+                (hasExt && string.Equals(entryPointName, "glTextureViewEXT", StringComparison.Ordinal)) ||
+                (hasOes && string.Equals(entryPointName, "glTextureViewOES", StringComparison.Ordinal));
+            Console.WriteLine($"GLES texture-view support: GL_EXT_texture_view advertised={hasExt}; GL_OES_texture_view advertised={hasOes}; native entry point='{entryPointName ?? "unresolved"}', resolved={entryPointResolved}.");
             if (!hasExt && !hasOes)
                 Skip("The driver advertises neither GL_EXT_texture_view nor GL_OES_texture_view; subresource texture views are unsupported.");
             if (!entryPointResolved)
-                Skip("The driver advertises a texture-view extension, but the corresponding glTextureViewEXT/glTextureViewOES entry point did not resolve; the capability is correctly disabled.");
+                Skip("The driver advertises a texture-view extension, but neither corresponding glTextureViewEXT nor glTextureViewOES entry point resolved.");
+            if (!entryPointMatchesExtension)
+                throw new GraphicsException(
+                    $"Resolved texture-view entry point '{entryPointName}' does not correspond to an advertised GL_EXT_texture_view or GL_OES_texture_view extension.");
             if (!device.Capabilities.Features.Supports(GraphicsFeature.TextureViews))
-                throw new GraphicsException("A texture-view extension and native entry point are available, but GraphicsFeature.TextureViews was not exposed.");
+                throw new GraphicsException("A texture-view extension and its native entry point are available, but GraphicsFeature.TextureViews was not exposed.");
             RunTextureViewSubresourceRendering(device, context);
         });
 
@@ -186,6 +197,54 @@ public sealed partial class OpenGLESIntegrationTests : IClassFixture<OpenGLESHar
                 Skip("Multisample readback requires RGBA8 storage with two or more samples; only single-sample support is available.");
             RunMultisampleFramebuffer(device, context, sampleCount);
         });
+
+    private static void RunIdentityTextureViewRendering(
+        IGraphicsDevice device,
+        GlfwOpenGLESContextProvider context)
+    {
+        OpenGLESGraphicsDevice gles = (OpenGLESGraphicsDevice)device;
+        bool hasExt = gles.Profile.HasExtension("GL_EXT_texture_view");
+        bool hasOes = gles.Profile.HasExtension("GL_OES_texture_view");
+        Console.WriteLine(
+            $"GLES identity texture-view path: GL_EXT_texture_view advertised={hasExt}; GL_OES_texture_view advertised={hasOes}; feature advertised={device.Capabilities.Features.Supports(GraphicsFeature.TextureViews)}. Identity views must not depend on these extensions.");
+
+        if (!hasExt && !hasOes &&
+            device.Capabilities.Features.Supports(GraphicsFeature.TextureViews))
+            throw new GraphicsException(
+                "GraphicsFeature.TextureViews was advertised although neither texture-view extension is present.");
+
+        using IGraphicsTexture parent = device.CreateTexture(new GraphicsTextureDescription(
+            GraphicsTextureDimension.Texture2D,
+            GraphicsFormat.RGBA8UNorm,
+            64, 64, 1, 1, 1, 1,
+            GraphicsTextureUsage.ColorAttachment));
+        OpenGLESGraphicsTexture nativeParent = (OpenGLESGraphicsTexture)parent;
+        uint parentHandle = nativeParent.Handle;
+
+        using IGraphicsTextureView identityView = parent.CreateView(new GraphicsTextureViewDescription(
+            GraphicsFormat.Unknown,
+            GraphicsTextureViewType.Texture2D,
+            0, 1, 0, 1));
+        OpenGLESGraphicsTextureView nativeView = (OpenGLESGraphicsTextureView)identityView;
+        if (nativeView.Handle != parentHandle)
+            throw new InvalidOperationException(
+                $"An identity texture view allocated native handle {nativeView.Handle}; expected it to alias parent handle {parentHandle}.");
+
+        // Disposing the public texture owner must leave the parent native object alive through the view.
+        parent.Dispose();
+        if (nativeParent.Handle != parentHandle || nativeView.Handle != parentHandle)
+            throw new InvalidOperationException("The identity view did not keep its parent texture native handle alive.");
+
+        ClearTexture(device, identityView, 64, 64, new GraphicsClearColor(0, 1, 1, 1));
+        AssertPixelNear(ReadRgba8Pixel(device, context, identityView), 0, 255, 255, 255);
+
+        // Once the final view reference is disposed, the already-closed parent must be deleted.
+        identityView.Dispose();
+        Assert.Throws<ObjectDisposedException>(() => { _ = nativeView.Handle; });
+        Assert.Throws<ObjectDisposedException>(() => { _ = nativeParent.Handle; });
+        Console.WriteLine(
+            "Validated identity-view handle reuse without texture-view extensions, GPU-visible clear/readback, parent retention after owner disposal, and native release after the final view is disposed.");
+    }
 
     private static void RunTextureViewSubresourceRendering(
         IGraphicsDevice device,
