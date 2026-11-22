@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text.RegularExpressions;
+using Auralis.Graphics.Backends.OpenGL;
 using Auralis.Graphics.Abstractions;
 using Auralis.Graphics.Resources;
 using Silk.NET.OpenGLES;
@@ -61,7 +62,7 @@ internal static class OpenGLESShaderCompatibility
     {
         Match match = Regex.Match(
             source,
-            @"^\s*#\s*version\s+(?<version>100|300|310|320)\s+es\b",
+            @"\A[ \t]*#[ \t]*version[ \t]+(?<version>100|300|310|320)[ \t]+es(?:[ \t]|$)",
             RegexOptions.CultureInvariant);
 
         if (!match.Success)
@@ -87,13 +88,13 @@ internal static class OpenGLESShaderCompatibility
         {
             if (languageVersion < 310)
                 throw new GraphicsValidationException("GLES EXT mesh/task shaders require '#version 310 es' or newer.");
-            if (!Regex.IsMatch(
-                    source,
-                    @"^\s*#\s*extension\s+GL_EXT_mesh_shader\s*:\s*require\b",
-                    RegexOptions.Multiline | RegexOptions.CultureInvariant))
+            GlslDirectiveScanner.ExtensionResult extension =
+                GlslDirectiveScanner.FindExtension(source, "GL_EXT_mesh_shader");
+            if (extension.Ambiguous || !extension.Found || !extension.Enabled)
             {
                 throw new GraphicsValidationException(
-                    "GLES mesh/task shader source must enable GL_EXT_mesh_shader with '#extension GL_EXT_mesh_shader : require'.");
+                    "GLES mesh/task shader source must contain an active GL_EXT_mesh_shader directive using : require, : enable, or : warn. " +
+                    "Commented, disabled, or ambiguous conditional directives do not enable the extension.");
             }
         }
     }

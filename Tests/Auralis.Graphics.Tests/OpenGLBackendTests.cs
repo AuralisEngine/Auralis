@@ -202,6 +202,27 @@ public sealed class OpenGLBackendTests
     }
 
     [Fact]
+    public void MeshShaderExtensionScannerHonorsCommentsPreprocessorAndBehavior()
+    {
+        static OpenGLMeshShaderDialect Validate(string source) =>
+            OpenGLMeshShaderDialectValidation.ValidateGlslSource(
+                source, extAvailable: true, nvAvailable: true, GraphicsFeature.MeshShaders);
+
+        Assert.Equal(OpenGLMeshShaderDialect.Ext, Validate("#extension GL_EXT_mesh_shader : require\\nvoid main() {}"));
+        Assert.Equal(OpenGLMeshShaderDialect.Nv, Validate("#extension GL_NV_mesh_shader : require\\nvoid main() {}"));
+        Assert.Equal(OpenGLMeshShaderDialect.Ext, Validate("#extension GL_EXT_mesh_shader : enable\\nvoid main() {}"));
+        Assert.Equal(OpenGLMeshShaderDialect.Ext, Validate("#extension GL_EXT_mesh_shader : warn\\nvoid main() {}"));
+
+        Assert.Throws<GraphicsValidationException>(() => Validate("// #extension GL_EXT_mesh_shader : require\\nvoid main() {}"));
+        Assert.Throws<GraphicsValidationException>(() => Validate("/* #extension GL_EXT_mesh_shader : require */\\nvoid main() {}"));
+        Assert.Throws<GraphicsValidationException>(() => Validate("#if 0\\n#extension GL_EXT_mesh_shader : require\\n#endif"));
+        Assert.Throws<GraphicsValidationException>(() => Validate("#extension GL_EXT_mesh_shader : disable\\nvoid main() {}"));
+        Assert.Throws<GraphicsValidationException>(() => Validate("#if SOME_MACRO\\n#extension GL_EXT_mesh_shader : require\\n#endif"));
+        Assert.Throws<GraphicsValidationException>(() => Validate("#extension GL_EXT_mesh_shader : require\\n#extension GL_NV_mesh_shader : require"));
+        Assert.Throws<GraphicsValidationException>(() => Validate("void main() {}"));
+    }
+
+    [Fact]
     public void NvAndExtMeshShaderStageTokensShareTheOfficialNativeValues()
     {
         Assert.Equal((ShaderType)0x9559, OpenGLGraphicsShader.ToShaderType(GraphicsShaderStage.Mesh));

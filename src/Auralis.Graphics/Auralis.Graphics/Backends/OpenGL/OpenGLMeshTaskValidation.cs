@@ -71,12 +71,21 @@ internal static class OpenGLMeshShaderDialectValidation
         GraphicsFeature requiredFeature)
     {
         ArgumentNullException.ThrowIfNull(source);
-        bool requestsExt = HasExtensionDirective(source, "GL_EXT_mesh_shader");
-        bool requestsNv = HasExtensionDirective(source, "GL_NV_mesh_shader");
+        GlslDirectiveScanner.ExtensionResult ext =
+            GlslDirectiveScanner.FindExtension(source, "GL_EXT_mesh_shader");
+        GlslDirectiveScanner.ExtensionResult nv =
+            GlslDirectiveScanner.FindExtension(source, "GL_NV_mesh_shader");
+        if (ext.Ambiguous || nv.Ambiguous)
+            throw new GraphicsValidationException(
+                "Mesh-shader extension directives in non-literal preprocessor branches are ambiguous. " +
+                "Use an unconditional directive or a branch guarded by a literal #if 0/#if 1.");
+        bool requestsExt = ext.Found && ext.Enabled;
+        bool requestsNv = nv.Found && nv.Enabled;
         if (requestsExt == requestsNv)
         {
             throw new GraphicsValidationException(
-                "A GLSL mesh/task shader must enable exactly one of GL_EXT_mesh_shader or GL_NV_mesh_shader.");
+                "A GLSL mesh/task shader must enable exactly one of GL_EXT_mesh_shader or GL_NV_mesh_shader. " +
+                "The accepted enabled behaviors are : require, : enable, and : warn; : disable is not enabled.");
         }
 
         if (requestsExt)
@@ -93,29 +102,7 @@ internal static class OpenGLMeshShaderDialectValidation
 
     private static bool HasExtensionDirective(string source, string extension)
     {
-        const string Directive = "#extension";
-        int lineStart = 0;
-        while (lineStart < source.Length)
-        {
-            int lineEnd = source.IndexOf('\n', lineStart);
-            if (lineEnd < 0)
-                lineEnd = source.Length;
-
-            ReadOnlySpan<char> line = source.AsSpan(lineStart, lineEnd - lineStart).Trim();
-            if (line.StartsWith(Directive, StringComparison.Ordinal))
-            {
-                ReadOnlySpan<char> extensionText = line[Directive.Length..].TrimStart();
-                if (extensionText.StartsWith(extension, StringComparison.Ordinal))
-                {
-                    ReadOnlySpan<char> suffix = extensionText[extension.Length..];
-                    if (suffix.IsEmpty || char.IsWhiteSpace(suffix[0]))
-                        return true;
-                }
-            }
-
-            lineStart = lineEnd + 1;
-        }
-
-        return false;
+        GlslDirectiveScanner.ExtensionResult result = GlslDirectiveScanner.FindExtension(source, extension);
+        return result.Found && result.Enabled && !result.Ambiguous;
     }
 }
