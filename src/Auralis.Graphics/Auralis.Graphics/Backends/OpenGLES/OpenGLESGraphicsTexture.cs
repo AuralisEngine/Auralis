@@ -29,6 +29,51 @@ internal sealed class OpenGLESGraphicsTexture : OpenGLESNativeDeviceObject, IGra
 
     internal TextureTarget Target { get; }
 
+    /// <summary>
+    /// True when this view aliases one 2D mip or one 2D-array layer of its parent and is
+    /// implemented only through framebuffer attachment selection because native GLES
+    /// texture-view support is unavailable. Such a view cannot be sampled or bound as an image.
+    /// </summary>
+    internal bool IsFramebufferSubresourceAlias => _isFramebufferSubresourceAlias;
+
+    internal void AttachToFramebuffer(GL gl, FramebufferTarget framebufferTarget, GLEnum attachment)
+    {
+        ArgumentNullException.ThrowIfNull(gl);
+        uint handle = Handle;
+        if (!_isFramebufferSubresourceAlias)
+        {
+            gl.FramebufferTexture2D(framebufferTarget, attachment, Target, handle, 0);
+            return;
+        }
+
+        // GLES 3.x can select a mip of a 2D texture or a single layer of a 2D array
+        // directly when attaching the parent object to an FBO. This preserves true
+        // storage aliasing without pretending to create a sampleable GL texture view.
+        if (_texture.Target == TextureTarget.Texture2D)
+        {
+            gl.FramebufferTexture2D(
+                framebufferTarget,
+                attachment,
+                TextureTarget.Texture2D,
+                handle,
+                checked((int)Description.BaseMipLevel));
+        }
+        else if (_texture.Target == TextureTarget.Texture2DArray)
+        {
+            gl.FramebufferTextureLayer(
+                framebufferTarget,
+                attachment,
+                handle,
+                checked((int)Description.BaseMipLevel),
+                checked((int)Description.BaseArrayLayer));
+        }
+        else
+        {
+            throw new GraphicsValidationException(
+                $"Framebuffer-only GLES subresource aliases do not support parent target {_texture.Target}.");
+        }
+    }
+
     internal uint Handle
     {
         get
@@ -188,6 +233,7 @@ internal sealed class OpenGLESGraphicsTextureView : OpenGLESNativeDeviceObject, 
 {
     private readonly OpenGLESGraphicsTexture _texture;
     private readonly bool _ownsNativeHandle;
+    private readonly bool _isFramebufferSubresourceAlias;
     private uint _handle;
 
     private OpenGLESGraphicsTextureView(
@@ -196,13 +242,15 @@ internal sealed class OpenGLESGraphicsTextureView : OpenGLESNativeDeviceObject, 
         in GraphicsTextureViewDescription description,
         TextureTarget target,
         uint handle,
-        bool ownsNativeHandle) : base(device)
+        bool ownsNativeHandle,
+        bool isFramebufferSubresourceAlias) : base(device)
     {
         _texture = texture;
         Description = description;
         Target = target;
         _handle = handle;
         _ownsNativeHandle = ownsNativeHandle;
+        _isFramebufferSubresourceAlias = isFramebufferSubresourceAlias;
     }
 
     public IGraphicsTexture Texture => _texture;
@@ -242,11 +290,24 @@ internal sealed class OpenGLESGraphicsTextureView : OpenGLESNativeDeviceObject, 
             copy,
             target,
             viewFormat);
-        OpenGLESTextureViewValidation.EnsureNativeSupport(isIdentity, textureViewApi is not null);
+        bool isFramebufferSubresourceAlias = !isIdentity &&
+            textureViewApi is null &&
+            OpenGLESTextureViewValidation.CanUseFramebufferOnlyAlias(
+                texture.Description,
+                texture.Target,
+                copy,
+                target,
+                viewFormat);
+        if (!isIdentity && textureViewApi is null && !isFramebufferSubresourceAlias)
+        {
+            throw new GraphicsValidationException(
+                "This GLES subresource/format view requires GL_EXT_texture_view or GL_OES_texture_view. " +
+                "Without it, only same-format single-mip/single-layer 2D framebuffer attachment aliases are supported.");
+        }
 
-        // Retain the parent's native object for the full view lifetime. This is essential for
-        // identity views, whose handle aliases the parent name, and also makes subresource-view
-        // storage lifetime explicit and consistent with the common API contract.
+        // Retain the parent's native object for the full view lifetime. Identity views and
+        // framebuffer-only subresource aliases share the parent name; native extension views
+        // own a separate texture name but retain the same underlying storage dependency.
         if (!texture.TryRetain())
             throw new ObjectDisposedException(nameof(OpenGLESGraphicsTexture));
 
@@ -254,7 +315,7 @@ internal sealed class OpenGLESGraphicsTextureView : OpenGLESNativeDeviceObject, 
         bool ownsHandle = false;
         try
         {
-            if (!isIdentity)
+            if (!isIdentity && !isFramebufferSubresourceAlias)
             {
                 handle = gl.GenTexture();
                 if (handle == 0)
@@ -273,7 +334,13 @@ internal sealed class OpenGLESGraphicsTextureView : OpenGLESNativeDeviceObject, 
             }
 
             OpenGLESGraphicsTextureView view = new(
-                device, texture, copy, target, handle, ownsHandle);
+                device,
+                texture,
+                copy,
+                target,
+                handle,
+                ownsHandle,
+                isFramebufferSubresourceAlias);
             device.RegisterUnderContext(view);
             return view;
         }
@@ -333,6 +400,36 @@ internal static class OpenGLESTextureViewValidation
         viewDescription.ArrayLayerCount == textureDescription.ArrayLayers &&
         viewTarget == textureTarget &&
         viewFormat == textureDescription.Format;
+
+    /// <summary>
+    /// Whether a subresource can be exposed as a 2D framebuffer attachment without
+    /// glTextureView: one mip of a 2D texture, or one layer/mip of a 2D-array texture.
+    /// It must preserve the parent's format and storage; this is not a sampleable view.
+    /// </summary>
+    internal static bool CanUseFramebufferOnlyAlias(
+        in GraphicsTextureDescription textureDescription,
+        TextureTarget textureTarget,
+        in GraphicsTextureViewDescription viewDescription,
+        TextureTarget viewTarget,
+        GraphicsFormat viewFormat)
+    {
+        if (viewTarget != TextureTarget.Texture2D ||
+            viewFormat != textureDescription.Format ||
+            viewDescription.MipLevelCount != 1 ||
+            viewDescription.ArrayLayerCount != 1)
+        {
+            return false;
+        }
+
+        return textureTarget switch
+        {
+            TextureTarget.Texture2D =>
+                textureDescription.ArrayLayers == 1 &&
+                viewDescription.BaseArrayLayer == 0,
+            TextureTarget.Texture2DArray => true,
+            _ => false
+        };
+    }
 
     internal static void EnsureNativeSupport(bool isIdentity, bool nativeEntryPointAvailable)
     {
