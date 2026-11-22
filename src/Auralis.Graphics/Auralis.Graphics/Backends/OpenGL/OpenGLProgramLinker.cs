@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using Auralis.Graphics.Abstractions;
 using Auralis.Graphics.Pipelines;
 using Auralis.Graphics.Resources;
@@ -8,6 +9,9 @@ namespace Auralis.Graphics.Backends.OpenGL;
 /// <summary>Links backend-owned shader objects into a single OpenGL program.</summary>
 internal static class OpenGLProgramLinker
 {
+    internal static uint Link(GL gl, IGraphicsShader shader) =>
+        Link(gl, MemoryMarshal.CreateReadOnlySpan(ref shader, 1));
+
     internal static uint Link(GL gl, ReadOnlySpan<IGraphicsShader> shaders)
     {
         uint program = gl.CreateProgram();
