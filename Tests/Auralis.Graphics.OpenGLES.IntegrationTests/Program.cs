@@ -75,7 +75,8 @@ public sealed partial class OpenGLESIntegrationTests : IClassFixture<OpenGLESHar
     private static void CheckGlesErrors(IGraphicsDevice device, string operation)
     {
         OpenGLESGraphicsDevice gles = (OpenGLESGraphicsDevice)device;
-        gles.WithContext(gl => CheckNoGlesError(gl, operation));
+        using OpenGLESContextScope context = gles.AcquireContext();
+        CheckNoGlesError(context.Gl, operation);
     }
 
     private static void Skip(string reason) => throw SkipException.ForSkip(reason);
@@ -1021,13 +1022,14 @@ public sealed partial class OpenGLESIntegrationTests : IClassFixture<OpenGLESHar
         GlfwOpenGLESContextProvider context)
     {
         OpenGLESGraphicsDevice gles = (OpenGLESGraphicsDevice)device;
-        gles.WithContext(outer =>
+        using (OpenGLESContextScope outer = gles.AcquireContext())
         {
-            string? version = outer.GetStringS(StringName.Version);
-            gles.WithContext(inner => { _ = inner.GetError(); });
+            string? version = outer.Gl.GetStringS(StringName.Version);
+            using (OpenGLESContextScope inner = gles.AcquireContext())
+                _ = inner.Gl.GetError();
             if (string.IsNullOrWhiteSpace(version))
-                throw new GraphicsException("Nested GLES device WithContext lost the current context.");
-        });
+                throw new GraphicsException("Nested GLES device context scopes lost the current context.");
+        }
 
         context.MakeCurrent();
         try
@@ -1058,11 +1060,9 @@ public sealed partial class OpenGLESIntegrationTests : IClassFixture<OpenGLESHar
         {
             try
             {
-                gles.WithContext(_ =>
-                {
-                    gateEntered.Set();
-                    releaseGate.Wait();
-                });
+                using OpenGLESContextScope context = gles.AcquireContext();
+                gateEntered.Set();
+                releaseGate.Wait();
             }
             catch (Exception exception)
             {
@@ -1151,11 +1151,9 @@ public sealed partial class OpenGLESIntegrationTests : IClassFixture<OpenGLESHar
             {
                 try
                 {
-                    glesDevice.WithContext(_ =>
-                    {
-                        contextEntered.Set();
-                        releaseContext.Wait();
-                    });
+                    using OpenGLESContextScope context = glesDevice.AcquireContext();
+                    contextEntered.Set();
+                    releaseContext.Wait();
                 }
                 catch (Exception exception)
                 {
