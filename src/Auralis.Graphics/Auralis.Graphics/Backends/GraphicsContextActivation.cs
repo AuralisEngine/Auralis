@@ -55,7 +55,8 @@ internal static class GraphicsContextGate
 {
     internal static bool TryEnter(object gate, TimeSpan timeout, CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(gate);
+        if (gate is null)
+            throw new ArgumentNullException(nameof(gate));
         if (timeout < TimeSpan.Zero && timeout != Timeout.InfiniteTimeSpan)
             throw new ArgumentOutOfRangeException(nameof(timeout));
 
