@@ -161,9 +161,21 @@ public sealed partial class OpenGLESIntegrationTests : IClassFixture<OpenGLESHar
             }
             else
             {
-                Console.WriteLine(
-                    "The driver advertises neither GL_EXT_texture_view nor GL_OES_texture_view; native subresource texture views are unsupported. " +
-                    "The test will exercise the supported framebuffer-only parent-storage alias path for one same-format 2D mip or one 2D-array layer; these aliases cannot be sampled or bound as storage images.");
+                const string framebufferAliasNotice =
+                    "The test will exercise the supported framebuffer-only parent-storage alias path for one same-format 2D mip or one 2D-array layer; these aliases cannot be sampled or bound as storage images.";
+
+                if (!hasExt && !hasOes)
+                {
+                    Console.WriteLine(
+                        "The driver advertises neither GL_EXT_texture_view nor GL_OES_texture_view; native subresource texture views are unsupported. " +
+                        framebufferAliasNotice);
+                }
+                else
+                {
+                    Console.WriteLine(
+                        $"The driver advertises a texture-view extension, but its native entry point is unavailable ('{entryPointName ?? "unresolved"}'); " +
+                        framebufferAliasNotice);
+                }
             }
 
             RunTextureViewSubresourceRendering(device, context);
