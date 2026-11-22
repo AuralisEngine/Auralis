@@ -610,22 +610,64 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
     internal ArbComputeShader ComputeShaderApi => _computeShaderApi ??
         throw new GraphicsFeatureNotSupportedException(GraphicsFeature.ComputeShaders, GraphicsFeature.ComputeShaders);
 
-    internal T WithContext<T>(Func<GL, T> action)
+    internal OpenGLContextScope AcquireContext()
     {
-        ArgumentNullException.ThrowIfNull(action);
-        lock (_contextGate)
+        Monitor.Enter(_contextGate);
+        try
         {
             ObjectDisposedException.ThrowIf(IsDisposed, this);
             _contextActivation.Enter();
-            try
-            {
-                return action(_gl);
-            }
-            finally
-            {
-                _contextActivation.Exit();
-            }
+            return new OpenGLContextScope(this, _gl);
         }
+        catch
+        {
+            Monitor.Exit(_contextGate);
+            throw;
+        }
+    }
+
+    internal bool TryAcquireContext(
+        TimeSpan timeout,
+        CancellationToken cancellationToken,
+        out OpenGLContextScope context)
+    {
+        if (!GraphicsContextGate.TryEnter(_contextGate, timeout, cancellationToken))
+        {
+            context = default;
+            return false;
+        }
+
+        try
+        {
+            ObjectDisposedException.ThrowIf(IsDisposed, this);
+            _contextActivation.Enter();
+            context = new OpenGLContextScope(this, _gl);
+            return true;
+        }
+        catch
+        {
+            Monitor.Exit(_contextGate);
+            throw;
+        }
+    }
+
+    internal void ReleaseContext()
+    {
+        try
+        {
+            _contextActivation.Exit();
+        }
+        finally
+        {
+            Monitor.Exit(_contextGate);
+        }
+    }
+
+    internal T WithContext<T>(Func<GL, T> action)
+    {
+        ArgumentNullException.ThrowIfNull(action);
+        using OpenGLContextScope context = AcquireContext();
+        return action(context.Gl);
     }
 
     internal void WithContext(Action<GL> action)

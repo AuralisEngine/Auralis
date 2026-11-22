@@ -1112,22 +1112,64 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
         return new OpenGLESGraphicsPresentationSurface(this, target, snapshot);
     }
 
-    internal T WithContext<T>(Func<GL, T> action)
+    internal OpenGLESContextScope AcquireContext()
     {
-        ArgumentNullException.ThrowIfNull(action);
-        lock (_contextGate)
+        _contextGate.Enter();
+        try
         {
             ObjectDisposedException.ThrowIf(IsDisposed, this);
             _contextActivation.Enter();
-            try
-            {
-                return action(_gl);
-            }
-            finally
-            {
-                _contextActivation.Exit();
-            }
+            return new OpenGLESContextScope(this, _gl);
         }
+        catch
+        {
+            _contextGate.Exit();
+            throw;
+        }
+    }
+
+    internal bool TryAcquireContext(
+        TimeSpan timeout,
+        CancellationToken cancellationToken,
+        out OpenGLESContextScope context)
+    {
+        if (!GraphicsContextGate.TryEnter(_contextGate, timeout, cancellationToken))
+        {
+            context = default;
+            return false;
+        }
+
+        try
+        {
+            ObjectDisposedException.ThrowIf(IsDisposed, this);
+            _contextActivation.Enter();
+            context = new OpenGLESContextScope(this, _gl);
+            return true;
+        }
+        catch
+        {
+            _contextGate.Exit();
+            throw;
+        }
+    }
+
+    internal void ReleaseContext()
+    {
+        try
+        {
+            _contextActivation.Exit();
+        }
+        finally
+        {
+            _contextGate.Exit();
+        }
+    }
+
+    internal T WithContext<T>(Func<GL, T> action)
+    {
+        ArgumentNullException.ThrowIfNull(action);
+        using OpenGLESContextScope context = AcquireContext();
+        return action(context.Gl);
     }
 
     internal void WithContext(Action<GL> action)
