@@ -131,6 +131,10 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
     public GraphicsCommandListUsage Usage { get; }
     public GraphicsCommandListState State => _lifecycle.State;
 
+    // Internal-only hooks keep backend diagnostics and alternate-path coverage out of the public API.
+    internal bool ForceIndirectDrawFallbackForTesting { get; set; }
+    internal Action<GL, string>? ErrorCheckForTesting { get; set; }
+
     internal GraphicsCommandListLifecycle Lifecycle => _lifecycle;
     internal ReadOnlySpan<OpenGLESCmd> Commands => CollectionsMarshal.AsSpan(_commands);
     internal ReadOnlySpan<IGraphicsTextureView> RenderTargetViews => CollectionsMarshal.AsSpan(_renderTargetViews);
@@ -700,7 +704,7 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
         OpenGLESTextureCompatibility.ValidateCopy(
             source.Description,
             destination.Description,
-            _queue.GlesDevice.HasImageCopy);
+            _queue.GlesDevice.ShouldUseNativeImageCopy);
 
         _commands.Add(new OpenGLESCmd
         {
@@ -748,9 +752,16 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
         Span<int> stencilClearValue = stackalloc int[1];
         try
         {
+            Action<GL, string>? errorCheck = ErrorCheckForTesting;
+            if (errorCheck is not null)
+                errorCheck(gl, "before command execution");
+
             for (int i = 0; i < _commands.Count; i++)
             {
                 OpenGLESCmd command = _commands[i];
+                if (errorCheck is not null)
+                    errorCheck(gl, $"before command {i} ({command.Kind})");
+
                 switch (command.Kind)
                 {
                     case OpenGLESCmdKind.Barrier:
@@ -771,7 +782,7 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
                         break;
 
                     case OpenGLESCmdKind.CopyTexture:
-                        if (_queue.GlesDevice.HasImageCopy)
+                        if (_queue.GlesDevice.ShouldUseNativeImageCopy)
                         {
                             OpenGLESGraphicsTexture sourceTexture = (OpenGLESGraphicsTexture)command.Texture0!;
                             OpenGLESGraphicsTexture destinationTexture = (OpenGLESGraphicsTexture)command.Texture1!;
@@ -1038,18 +1049,23 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
                     }
 
                     case OpenGLESCmdKind.DrawIndirect:
+                    {
                         gl.BindBuffer(BufferTargetARB.DrawIndirectBuffer, ((OpenGLESGraphicsBuffer)command.Buffer0!).Handle);
+                        if (errorCheck is not null)
+                            errorCheck(gl, "glBindBuffer(GL_DRAW_INDIRECT_BUFFER) for glDrawArraysIndirect");
                         PrimitiveType indirectPrimitive = GetPrimitive((activeRenderPipeline ?? throw new GraphicsValidationException(
                             "A render pipeline must be bound before drawing.")).Description.Topology);
                         OpenGLESGraphicsDevice.MultiDrawArraysIndirectExtDelegate? multiDraw =
                             _queue.GlesDevice.MultiDrawArraysIndirectExt;
-                        if (command.DrawCount > 1 && multiDraw is not null)
+                        if (command.DrawCount > 1 && multiDraw is not null && !ForceIndirectDrawFallbackForTesting)
                         {
                             multiDraw(
                                 indirectPrimitive,
                                 (void*)checked((nint)command.Offset0),
-                                command.DrawCount,
-                                command.Stride);
+                                checked((int)command.DrawCount),
+                                checked((int)command.Stride));
+                            if (errorCheck is not null)
+                                errorCheck(gl, "glMultiDrawArraysIndirectEXT");
                         }
                         else
                         {
@@ -1058,14 +1074,24 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
                             {
                                 ulong argumentOffset = checked(command.Offset0 + checked((ulong)drawIndex * arrayStride));
                                 gl.DrawArraysIndirect(indirectPrimitive, (void*)checked((nint)argumentOffset));
+                                if (errorCheck is not null)
+                                    errorCheck(gl, $"glDrawArraysIndirect fallback command {drawIndex} at byte offset {argumentOffset}");
                             }
                         }
                         gl.BindBuffer(BufferTargetARB.DrawIndirectBuffer, 0);
+                        if (errorCheck is not null)
+                            errorCheck(gl, "glBindBuffer(GL_DRAW_INDIRECT_BUFFER, 0) after array indirect draw");
                         break;
+                    }
 
                     case OpenGLESCmdKind.DrawIndexedIndirect:
+                    {
                         gl.BindBuffer(BufferTargetARB.ElementArrayBuffer, ((OpenGLESGraphicsBuffer)command.Buffer1!).Handle);
+                        if (errorCheck is not null)
+                            errorCheck(gl, "glBindBuffer(GL_ELEMENT_ARRAY_BUFFER) for glDrawElementsIndirect");
                         gl.BindBuffer(BufferTargetARB.DrawIndirectBuffer, ((OpenGLESGraphicsBuffer)command.Buffer0!).Handle);
+                        if (errorCheck is not null)
+                            errorCheck(gl, "glBindBuffer(GL_DRAW_INDIRECT_BUFFER) for glDrawElementsIndirect");
                         PrimitiveType indexedIndirectPrimitive = GetPrimitive((activeRenderPipeline ?? throw new GraphicsValidationException(
                             "A render pipeline must be bound before drawing.")).Description.Topology);
                         DrawElementsType indexedType = command.IndexFormat == (uint)GraphicsIndexFormat.UInt16
@@ -1073,14 +1099,16 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
                             : DrawElementsType.UnsignedInt;
                         OpenGLESGraphicsDevice.MultiDrawElementsIndirectExtDelegate? indexedMultiDraw =
                             _queue.GlesDevice.MultiDrawElementsIndirectExt;
-                        if (command.DrawCount > 1 && indexedMultiDraw is not null)
+                        if (command.DrawCount > 1 && indexedMultiDraw is not null && !ForceIndirectDrawFallbackForTesting)
                         {
                             indexedMultiDraw(
                                 indexedIndirectPrimitive,
                                 indexedType,
                                 (void*)checked((nint)command.Offset0),
-                                command.DrawCount,
-                                command.Stride);
+                                checked((int)command.DrawCount),
+                                checked((int)command.Stride));
+                            if (errorCheck is not null)
+                                errorCheck(gl, "glMultiDrawElementsIndirectEXT");
                         }
                         else
                         {
@@ -1092,10 +1120,15 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
                                     indexedIndirectPrimitive,
                                     indexedType,
                                     (void*)checked((nint)argumentOffset));
+                                if (errorCheck is not null)
+                                    errorCheck(gl, $"glDrawElementsIndirect fallback command {drawIndex} at byte offset {argumentOffset}");
                             }
                         }
                         gl.BindBuffer(BufferTargetARB.DrawIndirectBuffer, 0);
+                        if (errorCheck is not null)
+                            errorCheck(gl, "glBindBuffer(GL_DRAW_INDIRECT_BUFFER, 0) after indexed indirect draw");
                         break;
+                    }
 
                     case OpenGLESCmdKind.DrawMeshTasks:
                         (_queue.GlesDevice.DrawMeshTasksExt ?? throw new GraphicsFeatureNotSupportedException(
@@ -1141,6 +1174,9 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
                         gl.BindBuffer(BufferTargetARB.DispatchIndirectBuffer, 0);
                         break;
                 }
+
+                if (errorCheck is not null)
+                    errorCheck(gl, $"after command {i} ({command.Kind})");
             }
         }
         finally
