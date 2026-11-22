@@ -180,13 +180,12 @@ public sealed class OpenGLESCapabilityProfileTests
             texture, TextureTarget.Texture2D, identityView, TextureTarget.Texture2D, GraphicsFormat.RGBA8UNorm);
 
         Assert.True(isIdentity);
-        OpenGLESTextureViewValidation.EnsureNativeSupport(isIdentity, nativeEntryPointAvailable: false);
     }
 
     [Fact]
-    public void SubresourceTextureViewIsRejectedWithoutNativeTextureViewEntryPoint()
+    public void FramebufferOnlySubresourceAliasesSupportOneMipAndOneArrayLayerWithoutNativeTextureViews()
     {
-        GraphicsTextureDescription texture = new(
+        GraphicsTextureDescription mipTexture = new(
             GraphicsTextureDimension.Texture2D,
             GraphicsFormat.RGBA8UNorm,
             64, 64, 1, 2, 1, 1,
@@ -196,15 +195,62 @@ public sealed class OpenGLESCapabilityProfileTests
             GraphicsTextureViewType.Texture2D,
             1, 1, 0, 1);
 
-        bool isIdentity = OpenGLESTextureViewValidation.IsIdentity(
-            texture, TextureTarget.Texture2D, mipView, TextureTarget.Texture2D, GraphicsFormat.RGBA8UNorm);
+        Assert.True(OpenGLESTextureViewValidation.CanUseFramebufferOnlyAlias(
+            mipTexture,
+            TextureTarget.Texture2D,
+            mipView,
+            TextureTarget.Texture2D,
+            GraphicsFormat.RGBA8UNorm));
 
-        Assert.False(isIdentity);
-        Assert.Throws<GraphicsValidationException>(() =>
-            OpenGLESTextureViewValidation.EnsureNativeSupport(
-                isIdentity, nativeEntryPointAvailable: false));
-        OpenGLESTextureViewValidation.EnsureNativeSupport(
-            isIdentity, nativeEntryPointAvailable: true);
+        GraphicsTextureDescription arrayTexture = new(
+            GraphicsTextureDimension.Texture2D,
+            GraphicsFormat.RGBA8UNorm,
+            64, 64, 1, 1, 2, 1,
+            GraphicsTextureUsage.ColorAttachment);
+        GraphicsTextureViewDescription arrayLayerView = new(
+            GraphicsFormat.Unknown,
+            GraphicsTextureViewType.Texture2D,
+            0, 1, 1, 1);
+
+        Assert.True(OpenGLESTextureViewValidation.CanUseFramebufferOnlyAlias(
+            arrayTexture,
+            TextureTarget.Texture2DArray,
+            arrayLayerView,
+            TextureTarget.Texture2D,
+            GraphicsFormat.RGBA8UNorm));
+    }
+
+    [Fact]
+    public void FramebufferOnlySubresourceAliasesRejectSamplingOrFormatReinterpretationShapes()
+    {
+        GraphicsTextureDescription texture = new(
+            GraphicsTextureDimension.Texture2D,
+            GraphicsFormat.RGBA8UNorm,
+            64, 64, 1, 2, 2, 1,
+            GraphicsTextureUsage.ColorAttachment);
+
+        GraphicsTextureViewDescription multipleMips = new(
+            GraphicsFormat.Unknown,
+            GraphicsTextureViewType.Texture2D,
+            0, 2, 1, 1);
+        GraphicsTextureViewDescription multipleLayers = new(
+            GraphicsFormat.Unknown,
+            GraphicsTextureViewType.Texture2D,
+            0, 1, 0, 2);
+        GraphicsTextureViewDescription reinterpretedFormat = new(
+            GraphicsFormat.RGBA8SNorm,
+            GraphicsTextureViewType.Texture2D,
+            0, 1, 0, 1);
+
+        Assert.False(OpenGLESTextureViewValidation.CanUseFramebufferOnlyAlias(
+            texture, TextureTarget.Texture2DArray, multipleMips,
+            TextureTarget.Texture2D, GraphicsFormat.RGBA8UNorm));
+        Assert.False(OpenGLESTextureViewValidation.CanUseFramebufferOnlyAlias(
+            texture, TextureTarget.Texture2DArray, multipleLayers,
+            TextureTarget.Texture2D, GraphicsFormat.RGBA8UNorm));
+        Assert.False(OpenGLESTextureViewValidation.CanUseFramebufferOnlyAlias(
+            texture, TextureTarget.Texture2DArray, reinterpretedFormat,
+            TextureTarget.Texture2D, GraphicsFormat.RGBA8SNorm));
     }
 
     [Fact]
