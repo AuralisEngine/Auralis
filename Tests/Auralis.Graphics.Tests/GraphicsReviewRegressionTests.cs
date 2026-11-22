@@ -41,100 +41,78 @@ public sealed class GraphicsReviewRegressionTests
     public void ContextGateAcquisitionTimesOutWhenAnotherThreadHoldsTheGate()
     {
         object gate = new();
-        using ManualResetEventSlim started = new();
-        using ManualResetEventSlim completed = new();
-        bool acquired = true;
-        Thread waiter = new(() =>
-        {
-            started.Set();
-            acquired = GraphicsContextGate.TryEnter(
-                gate, TimeSpan.FromMilliseconds(30), CancellationToken.None);
-            completed.Set();
-        });
-        long start = System.Diagnostics.Stopwatch.GetTimestamp();
+        AssertContextGateTimesOutWhileHeld(
+            action => { lock (gate) action(); },
+            () => GraphicsContextGate.TryEnter(
+                gate, TimeSpan.FromMilliseconds(30), CancellationToken.None),
+            () => Monitor.Exit(gate));
 
-        lock (gate)
-        {
-            waiter.Start();
-            Assert.True(started.Wait(TimeSpan.FromSeconds(1)));
-            Assert.True(completed.Wait(TimeSpan.FromSeconds(1)));
-            Assert.False(acquired);
-        }
-
-        Assert.True(waiter.Join(TimeSpan.FromSeconds(1)));
-        TimeSpan elapsed = System.Diagnostics.Stopwatch.GetElapsedTime(start);
-        Assert.InRange(elapsed.TotalMilliseconds, 20, 500);
+        Assert.True(GraphicsContextGate.TryEnter(gate, TimeSpan.Zero, CancellationToken.None));
+        Monitor.Exit(gate);
     }
 
     [Fact]
     public void ContextGateLockAcquisitionTimesOutWhenAnotherThreadHoldsTheGate()
     {
         Lock gate = new();
-        using ManualResetEventSlim started = new();
-        using ManualResetEventSlim completed = new();
-        bool acquired = true;
-        Thread waiter = new(() =>
-        {
-            started.Set();
-            acquired = GraphicsContextGate.TryEnter(
-                gate, TimeSpan.FromMilliseconds(30), CancellationToken.None);
-            if (acquired)
-                gate.Exit();
-            completed.Set();
-        });
-        long start = System.Diagnostics.Stopwatch.GetTimestamp();
+        AssertContextGateTimesOutWhileHeld(
+            action => { lock (gate) action(); },
+            () => GraphicsContextGate.TryEnter(
+                gate, TimeSpan.FromMilliseconds(30), CancellationToken.None),
+            gate.Exit);
 
-        lock (gate)
-        {
-            waiter.Start();
-            Assert.True(started.Wait(TimeSpan.FromSeconds(1)));
-            Assert.True(completed.Wait(TimeSpan.FromSeconds(1)));
-            Assert.False(acquired);
-        }
-
-        Assert.True(waiter.Join(TimeSpan.FromSeconds(1)));
-        TimeSpan elapsed = System.Diagnostics.Stopwatch.GetElapsedTime(start);
-        Assert.InRange(elapsed.TotalMilliseconds, 20, 500);
+        Assert.True(GraphicsContextGate.TryEnter(gate, TimeSpan.Zero, CancellationToken.None));
+        gate.Exit();
     }
 
     [Fact]
-    public void ContextGateLockAcquisitionHonorsCancellation()
+    public void ContextGateAcquisitionSucceedsWhenTheGateIsAvailableIncludingZeroTimeout()
     {
-        Lock gate = new();
-        using ManualResetEventSlim started = new();
-        using ManualResetEventSlim completed = new();
-        using CancellationTokenSource cancellation = new();
-        bool cancellationObserved = false;
-        Thread waiter = new(() =>
-        {
-            started.Set();
-            try
-            {
-                bool acquired = GraphicsContextGate.TryEnter(
-                    gate, Timeout.InfiniteTimeSpan, cancellation.Token);
-                if (acquired)
-                    gate.Exit();
-            }
-            catch (OperationCanceledException)
-            {
-                cancellationObserved = true;
-            }
-            finally
-            {
-                completed.Set();
-            }
-        });
+        object monitorGate = new();
+        Assert.True(GraphicsContextGate.TryEnter(monitorGate, TimeSpan.Zero, CancellationToken.None));
+        Monitor.Exit(monitorGate);
+        Assert.True(GraphicsContextGate.TryEnter(
+            monitorGate, TimeSpan.FromMilliseconds(100), CancellationToken.None));
+        Monitor.Exit(monitorGate);
 
-        lock (gate)
-        {
-            waiter.Start();
-            Assert.True(started.Wait(TimeSpan.FromSeconds(1)));
-            cancellation.Cancel();
-            Assert.True(completed.Wait(TimeSpan.FromSeconds(1)));
-        }
+        Lock lockGate = new();
+        Assert.True(GraphicsContextGate.TryEnter(lockGate, TimeSpan.Zero, CancellationToken.None));
+        lockGate.Exit();
+        Assert.True(GraphicsContextGate.TryEnter(
+            lockGate, TimeSpan.FromMilliseconds(100), CancellationToken.None));
+        lockGate.Exit();
+    }
 
-        Assert.True(waiter.Join(TimeSpan.FromSeconds(1)));
-        Assert.True(cancellationObserved);
+    [Fact]
+    public void ContextGateInfiniteAcquisitionHonorsCancellationForBothGateTypes()
+    {
+        object monitorGate = new();
+        AssertInfiniteContextGateAcquisitionCanBeCancelled(
+            action => { lock (monitorGate) action(); },
+            (timeout, token) => GraphicsContextGate.TryEnter(monitorGate, timeout, token),
+            () => Monitor.Exit(monitorGate));
+
+        Lock lockGate = new();
+        AssertInfiniteContextGateAcquisitionCanBeCancelled(
+            action => { lock (lockGate) action(); },
+            (timeout, token) => GraphicsContextGate.TryEnter(lockGate, timeout, token),
+            lockGate.Exit);
+    }
+
+    [Fact]
+    public void ContextGateAcquisitionSurvivesRepeatedContentionWithoutLeakingOwnership()
+    {
+        object monitorGate = new();
+        AssertRepeatedContextGateContention(
+            action => { lock (monitorGate) action(); },
+            timeout => GraphicsContextGate.TryEnter(monitorGate, timeout, CancellationToken.None),
+            () => Monitor.Exit(monitorGate));
+
+        Lock lockGate = new();
+        AssertRepeatedContextGateContention(
+            action => { lock (lockGate) action(); },
+            timeout => GraphicsContextGate.TryEnter(lockGate, timeout, CancellationToken.None),
+            lockGate.Exit);
     }
 
     [Theory]
@@ -954,6 +932,216 @@ public sealed class GraphicsReviewRegressionTests
         Assert.True(lifecycle.TryMarkCompleted());
         Assert.False(lifecycle.TryMarkCompleted());
         Assert.Equal(GraphicsCommandListState.Executable, lifecycle.State);
+    }
+
+    private static void AssertContextGateTimesOutWhileHeld(
+        Action<Action> holdGate,
+        Func<bool> tryEnter,
+        Action release)
+    {
+        TimeSpan watchdog = TimeSpan.FromSeconds(5);
+        using ManualResetEventSlim started = new();
+        using ManualResetEventSlim completed = new();
+
+        bool acquired = false;
+        TimeSpan acquisitionElapsed = default;
+        Exception? workerFailure = null;
+        Thread waiter = new(() =>
+        {
+            started.Set();
+            long operationStart = System.Diagnostics.Stopwatch.GetTimestamp();
+            try
+            {
+                acquired = tryEnter();
+            }
+            catch (Exception exception)
+            {
+                workerFailure = exception;
+            }
+            finally
+            {
+                // Time only the operation on the worker, not Thread.Start, event waits, or Join.
+                acquisitionElapsed = System.Diagnostics.Stopwatch.GetElapsedTime(operationStart);
+                if (acquired)
+                {
+                    try { release(); }
+                    catch (Exception exception) { workerFailure ??= exception; }
+                }
+
+                completed.Set();
+            }
+        });
+
+        bool waiterStarted = false;
+        bool completedWhileGateWasHeld = false;
+        try
+        {
+            holdGate(() =>
+            {
+                waiter.Start();
+                waiterStarted = true;
+                Assert.True(started.Wait(watchdog), "The lock-waiting thread did not start.");
+                completedWhileGateWasHeld = completed.Wait(watchdog);
+            });
+        }
+        finally
+        {
+            if (waiterStarted)
+                Assert.True(waiter.Join(watchdog), "The lock-waiting thread did not terminate.");
+        }
+
+        Assert.True(
+            completedWhileGateWasHeld,
+            "TryEnter must finish before the owning thread releases the gate.");
+        Assert.Null(workerFailure);
+        Assert.False(acquired, "TryEnter unexpectedly acquired a gate still owned by another thread.");
+        Assert.InRange(acquisitionElapsed.TotalMilliseconds, 20, 500);
+    }
+
+    private static void AssertInfiniteContextGateAcquisitionCanBeCancelled(
+        Action<Action> holdGate,
+        Func<TimeSpan, CancellationToken, bool> tryEnter,
+        Action release)
+    {
+        TimeSpan watchdog = TimeSpan.FromSeconds(5);
+        using ManualResetEventSlim started = new();
+        using ManualResetEventSlim completed = new();
+        using CancellationTokenSource cancellation = new();
+
+        bool acquired = false;
+        bool cancellationObserved = false;
+        Exception? workerFailure = null;
+        Thread waiter = new(() =>
+        {
+            started.Set();
+            try
+            {
+                acquired = tryEnter(Timeout.InfiniteTimeSpan, cancellation.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                cancellationObserved = true;
+            }
+            catch (Exception exception)
+            {
+                workerFailure = exception;
+            }
+            finally
+            {
+                if (acquired)
+                {
+                    try { release(); }
+                    catch (Exception exception) { workerFailure ??= exception; }
+                }
+
+                completed.Set();
+            }
+        });
+
+        bool waiterStarted = false;
+        bool completedWhileGateWasHeld = false;
+        try
+        {
+            holdGate(() =>
+            {
+                waiter.Start();
+                waiterStarted = true;
+                Assert.True(started.Wait(watchdog), "The cancellable lock-waiting thread did not start.");
+                cancellation.Cancel();
+                completedWhileGateWasHeld = completed.Wait(watchdog);
+            });
+        }
+        finally
+        {
+            if (waiterStarted)
+                Assert.True(waiter.Join(watchdog), "The cancelled lock-waiting thread did not terminate.");
+        }
+
+        Assert.True(
+            completedWhileGateWasHeld,
+            "Cancellation must interrupt an infinite wait while the gate remains owned.");
+        Assert.True(cancellationObserved);
+        Assert.False(acquired);
+        Assert.Null(workerFailure);
+
+        // Prove cancellation did not leave the gate owned by the worker.
+        Assert.True(tryEnter(TimeSpan.Zero, CancellationToken.None));
+        release();
+    }
+
+    private static void AssertRepeatedContextGateContention(
+        Action<Action> holdGate,
+        Func<TimeSpan, bool> tryEnter,
+        Action release)
+    {
+        const int attemptCount = 3;
+        TimeSpan watchdog = TimeSpan.FromSeconds(5);
+        using ManualResetEventSlim started = new();
+        using ManualResetEventSlim completed = new();
+
+        bool[] acquired = new bool[attemptCount];
+        TimeSpan[] elapsed = new TimeSpan[attemptCount];
+        Exception? workerFailure = null;
+        Thread waiter = new(() =>
+        {
+            started.Set();
+            try
+            {
+                for (int i = 0; i < attemptCount; i++)
+                {
+                    long operationStart = System.Diagnostics.Stopwatch.GetTimestamp();
+                    try
+                    {
+                        acquired[i] = tryEnter(TimeSpan.FromMilliseconds(20));
+                    }
+                    finally
+                    {
+                        elapsed[i] = System.Diagnostics.Stopwatch.GetElapsedTime(operationStart);
+                    }
+
+                    if (acquired[i])
+                    {
+                        release();
+                        break;
+                    }
+                }
+            }
+            catch (Exception exception)
+            {
+                workerFailure = exception;
+            }
+            finally
+            {
+                completed.Set();
+            }
+        });
+
+        bool waiterStarted = false;
+        bool completedWhileGateWasHeld = false;
+        try
+        {
+            holdGate(() =>
+            {
+                waiter.Start();
+                waiterStarted = true;
+                Assert.True(started.Wait(watchdog), "The contended lock-waiting thread did not start.");
+                completedWhileGateWasHeld = completed.Wait(watchdog);
+            });
+        }
+        finally
+        {
+            if (waiterStarted)
+                Assert.True(waiter.Join(watchdog), "The repeatedly contended thread did not terminate.");
+        }
+
+        Assert.True(completedWhileGateWasHeld);
+        Assert.Null(workerFailure);
+        Assert.All(acquired, wasAcquired => Assert.False(wasAcquired));
+        Assert.All(elapsed, duration => Assert.InRange(duration.TotalMilliseconds, 10, 500));
+
+        // The original owner has now released the gate; it must be immediately reusable.
+        Assert.True(tryEnter(TimeSpan.Zero));
+        release();
     }
 
     private static GraphicsDeviceFactoryTests.TestDevice CreateDevice(
