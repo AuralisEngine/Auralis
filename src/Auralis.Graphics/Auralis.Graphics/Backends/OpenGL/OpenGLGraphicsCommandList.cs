@@ -720,25 +720,26 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
         EnsureMeshPipeline();
         EnsureDrawReady();
         OpenGLGraphicsDevice device = (OpenGLGraphicsDevice)Device;
-        ValidateIndirectBuffer(arguments, offset, drawCount, ref stride, 12);
+        bool usesNvDialect = _recordedPipeline!.MeshShaderDialect == OpenGLMeshShaderDialect.Nv;
+        // EXT consumes three uint work-group dimensions. NV consumes its native
+        // two-uint { count, first } command structure.
+        ValidateIndirectBuffer(arguments, offset, drawCount, ref stride, usesNvDialect ? 2u * sizeof(uint) : 3u * sizeof(uint));
         if (drawCount == 0)
             return;
-        if (_recordedPipeline!.MeshShaderDialect == OpenGLMeshShaderDialect.Nv)
+
+        if (!usesNvDialect)
         {
-            throw new GraphicsValidationException(
-                "GL_NV_mesh_shader indirect commands use a two-field { count, first } layout, " +
-                "while the common Auralis command uses three-dimensional { groupCountX, groupCountY, groupCountZ } arguments.");
-        }
-        if (drawCount == 1 && !device.SupportsExtIndirectMeshTasks)
-        {
-            throw new GraphicsFeatureNotSupportedException(
-                GraphicsFeature.MeshShaders, GraphicsFeature.MeshShaders);
-        }
-        if (drawCount > 1 && !device.SupportsExtMultiDrawMeshTasksIndirect)
-        {
-            throw new GraphicsValidationException(
-                "This EXT mesh-shader context does not expose glMultiDrawMeshTasksIndirectEXT. " +
-                "Use single-indirect commands or a context with the native multi-draw entry point.");
+            if (drawCount == 1 && !device.SupportsExtIndirectMeshTasks)
+            {
+                throw new GraphicsFeatureNotSupportedException(
+                    GraphicsFeature.MeshShaders, GraphicsFeature.MeshShaders);
+            }
+            if (drawCount > 1 && !device.SupportsExtMultiDrawMeshTasksIndirect)
+            {
+                throw new GraphicsValidationException(
+                    "This EXT mesh-shader context does not expose glMultiDrawMeshTasksIndirectEXT. " +
+                    "Use single-indirect commands or a context with the native multi-draw entry point.");
+            }
         }
 
         _commands.Add(new OpenGLRecordedCommand
@@ -1191,31 +1192,58 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
                         }
                         break;
                     case OpenGLCommandKind.DrawMeshTasksIndirect:
-                        if (activePipeline is null || !activePipeline.IsMeshPipeline ||
-                            activePipeline.MeshShaderDialect != OpenGLMeshShaderDialect.Ext ||
-                            meshShaderApi is null)
+                        if (activePipeline is null || !activePipeline.IsMeshPipeline)
                             throw new GraphicsValidationException(
-                                "Indirect mesh-task drawing requires an EXT mesh-shader pipeline.");
-                        OpenGLGraphicsDevice device = (OpenGLGraphicsDevice)Device;
-                        if (command.DrawCount == 1 && !device.SupportsExtIndirectMeshTasks)
-                            throw new GraphicsException("glDrawMeshTasksIndirectEXT was not resolved for this OpenGL context.");
-                        if (command.DrawCount > 1 &&
-                            !device.SupportsExtMultiDrawMeshTasksIndirect)
-                            throw new GraphicsException(
-                                "glMultiDrawMeshTasksIndirectEXT was not resolved for this OpenGL context.");
+                                "Indirect mesh-task drawing requires an active mesh-shader pipeline.");
+
                         gl.BindBuffer(
                             BufferTargetARB.DrawIndirectBuffer,
                             ((OpenGLGraphicsBuffer)command.SourceBuffer!).Handle);
-                        if (command.DrawCount == 1)
+                        if (activePipeline.MeshShaderDialect == OpenGLMeshShaderDialect.Ext)
                         {
-                            meshShaderApi.DrawMeshTasksIndirect(checked((nint)command.BufferOffset));
+                            if (meshShaderApi is null)
+                                throw new GraphicsValidationException(
+                                    "Indirect mesh-task drawing requires an EXT mesh-shader API.");
+                            OpenGLGraphicsDevice device = (OpenGLGraphicsDevice)Device;
+                            if (command.DrawCount == 1 && !device.SupportsExtIndirectMeshTasks)
+                                throw new GraphicsException("glDrawMeshTasksIndirectEXT was not resolved for this OpenGL context.");
+                            if (command.DrawCount > 1 &&
+                                !device.SupportsExtMultiDrawMeshTasksIndirect)
+                                throw new GraphicsException(
+                                    "glMultiDrawMeshTasksIndirectEXT was not resolved for this OpenGL context.");
+
+                            if (command.DrawCount == 1)
+                            {
+                                meshShaderApi.DrawMeshTasksIndirect(checked((nint)command.BufferOffset));
+                            }
+                            else
+                            {
+                                meshShaderApi.MultiDrawMeshTasksIndirect(
+                                    checked((nint)command.BufferOffset),
+                                    command.DrawCount,
+                                    command.Stride);
+                            }
+                        }
+                        else if (activePipeline.MeshShaderDialect == OpenGLMeshShaderDialect.Nv)
+                        {
+                            NVMeshShader nvApi = nvMeshShaderApi ?? throw new GraphicsValidationException(
+                                "Indirect mesh-task drawing requires the NV mesh-shader API.");
+                            if (command.DrawCount == 1)
+                            {
+                                nvApi.DrawMeshTasksIndirect(checked((nint)command.BufferOffset));
+                            }
+                            else
+                            {
+                                nvApi.MultiDrawMeshTasksIndirect(
+                                    checked((nint)command.BufferOffset),
+                                    command.DrawCount,
+                                    command.Stride);
+                            }
                         }
                         else
                         {
-                            meshShaderApi.MultiDrawMeshTasksIndirect(
-                                checked((nint)command.BufferOffset),
-                                command.DrawCount,
-                                command.Stride);
+                            throw new GraphicsValidationException(
+                                "Indirect mesh-task drawing requires a validated EXT or NV shader dialect.");
                         }
                         break;
                     case OpenGLCommandKind.Dispatch:
