@@ -1140,9 +1140,9 @@ public sealed partial class OpenGLIntegrationTests : IClassFixture<OpenGLHardwar
         OpenGLGraphicsDevice nativeDevice = (OpenGLGraphicsDevice)device;
         if (nativeDevice.NvMeshShaderApi is null)
             throw new HardwareTestSkippedException($"The context does not advertise GL_NV_mesh_shader. Active adapter: {nativeDevice.Info.DriverName} / {nativeDevice.Info.Name} (GL {nativeDevice.Info.DriverVersion}); process: {Environment.ProcessPath}.");
-        if (!device.Capabilities.Features.Supports(GraphicsFeature.TaskShaders))
+        if (!nativeDevice.MeshShaderCapabilities.SupportsTaskShader(OpenGLMeshShaderDialect.Nv))
             throw new HardwareTestSkippedException(
-                $"GL_NV_mesh_shader is advertised, but NV mesh-task limit is unusable: {nativeDevice.MaxNvDrawMeshTasksCount}. Active adapter: {nativeDevice.Info.DriverName} / {nativeDevice.Info.Name} (GL {nativeDevice.Info.DriverVersion}); process: {Environment.ProcessPath}.");
+                $"GL_NV_mesh_shader is advertised, but its NV task/mesh dispatch limit is unusable: {nativeDevice.MaxNvDrawMeshTasksCount}. Active adapter: {nativeDevice.Info.DriverName} / {nativeDevice.Info.Name} (GL {nativeDevice.Info.DriverVersion}); process: {Environment.ProcessPath}.");
 
         using IGraphicsTexture colorTarget = CreateColorTarget(device);
         using IGraphicsTextureView colorView = colorTarget.CreateView(new GraphicsTextureViewDescription(
