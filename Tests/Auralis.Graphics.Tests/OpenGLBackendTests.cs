@@ -200,7 +200,9 @@ public sealed class OpenGLBackendTests
 
         Assert.True(directAndNvOnly.ExtDirect);
         Assert.False(directAndNvOnly.ExtIndirect);
-        Assert.False(directAndNvOnly.SupportsExtMeshShader(extensionPresent: true));
+        Assert.True(directAndNvOnly.SupportsExtMeshShader(extensionPresent: true));
+        Assert.False(directAndNvOnly.SupportsExtIndirectMeshTasks(extensionPresent: true));
+        Assert.True(directAndNvOnly.SupportsExtDirectMeshTasks(extensionPresent: true));
         Assert.True(directAndNvOnly.SupportsNvMeshShader(extensionPresent: true));
     }
 
