@@ -76,6 +76,7 @@ internal static class Program
             }
 
             RunTest("nested context-provider activation is balanced", "GLFW currentable GLES context", () => RunNestedContextActivation(device, context));
+            RunTest("fence timeout is bounded by context-gate contention", "unsignaled GLES fence and held device context", () => RunFenceWaitTimeoutUnderContextContention(device));
             RunTest("buffer copy, mapping, and fence", "OpenGL ES 3.1", () => RunBufferCopyAndFence(device));
             RunTest("compute dispatch and SSBO readback", "OpenGL ES 3.1", () => RunComputeDispatch(device));
             RunTest("descriptor types, recording snapshots, and GPU output", "OpenGL ES 3.1", () => RunComputeDescriptorTypesAndSnapshots(device, context));
@@ -862,6 +863,85 @@ internal static class Program
         Console.WriteLine("Validated nested GLES provider MakeCurrent/ReleaseCurrent reference counting.");
     }
 
+    private static void RunFenceWaitTimeoutUnderContextContention(IGraphicsDevice device)
+    {
+        OpenGLESGraphicsDevice gles = (OpenGLESGraphicsDevice)device;
+        using IGraphicsFence fence = device.CreateFence();
+        using ManualResetEventSlim gateEntered = new();
+        using ManualResetEventSlim releaseGate = new();
+        using ManualResetEventSlim waitCompleted = new();
+
+        Exception? holderFailure = null;
+        Thread holder = new(() =>
+        {
+            try
+            {
+                gles.WithContext(_ =>
+                {
+                    gateEntered.Set();
+                    releaseGate.Wait();
+                });
+            }
+            catch (Exception exception)
+            {
+                holderFailure = exception;
+                gateEntered.Set();
+            }
+        });
+
+        holder.Start();
+        if (!gateEntered.Wait(TimeSpan.FromSeconds(2)))
+        {
+            releaseGate.Set();
+            holder.Join();
+            throw new TimeoutException("The GLES context holder did not acquire the device gate.");
+        }
+        if (holderFailure is not null)
+        {
+            releaseGate.Set();
+            holder.Join();
+            throw new GraphicsException("The GLES context holder failed.", holderFailure);
+        }
+
+        bool waitResult = true;
+        Exception? waitFailure = null;
+        Thread waiter = new(() =>
+        {
+            try
+            {
+                waitResult = fence.Wait(1, TimeSpan.FromMilliseconds(50));
+            }
+            catch (Exception exception)
+            {
+                waitFailure = exception;
+            }
+            finally
+            {
+                waitCompleted.Set();
+            }
+        });
+
+        long start = System.Diagnostics.Stopwatch.GetTimestamp();
+        waiter.Start();
+        bool returnedBeforeGateRelease = waitCompleted.Wait(TimeSpan.FromMilliseconds(750));
+        TimeSpan elapsed = System.Diagnostics.Stopwatch.GetElapsedTime(start);
+
+        releaseGate.Set();
+        if (!holder.Join(TimeSpan.FromSeconds(2)) || !waiter.Join(TimeSpan.FromSeconds(2)))
+            throw new TimeoutException("A GLES context/fence contention test thread did not exit.");
+
+        if (!returnedBeforeGateRelease)
+            throw new InvalidOperationException("GLES fence.Wait remained blocked behind the context gate past its timeout.");
+        if (waitFailure is not null)
+            throw new GraphicsException("GLES fence.Wait failed during context-gate contention.", waitFailure);
+        if (waitResult)
+            throw new InvalidOperationException("An unsignaled GLES fence unexpectedly reported completion.");
+        if (elapsed > TimeSpan.FromMilliseconds(500))
+            throw new InvalidOperationException($"GLES fence.Wait exceeded its 50 ms timeout ({elapsed.TotalMilliseconds:F1} ms).");
+
+        Console.WriteLine("Validated bounded GLES fence timeout while another thread owns the device context gate.");
+    }
+
     private static void RunBufferCopyAndFence(IGraphicsDevice device)
     {
         const int size = 1024;
@@ -878,6 +958,67 @@ internal static class Program
         Span<byte> bytes = writeMapping.Span;
         for (int i = 0; i < bytes.Length; i++)
             bytes[i] = (byte)((i * 37 + 11) & 0xFF);
+        source.Unmap();
+
+        OpenGLESGraphicsDevice glesDevice = (OpenGLESGraphicsDevice)device;
+        using (ManualResetEventSlim contextEntered = new())
+        using (ManualResetEventSlim releaseContext = new())
+        {
+            Exception? contextFailure = null;
+            Thread contextOwner = new(() =>
+            {
+                try
+                {
+                    glesDevice.WithContext(_ =>
+                    {
+                        contextEntered.Set();
+                        releaseContext.Wait();
+                    });
+                }
+                catch (Exception exception)
+                {
+                    contextFailure = exception;
+                    contextEntered.Set();
+                }
+            });
+            contextOwner.Start();
+            if (!contextEntered.Wait(TimeSpan.FromSeconds(2)))
+            {
+                releaseContext.Set();
+                contextOwner.Join();
+                throw new TimeoutException("The GLES context gate holder did not enter.");
+            }
+            if (contextFailure is not null)
+            {
+                releaseContext.Set();
+                contextOwner.Join();
+                throw new GraphicsException("The GLES context gate holder failed.", contextFailure);
+            }
+
+            Memory<byte> writeWhileContextBusy = default;
+            Exception? mapFailure = null;
+            Thread mapper = new(() =>
+            {
+                try
+                {
+                    writeWhileContextBusy = source.Map(GraphicsMapMode.Write, 900, 16);
+                    writeWhileContextBusy.Span.Fill(0x6C);
+                }
+                catch (Exception exception)
+                {
+                    mapFailure = exception;
+                }
+            });
+            mapper.Start();
+            bool mappedWithoutWaitingForContext = mapper.Join(TimeSpan.FromMilliseconds(500));
+            releaseContext.Set();
+            if (!contextOwner.Join(TimeSpan.FromSeconds(2)) || !mapper.Join(TimeSpan.FromSeconds(2)))
+                throw new TimeoutException("The GLES Write-map/context-gate test thread did not exit.");
+            if (!mappedWithoutWaitingForContext)
+                throw new InvalidOperationException("GLES write-only Map attempted to acquire the busy device context gate.");
+            if (mapFailure is not null)
+                throw new GraphicsException("GLES write-only Map failed while the context gate was busy.", mapFailure);
+        }
         source.Unmap();
 
         Memory<byte> readWriteRange = source.Map(GraphicsMapMode.ReadWrite, 128, 128);
@@ -916,7 +1057,9 @@ internal static class Program
                 ? (byte)0xA5
                 : i is >= 512 and < 576
                     ? (byte)0x5A
-                    : (byte)((i * 37 + 11) & 0xFF);
+                    : i is >= 900 and < 916
+                        ? (byte)0x6C
+                        : (byte)((i * 37 + 11) & 0xFF);
             if (readback.Span[i] != expected)
                 throw new InvalidOperationException($"GLES buffer-copy mismatch at byte {i}.");
         }

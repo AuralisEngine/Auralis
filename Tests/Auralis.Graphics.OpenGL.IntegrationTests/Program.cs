@@ -52,6 +52,8 @@ internal static class Program
 
             Run("nested context-provider activation is balanced", session, NestedContextProviderActivation,
                 ref passed, ref skipped, ref failed);
+            Run("fence timeout is bounded by context-gate contention", session, FenceWaitTimeoutUnderContextContention,
+                ref passed, ref skipped, ref failed);
             Run("disposed signal fence rejection preserves executable command lists", session, DisposedSignalFenceIsRejectedBeforeSubmission,
                 ref passed, ref skipped, ref failed);
             Run("buffer copy after dispose-before-submit", session, CopyBufferAfterRecordDispose,
@@ -114,6 +116,85 @@ internal static class Program
             context.ReleaseCurrent();
         }
         Console.WriteLine("Validated nested desktop GL provider MakeCurrent/ReleaseCurrent reference counting.");
+    }
+
+    private static void FenceWaitTimeoutUnderContextContention(GlfwOpenGLHardwareSession session)
+    {
+        OpenGLGraphicsDevice device = (OpenGLGraphicsDevice)session.Device;
+        using IGraphicsFence fence = device.CreateFence();
+        using ManualResetEventSlim gateEntered = new();
+        using ManualResetEventSlim releaseGate = new();
+        using ManualResetEventSlim waitCompleted = new();
+
+        Exception? holderFailure = null;
+        Thread holder = new(() =>
+        {
+            try
+            {
+                device.WithContext(_ =>
+                {
+                    gateEntered.Set();
+                    releaseGate.Wait();
+                });
+            }
+            catch (Exception exception)
+            {
+                holderFailure = exception;
+                gateEntered.Set();
+            }
+        });
+
+        holder.Start();
+        if (!gateEntered.Wait(TimeSpan.FromSeconds(2)))
+        {
+            releaseGate.Set();
+            holder.Join();
+            throw new TimeoutException("The desktop context holder did not acquire the device gate.");
+        }
+        if (holderFailure is not null)
+        {
+            releaseGate.Set();
+            holder.Join();
+            throw new GraphicsException("The desktop context holder failed.", holderFailure);
+        }
+
+        bool waitResult = true;
+        Exception? waitFailure = null;
+        Thread waiter = new(() =>
+        {
+            try
+            {
+                waitResult = fence.Wait(1, TimeSpan.FromMilliseconds(50));
+            }
+            catch (Exception exception)
+            {
+                waitFailure = exception;
+            }
+            finally
+            {
+                waitCompleted.Set();
+            }
+        });
+
+        long start = System.Diagnostics.Stopwatch.GetTimestamp();
+        waiter.Start();
+        bool returnedBeforeGateRelease = waitCompleted.Wait(TimeSpan.FromMilliseconds(750));
+        TimeSpan elapsed = System.Diagnostics.Stopwatch.GetElapsedTime(start);
+
+        releaseGate.Set();
+        if (!holder.Join(TimeSpan.FromSeconds(2)) || !waiter.Join(TimeSpan.FromSeconds(2)))
+            throw new TimeoutException("A desktop context/fence contention test thread did not exit.");
+
+        if (!returnedBeforeGateRelease)
+            throw new InvalidOperationException("Desktop fence.Wait remained blocked behind the context gate past its timeout.");
+        if (waitFailure is not null)
+            throw new GraphicsException("Desktop fence.Wait failed during context-gate contention.", waitFailure);
+        if (waitResult)
+            throw new InvalidOperationException("An unsignaled desktop fence unexpectedly reported completion.");
+        if (elapsed > TimeSpan.FromMilliseconds(500))
+            throw new InvalidOperationException($"Desktop fence.Wait exceeded its 50 ms timeout ({elapsed.TotalMilliseconds:F1} ms).");
+
+        Console.WriteLine("Validated bounded desktop fence timeout while another thread owns the device context gate.");
     }
 
     private static void DisposedSignalFenceIsRejectedBeforeSubmission(GlfwOpenGLHardwareSession session)
