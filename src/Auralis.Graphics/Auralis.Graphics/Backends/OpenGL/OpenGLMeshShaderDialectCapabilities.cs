@@ -50,14 +50,15 @@ internal readonly record struct OpenGLMeshShaderDialectCapabilities(
 
         bool extMesh = OpenGLMeshTaskValidation.IsSupported(
             extApiAvailable, extMeshCountX, extMeshCountY, extMeshCountZ, extMeshTotalCount);
-        bool extTask = OpenGLMeshTaskValidation.IsSupported(
+        bool extTask = extMesh && OpenGLMeshTaskValidation.IsSupported(
             extApiAvailable, extTaskCountX, extTaskCountY, extTaskCountZ, extTaskTotalCount);
 
         // NV exposes a one-dimensional task/mesh dispatch count. Do not borrow EXT limits,
         // even when both extension names are advertised by the same context.
-        bool nv = OpenGLMeshTaskValidation.IsSupported(
+        bool nvMesh = OpenGLMeshTaskValidation.IsSupported(
             nvApiAvailable, nvDrawMeshTasksCount, 1, 1, nvDrawMeshTasksCount);
+        bool nvTask = nvMesh;
 
-        return new OpenGLMeshShaderDialectCapabilities(extMesh, extTask, nv, nv);
+        return new OpenGLMeshShaderDialectCapabilities(extMesh, extTask, nvMesh, nvTask);
     }
 }
