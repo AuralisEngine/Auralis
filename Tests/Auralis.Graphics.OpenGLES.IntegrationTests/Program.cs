@@ -162,7 +162,8 @@ public sealed partial class OpenGLESIntegrationTests : IClassFixture<OpenGLESHar
             else
             {
                 Console.WriteLine(
-                    "Native GLES texture views are unavailable; using framebuffer-only parent-storage aliases for one same-format 2D mip or one 2D-array layer. These aliases cannot be sampled or bound as storage images.");
+                    "The driver advertises neither GL_EXT_texture_view nor GL_OES_texture_view; native subresource texture views are unsupported. " +
+                    "The test will exercise the supported framebuffer-only parent-storage alias path for one same-format 2D mip or one 2D-array layer; these aliases cannot be sampled or bound as storage images.");
             }
 
             RunTextureViewSubresourceRendering(device, context);
