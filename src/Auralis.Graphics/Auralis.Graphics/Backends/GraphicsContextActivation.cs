@@ -66,7 +66,7 @@ internal static class GraphicsContextGate
 
         if (timeout == TimeSpan.Zero)
         {
-            if (!Monitor.TryEnter(gate, millisecondsTimeout: 0))
+            if (!Monitor.TryEnter(gate, 0))
                 return false;
 
             try
@@ -126,7 +126,7 @@ internal static class GraphicsContextGate
 
         if (timeout == TimeSpan.Zero)
         {
-            if (!gate.TryEnter(millisecondsTimeout: 0))
+            if (!gate.TryEnter(0))
                 return false;
 
             try
