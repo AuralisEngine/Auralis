@@ -585,13 +585,12 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
 
     private static bool HasEntryPoints(
         IOpenGLContextProvider contextProvider,
-        params string[] names)
-    {
-        for (int i = 0; i < names.Length; i++)
-            if (contextProvider.GetProcAddress(names[i]) == 0)
-                return false;
-        return true;
-    }
+        string first,
+        string second,
+        string third) =>
+        contextProvider.GetProcAddress(first) != 0 &&
+        contextProvider.GetProcAddress(second) != 0 &&
+        contextProvider.GetProcAddress(third) != 0;
 
     private static uint ToUInt(int value) => value > 0 ? (uint)value : 0;
 

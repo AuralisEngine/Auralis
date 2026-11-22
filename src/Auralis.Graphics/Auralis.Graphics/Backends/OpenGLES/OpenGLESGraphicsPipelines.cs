@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using Auralis.Graphics.Abstractions;
 using Auralis.Graphics.Devices;
 using Auralis.Graphics.Pipelines;
@@ -42,6 +43,12 @@ internal abstract class OpenGLESGraphicsPipeline : OpenGLESNativeDeviceObject, I
     protected virtual void ReleaseAdditionalNative(GL gl) { }
 
     protected override void DisposeCore() => ReleaseOwnerReference();
+
+    protected static uint LinkProgram(
+        OpenGLESGraphicsDevice device,
+        GL gl,
+        IGraphicsShader shader) =>
+        LinkProgram(device, gl, MemoryMarshal.CreateReadOnlySpan(ref shader, 1));
 
     protected static uint LinkProgram(
         OpenGLESGraphicsDevice device,
@@ -527,7 +534,7 @@ internal sealed class OpenGLESGraphicsComputePipeline : OpenGLESGraphicsPipeline
 
         using OpenGLESContextScope context = device.AcquireContext();
         GL gl = context.Gl;
-        uint program = LinkProgram(device, gl, [description.ComputeShader]);
+        uint program = LinkProgram(device, gl, description.ComputeShader);
         try
         {
             Span<int> localWorkGroupSize = stackalloc int[3];

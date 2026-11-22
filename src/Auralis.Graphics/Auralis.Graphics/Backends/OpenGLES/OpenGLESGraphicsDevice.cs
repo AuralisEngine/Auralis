@@ -20,6 +20,8 @@ namespace Auralis.Graphics.Backends.OpenGLES;
 /// </summary>
 internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
 {
+    private static readonly GraphicsFormat[] s_allFormats = Enum.GetValues<GraphicsFormat>();
+
     private static readonly GraphicsFormat[] s_multisampleFormats =
     [
         GraphicsFormat.R8UNorm,
@@ -498,7 +500,7 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
         uint maxColorDrawBuffers = ToUInt(gl.GetInteger(GLEnum.MaxDrawBuffers));
         ThrowIfGlesErrors(gl, "GLES core device-limit queries");
         GraphicsSampleCountFlags[] formatSampleCounts =
-            new GraphicsSampleCountFlags[Enum.GetValues<GraphicsFormat>().Length];
+            new GraphicsSampleCountFlags[s_allFormats.Length];
         Array.Fill(formatSampleCounts, GraphicsSampleCountFlags.One);
         if (profile.Version.IsAtLeast(3, 1))
         {
@@ -964,16 +966,27 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
             $"OpenGL ES reported {string.Join(", ", errors)} after {operation}.");
     }
 
-    private static bool HasEntryPoints(IOpenGLESContextProvider contextProvider, params string[] entryPoints)
-    {
-        for (int i = 0; i < entryPoints.Length; i++)
-        {
-            if (contextProvider.GetProcAddress(entryPoints[i]) == 0)
-                return false;
-        }
+    private static bool HasEntryPoints(
+        IOpenGLESContextProvider contextProvider,
+        string first,
+        string second,
+        string third) =>
+        contextProvider.GetProcAddress(first) != 0 &&
+        contextProvider.GetProcAddress(second) != 0 &&
+        contextProvider.GetProcAddress(third) != 0;
 
-        return true;
-    }
+    private static bool HasEntryPoints(
+        IOpenGLESContextProvider contextProvider,
+        string first,
+        string second,
+        string third,
+        string fourth,
+        string fifth) =>
+        contextProvider.GetProcAddress(first) != 0 &&
+        contextProvider.GetProcAddress(second) != 0 &&
+        contextProvider.GetProcAddress(third) != 0 &&
+        contextProvider.GetProcAddress(fourth) != 0 &&
+        contextProvider.GetProcAddress(fifth) != 0;
 
     private static uint ToUInt(int value) => value <= 0 ? 0u : (uint)value;
 
