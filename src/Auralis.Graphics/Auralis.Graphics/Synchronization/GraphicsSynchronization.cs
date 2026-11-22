@@ -441,6 +441,11 @@ public readonly record struct GraphicsResourceBarrier(
 /// </summary>
 public interface IGraphicsFence : IGraphicsDeviceObject
 {
+    /// <summary>Gets the greatest completed timeline value.</summary>
+    /// <remarks>
+    /// Reading this property may poll native synchronization and acquire or block behind the
+    /// backend's device context gate; it is not guaranteed to be a nonblocking cached read.
+    /// </remarks>
     ulong CompletedValue { get; }
 
     /// <summary>
@@ -450,5 +455,10 @@ public interface IGraphicsFence : IGraphicsDeviceObject
     /// </summary>
     void Signal(ulong value);
 
+    /// <summary>Waits on the CPU for a previously submitted or CPU-signaled timeline value.</summary>
+    /// <remarks>
+    /// OpenGL GPU-side queue waits require an existing synchronization object. A value that has not
+    /// yet been submitted or CPU-signaled cannot be waited on as a future signal by an OpenGL queue.
+    /// </remarks>
     bool Wait(ulong value, TimeSpan timeout, CancellationToken cancellationToken = default);
 }

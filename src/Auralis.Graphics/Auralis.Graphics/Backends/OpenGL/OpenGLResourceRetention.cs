@@ -40,7 +40,7 @@ internal sealed class OpenGLResourceRetention
 
     internal void ReleaseAll()
     {
-        Exception? failure = null;
+        List<Exception>? failures = null;
         while (_resources.Count != 0)
         {
             int index = _resources.Count - 1;
@@ -54,11 +54,13 @@ internal sealed class OpenGLResourceRetention
             }
             catch (Exception exception)
             {
-                failure ??= exception;
+                (failures ??= new List<Exception>(2)).Add(exception);
             }
         }
 
-        if (failure is not null)
-            ExceptionDispatchInfo.Capture(failure).Throw();
+        if (failures is not null)
+            throw new AggregateException(
+                "One or more retained OpenGL resources failed to release during command-list cleanup.",
+                failures);
     }
 }

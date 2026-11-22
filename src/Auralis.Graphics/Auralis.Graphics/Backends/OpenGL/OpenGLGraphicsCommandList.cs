@@ -624,6 +624,8 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
         EnsureDrawReady();
         ValidateVertexBindings();
         ValidateIndirectBuffer(arguments, offset, drawCount, ref stride, 16);
+        if (drawCount == 0)
+            return;
         if (drawCount > 1 && !Device.Capabilities.Features.Supports(GraphicsFeature.MultiDrawIndirect))
             throw new GraphicsFeatureNotSupportedException(GraphicsFeature.MultiDrawIndirect, GraphicsFeature.MultiDrawIndirect);
 
@@ -647,6 +649,8 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
             throw new GraphicsValidationException("An index buffer must be set before an indexed indirect draw.");
         GraphicsCommandValidation.ValidateIndexedIndirectIndexBufferOffset(_recordedIndexOffset);
         ValidateIndirectBuffer(arguments, offset, drawCount, ref stride, 20);
+        if (drawCount == 0)
+            return;
         if (drawCount > 1 && !Device.Capabilities.Features.Supports(GraphicsFeature.MultiDrawIndirect))
             throw new GraphicsFeatureNotSupportedException(GraphicsFeature.MultiDrawIndirect, GraphicsFeature.MultiDrawIndirect);
 
@@ -712,13 +716,15 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
         EnsureMeshPipeline();
         EnsureDrawReady();
         OpenGLGraphicsDevice device = (OpenGLGraphicsDevice)Device;
+        ValidateIndirectBuffer(arguments, offset, drawCount, ref stride, 12);
+        if (drawCount == 0)
+            return;
         if (_recordedPipeline!.MeshShaderDialect == OpenGLMeshShaderDialect.Nv)
         {
             throw new GraphicsValidationException(
                 "GL_NV_mesh_shader indirect commands use a two-field { count, first } layout, " +
                 "while the common Auralis command uses three-dimensional { groupCountX, groupCountY, groupCountZ } arguments.");
         }
-        ValidateIndirectBuffer(arguments, offset, drawCount, ref stride, 12);
 
         _commands.Add(new OpenGLRecordedCommand
         {

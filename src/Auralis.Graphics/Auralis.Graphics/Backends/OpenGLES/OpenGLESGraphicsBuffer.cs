@@ -80,6 +80,16 @@ internal sealed unsafe class OpenGLESGraphicsBuffer : OpenGLESNativeDeviceObject
         }
     }
 
+    /// <summary>
+    /// Maps a range through managed staging memory. Read and ReadWrite modes snapshot the GPU buffer
+    /// during Map; Write and ReadWrite upload the entire mapped range through BufferSubData during Unmap.
+    /// OpenGL ES persistent/native buffer mapping is not used.
+    /// </summary>
+    /// <remarks>
+    /// Before consuming GPU-produced results, callers must order and complete the producing work,
+    /// such as by waiting for its submission fence. A read mapping is a snapshot, not a live view.
+    /// Write-only mapping performs no GL calls and does not acquire the device context.
+    /// </remarks>
     public Memory<byte> Map(GraphicsMapMode mode, ulong offset = 0, ulong size = ulong.MaxValue)
     {
         ThrowIfDisposed();
@@ -104,6 +114,22 @@ internal sealed unsafe class OpenGLESGraphicsBuffer : OpenGLESNativeDeviceObject
             size > Description.SizeInBytes - offset || size > int.MaxValue ||
             offset > (ulong)nint.MaxValue)
             throw new ArgumentOutOfRangeException(nameof(size), "The mapped range is empty or outside the buffer.");
+
+        if (mode == GraphicsMapMode.Write)
+        {
+            lock (_mapGate)
+            {
+                ThrowIfDisposed();
+                if (_mapped is not null)
+                    throw new InvalidOperationException("The buffer is already mapped.");
+
+                OpenGLESMappedStagingMemoryManager manager = new((int)size);
+                _mapped = manager;
+                _mappedOffset = offset;
+                _mappedMode = mode;
+                return manager.Memory;
+            }
+        }
 
         return _device.WithContext(gl =>
         {
@@ -147,6 +173,10 @@ internal sealed unsafe class OpenGLESGraphicsBuffer : OpenGLESNativeDeviceObject
         });
     }
 
+    /// <summary>
+    /// Ends the staging map and invalidates previously returned memory views. Write and ReadWrite
+    /// mappings upload the complete mapped range, including any bytes the caller did not modify.
+    /// </summary>
     public void Unmap()
     {
         ThrowIfDisposed();

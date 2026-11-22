@@ -524,6 +524,8 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
         EnsureRecording();
         EnsureGraphicsReady();
         ValidateIndirect(arguments, offset, drawCount, 16, stride);
+        if (drawCount == 0)
+            return;
         _commands.Add(new OpenGLESCmd
         {
             Kind = OpenGLESCmdKind.DrawIndirect,
@@ -542,6 +544,8 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
             throw new GraphicsValidationException("Set an index buffer before issuing indexed indirect drawing.");
         GraphicsCommandValidation.ValidateIndexedIndirectIndexBufferOffset(_indexOffset);
         ValidateIndirect(arguments, offset, drawCount, 20, stride);
+        if (drawCount == 0)
+            return;
         _commands.Add(new OpenGLESCmd
         {
             Kind = OpenGLESCmdKind.DrawIndexedIndirect,
@@ -584,6 +588,8 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
         EnsureRecording();
         _ = EnsureMeshPipeline();
         ValidateIndirect(arguments, offset, drawCount, 12, stride);
+        if (drawCount == 0)
+            return;
 
         _commands.Add(new OpenGLESCmd
         {
@@ -855,6 +861,9 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
                         gl.DeleteFramebuffer(readFramebuffer);
                         gl.DeleteFramebuffer(drawFramebuffer);
                         readFramebuffer = drawFramebuffer = 0;
+                        // Deleting the temporary draw FBO unbinds it. Restore the render target
+                        // selected by this command list, or the default framebuffer if none is selected.
+                        gl.BindFramebuffer(FramebufferTarget.Framebuffer, framebuffer);
                         break;
 
                     case OpenGLESCmdKind.RenderTargets:
@@ -1170,14 +1179,36 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
 
         ReadOnlySpan<GraphicsBlendAttachmentState> blendAttachments =
             activeRenderPipeline.Description.Blend.Attachments;
-        GraphicsColorWriteMask colorMask = blendAttachments.IsEmpty
-            ? GraphicsColorWriteMask.All
-            : blendAttachments[0].WriteMask;
-        gl.ColorMask(
-            (colorMask & GraphicsColorWriteMask.Red) != 0,
-            (colorMask & GraphicsColorWriteMask.Green) != 0,
-            (colorMask & GraphicsColorWriteMask.Blue) != 0,
-            (colorMask & GraphicsColorWriteMask.Alpha) != 0);
+        bool independentBlendState = false;
+        for (int i = 1; i < blendAttachments.Length; i++)
+            independentBlendState |= blendAttachments[i] != blendAttachments[0];
+
+        OpenGLESGraphicsDevice device = (OpenGLESGraphicsDevice)activeRenderPipeline.Device;
+        ExtDrawBuffersIndexed? indexedBlend = device.DrawBuffersIndexedApi;
+        if (independentBlendState && indexedBlend is not null)
+        {
+            for (uint i = 0; i < (uint)blendAttachments.Length; i++)
+            {
+                GraphicsColorWriteMask mask = blendAttachments[(int)i].WriteMask;
+                indexedBlend.ColorMask(
+                    i,
+                    (mask & GraphicsColorWriteMask.Red) != 0,
+                    (mask & GraphicsColorWriteMask.Green) != 0,
+                    (mask & GraphicsColorWriteMask.Blue) != 0,
+                    (mask & GraphicsColorWriteMask.Alpha) != 0);
+            }
+        }
+        else
+        {
+            GraphicsColorWriteMask colorMask = blendAttachments.IsEmpty
+                ? GraphicsColorWriteMask.All
+                : blendAttachments[0].WriteMask;
+            gl.ColorMask(
+                (colorMask & GraphicsColorWriteMask.Red) != 0,
+                (colorMask & GraphicsColorWriteMask.Green) != 0,
+                (colorMask & GraphicsColorWriteMask.Blue) != 0,
+                (colorMask & GraphicsColorWriteMask.Alpha) != 0);
+        }
 
         GraphicsDepthStencilState depthStencil = activeRenderPipeline.Description.DepthStencil;
         gl.DepthMask(depthStencil.DepthWriteEnabled);
@@ -1442,13 +1473,17 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
         EnsureOwned(arguments);
         if ((arguments.Description.Usage & GraphicsBufferUsage.IndirectArguments) == 0)
             throw new GraphicsValidationException("Indirect commands require IndirectArguments buffer usage.");
-        if (drawCount == 0)
-            throw new ArgumentOutOfRangeException(nameof(drawCount));
-        if ((offset & 3) != 0)
-            throw new GraphicsValidationException("The indirect command offset must be four-byte aligned.");
+        if ((offset & 3) != 0 || offset > (ulong)nint.MaxValue)
+            throw new GraphicsValidationException("The indirect command offset must be four-byte aligned and natively addressable.");
         if (stride != 0 && (stride < commandSize || (stride & 3) != 0))
             throw new GraphicsValidationException(
                 $"Indirect command stride must be zero or a four-byte-aligned value at least {commandSize} bytes.");
+        if (drawCount == 0)
+        {
+            if (offset > arguments.Description.SizeInBytes)
+                throw new GraphicsValidationException("The zero-count indirect command offset exceeds the argument buffer.");
+            return;
+        }
         uint effectiveStride = stride == 0 ? commandSize : stride;
         ulong lastCommandOffset = checked(offset + checked((ulong)(drawCount - 1) * effectiveStride));
         ulong requiredEnd = checked(lastCommandOffset + commandSize);
@@ -1651,7 +1686,7 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
         _colorCount = 0;
         _targetSampleCount = 0;
         _targetOffset = 0;
-        Exception? releaseFailure = null;
+        List<Exception>? releaseFailures = null;
         foreach (IOpenGLESNativeResource resource in _retained)
         {
             try
@@ -1660,15 +1695,15 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
             }
             catch (Exception exception)
             {
-                releaseFailure ??= exception;
+                (releaseFailures ??= new List<Exception>(2)).Add(exception);
             }
         }
         _retained.Clear();
 
-        if (releaseFailure is not null)
-            throw new GraphicsException(
+        if (releaseFailures is not null)
+            throw new AggregateException(
                 "One or more retained GLES resources failed to release during command-list cleanup.",
-                releaseFailure);
+                releaseFailures);
     }
 
     protected override void DisposeCore()

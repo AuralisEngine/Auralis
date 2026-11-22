@@ -70,8 +70,8 @@ internal sealed class OpenGLGraphicsCommandQueue : IGraphicsCommandQueue
         if (signalFence is not null)
         {
             fence = signalFence as OpenGLGraphicsFence;
-            if (fence is null || !ReferenceEquals(fence.Device, _device))
-                throw new GraphicsValidationException("The signal fence must be an OpenGL fence owned by this device.");
+            if (fence is null || !ReferenceEquals(fence.Device, _device) || fence.IsDisposed)
+                throw new GraphicsValidationException("The signal fence must be live and owned by this OpenGL device.");
         }
         else if (signalValue != 0)
         {

@@ -155,6 +155,16 @@ public sealed class OpenGLESCapabilityProfileTests
         Assert.False(baseline.TryGetFormatCapabilities(GraphicsFormat.BC1UNorm, out _));
         Assert.False(baseline.TryGetFormatCapabilities(GraphicsFormat.ASTC4x4UNorm, out _));
 
+        foreach (GraphicsFormat format in new[]
+        {
+            GraphicsFormat.R16Float, GraphicsFormat.RG16Float, GraphicsFormat.RGBA16Float,
+            GraphicsFormat.R32Float, GraphicsFormat.RG32Float, GraphicsFormat.RGBA32Float
+        })
+        {
+            Assert.True(baseline.TryGetFormatCapabilities(format, out GraphicsFormatCapabilities floatFormat));
+            Assert.False(floatFormat.Supports(GraphicsFormatSupport.ColorAttachment));
+        }
+
         Assert.True(baseline.TryGetFormatCapabilities(GraphicsFormat.RGBA8UNorm, out GraphicsFormatCapabilities rgba8));
         Assert.True(rgba8.Supports(
             GraphicsFormatSupport.Sampled |
@@ -222,10 +232,16 @@ public sealed class OpenGLESCapabilityProfileTests
 
         Assert.False(capabilities.TryGetFormatCapabilities(GraphicsFormat.BGRA8UNorm, out _));
         Assert.False(capabilities.TryGetFormatCapabilities(GraphicsFormat.BGRA8UNormSrgb, out _));
-        Assert.True(capabilities.TryGetFormatCapabilities(GraphicsFormat.RGBA16Float, out GraphicsFormatCapabilities rgba16Float));
-        Assert.True(rgba16Float.Supports(GraphicsFormatSupport.ColorAttachment | GraphicsFormatSupport.Storage));
-        Assert.True(capabilities.TryGetFormatCapabilities(GraphicsFormat.RGBA32Float, out GraphicsFormatCapabilities rgba32Float));
-        Assert.True(rgba32Float.Supports(GraphicsFormatSupport.ColorAttachment | GraphicsFormatSupport.Storage));
+        foreach (GraphicsFormat format in new[]
+        {
+            GraphicsFormat.R16Float, GraphicsFormat.RG16Float, GraphicsFormat.RGBA16Float,
+            GraphicsFormat.R32Float, GraphicsFormat.RG32Float, GraphicsFormat.RGBA32Float
+        })
+        {
+            Assert.True(capabilities.TryGetFormatCapabilities(format, out GraphicsFormatCapabilities floatFormat));
+            Assert.True(floatFormat.Supports(GraphicsFormatSupport.ColorAttachment));
+            Assert.True(floatFormat.Supports(GraphicsFormatSupport.Storage));
+        }
 
         GraphicsDeviceCapabilities compressedWithoutImageCopy = OpenGLESGraphicsDevice.QueryCapabilities(
             profile,
