@@ -263,6 +263,11 @@ public interface IGraphicsCommandList : IGraphicsDeviceObject
     void DrawMeshTasks(uint groupCountX, uint groupCountY = 1, uint groupCountZ = 1);
 
     /// <summary>Records one or more mesh-task commands from a GPU indirect-argument buffer.</summary>
+    /// <remarks>
+    /// Indirect argument layout follows the active mesh-shader dialect. OpenGL EXT uses three
+    /// uint values ({ groupCountX, groupCountY, groupCountZ }); OpenGL NV uses its native two
+    /// uint values ({ count, first }). Other backends may use their native command layout.
+    /// </remarks>
     void DrawMeshTasksIndirect(IGraphicsBuffer arguments, ulong offset, uint drawCount = 1, uint stride = 0);
 
     /// <summary>
