@@ -566,8 +566,10 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
 
         bool hasInternalFormatQuery2 = AtLeast(major, minor, 4, 3) ||
                                        gl.IsExtensionPresent("GL_ARB_internalformat_query2");
-        GraphicsFormatCapabilities[] formats = OpenGLFormatCapabilities.Query(
-            gl, internalFormatQuery, hasInternalFormatQuery2);
+        Span<GraphicsFormatCapabilities> formatBuffer =
+            stackalloc GraphicsFormatCapabilities[OpenGLFormatCapabilities.MaximumFormatCount];
+        int formatCount = OpenGLFormatCapabilities.Query(
+            gl, internalFormatQuery, hasInternalFormatQuery2, formatBuffer);
 
         GraphicsQueueCapabilities queues = GraphicsQueueCapabilities.Graphics |
                                             GraphicsQueueCapabilities.Copy;
@@ -580,7 +582,7 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
             new GraphicsFeatureSet(features),
             queues,
             limits,
-            formats);
+            formatBuffer[..formatCount]);
     }
 
     private static bool HasEntryPoints(

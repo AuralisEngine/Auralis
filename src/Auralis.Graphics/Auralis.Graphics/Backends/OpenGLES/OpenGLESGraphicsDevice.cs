@@ -837,12 +837,11 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
             formatBuffer[formatCount++] = new(GraphicsFormat.ASTC4x4UNormSrgb, compressedSupport, GraphicsSampleCountFlags.One);
         }
 
-        GraphicsFormatCapabilities[] formats = formatBuffer[..formatCount].ToArray();
         return new GraphicsDeviceCapabilities(
             profile.Features,
             profile.QueueCapabilities,
             limits,
-            formats);
+            formatBuffer[..formatCount]);
     }
 
     private static GraphicsSampleCountFlags GetSampleCounts(

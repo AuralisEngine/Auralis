@@ -1,4 +1,3 @@
-using System.Buffers;
 using Auralis.Graphics.Devices;
 using Auralis.Graphics.Resources;
 using Silk.NET.OpenGL;
@@ -9,29 +8,25 @@ namespace Auralis.Graphics.Backends.OpenGL;
 /// <summary>Maps common formats to desktop OpenGL sized internal formats and queries their actual support.</summary>
 internal static class OpenGLFormatCapabilities
 {
-    private const int StackResultCapacity = 64;
     private static readonly GraphicsFormat[] s_formats = Enum.GetValues<GraphicsFormat>();
 
-    internal static GraphicsFormatCapabilities[] Query(
+    internal static int MaximumFormatCount => s_formats.Length;
+
+    internal static int Query(
         GL gl,
         ArbInternalformatQuery? internalFormatQuery,
-        bool hasInternalFormatQuery2)
+        bool hasInternalFormatQuery2,
+        Span<GraphicsFormatCapabilities> results)
     {
         if (internalFormatQuery is null)
-            return [];
+            return 0;
 
-        Span<GraphicsFormatCapabilities> stackResults =
-            stackalloc GraphicsFormatCapabilities[StackResultCapacity];
-        GraphicsFormatCapabilities[]? rentedResults = null;
-        Span<GraphicsFormatCapabilities> results = s_formats.Length <= stackResults.Length
-            ? stackResults[..s_formats.Length]
-            : (rentedResults = ArrayPool<GraphicsFormatCapabilities>.Shared.Rent(s_formats.Length))
-                .AsSpan(0, s_formats.Length);
+        if (results.Length < s_formats.Length)
+            throw new ArgumentException("The destination span is too small for the desktop format capability query.", nameof(results));
+
         Span<int> queriedSamples = stackalloc int[64];
         int resultCount = 0;
-        try
-        {
-            foreach (GraphicsFormat format in s_formats)
+        foreach (GraphicsFormat format in s_formats)
             {
                 if (format == GraphicsFormat.Unknown ||
                     !TryGetInternalFormat(format, out SizedInternalFormat internalFormat, out string? requiredExtension))
@@ -145,18 +140,10 @@ internal static class OpenGLFormatCapabilities
 
                 }
 
-                results[resultCount++] = new GraphicsFormatCapabilities(format, support, sampleCounts);
-            }
+            results[resultCount++] = new GraphicsFormatCapabilities(format, support, sampleCounts);
+        }
 
-            GraphicsFormatCapabilities[] result = new GraphicsFormatCapabilities[resultCount];
-            results[..resultCount].CopyTo(result);
-            return result;
-        }
-        finally
-        {
-            if (rentedResults is not null)
-                ArrayPool<GraphicsFormatCapabilities>.Shared.Return(rentedResults);
-        }
+        return resultCount;
     }
 
     internal static bool TryGetInternalFormat(
