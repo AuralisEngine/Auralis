@@ -218,6 +218,9 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
     internal ExtCopyImage? CopyImageApi => _copyImageApi;
     internal CopyImageSubDataOesDelegate? CopyImageSubDataOes => _copyImageSubDataOes;
     internal bool HasImageCopy => _copyImageApi is not null || _copyImageSubDataOes is not null;
+    // Integration-test hook: exercise the constrained framebuffer-blit path even when native image copy exists.
+    internal bool ForceFramebufferBlitFallbackForTesting { get; set; }
+    internal bool ShouldUseNativeImageCopy => HasImageCopy && !ForceFramebufferBlitFallbackForTesting;
     internal bool SupportsCubeMapArray =>
         Version.IsAtLeast(3, 2) || Profile.HasExtension("GL_OES_texture_cube_map_array");
     internal TextureViewExtDelegate? TextureViewExt => _textureViewExt;
