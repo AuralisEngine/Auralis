@@ -177,21 +177,26 @@ internal sealed unsafe class OpenGLGraphicsShader : OpenGLNativeDeviceObject, IG
 
         uint[]? rentedIds = null;
         uint[]? rentedValues = null;
-        Span<uint> ids = count <= 16
-            ? stackalloc uint[count]
-            : (rentedIds = ArrayPool<uint>.Shared.Rent(count)).AsSpan(0, count);
-        Span<uint> values = count <= 16
-            ? stackalloc uint[count]
-            : (rentedValues = ArrayPool<uint>.Shared.Rent(count)).AsSpan(0, count);
-
-        int entryPointLength = Encoding.UTF8.GetByteCount(description.EntryPoint);
         byte[]? rentedEntryPoint = null;
-        Span<byte> entryPointBytes = entryPointLength < 255
-            ? stackalloc byte[entryPointLength + 1]
-            : (rentedEntryPoint = ArrayPool<byte>.Shared.Rent(entryPointLength + 1)).AsSpan(0, entryPointLength + 1);
+        Span<uint> ids = default;
+        Span<uint> values = default;
+        Span<byte> entryPointBytes = default;
+        int entryPointLength = Encoding.UTF8.GetByteCount(description.EntryPoint);
 
         try
         {
+            // Keep every rent inside the protected region so a later rent failure still returns
+            // any arrays acquired earlier in this shader-specialization operation.
+            ids = count <= 16
+                ? stackalloc uint[count]
+                : (rentedIds = ArrayPool<uint>.Shared.Rent(count)).AsSpan(0, count);
+            values = count <= 16
+                ? stackalloc uint[count]
+                : (rentedValues = ArrayPool<uint>.Shared.Rent(count)).AsSpan(0, count);
+            entryPointBytes = entryPointLength < 255
+                ? stackalloc byte[entryPointLength + 1]
+                : (rentedEntryPoint = ArrayPool<byte>.Shared.Rent(entryPointLength + 1)).AsSpan(0, entryPointLength + 1);
+
             for (int i = 0; i < count; i++)
             {
                 ids[i] = constants[i].ConstantId;
