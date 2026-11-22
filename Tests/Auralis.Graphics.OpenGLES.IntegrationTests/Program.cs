@@ -167,13 +167,13 @@ public sealed partial class OpenGLESIntegrationTests : IClassFixture<OpenGLESHar
                 if (!hasExt && !hasOes)
                 {
                     Console.WriteLine(
-                        "The driver advertises neither GL_EXT_texture_view nor GL_OES_texture_view; native subresource texture views are unsupported. " +
+                        "Neither native texture-view extension is advertised; using the restricted framebuffer-only subresource alias fallback. " +
                         framebufferAliasNotice);
                 }
                 else
                 {
                     Console.WriteLine(
-                        $"The driver advertises a texture-view extension, but its native entry point is unavailable ('{entryPointName ?? "unresolved"}'); " +
+                        $"The driver advertises a texture-view extension, but its native entry point is unavailable ('{entryPointName ?? "unresolved"}'); using the restricted framebuffer-only subresource alias fallback. " +
                         framebufferAliasNotice);
                 }
             }
@@ -290,6 +290,24 @@ public sealed partial class OpenGLESIntegrationTests : IClassFixture<OpenGLESHar
             GraphicsFormat.Unknown,
             GraphicsTextureViewType.Texture2D,
             0, 1, 1, 1));
+
+        // When no matching native texture-view entry point was loaded, both supported
+        // subresources must be represented by framebuffer-only aliases of the parent storage.
+        // This keeps the test from merely logging fallback intent while accidentally creating
+        // native views (or ordinary identity views) instead.
+        OpenGLESGraphicsDevice nativeDevice = (OpenGLESGraphicsDevice)device;
+        bool expectFramebufferAliases = nativeDevice.TextureViewExt is null;
+        bool mipUsesFramebufferAlias =
+            ((OpenGLESGraphicsTextureView)mipView).IsFramebufferSubresourceAlias;
+        bool arrayLayerUsesFramebufferAlias =
+            ((OpenGLESGraphicsTextureView)arrayLayerView).IsFramebufferSubresourceAlias;
+        if (mipUsesFramebufferAlias != expectFramebufferAliases ||
+            arrayLayerUsesFramebufferAlias != expectFramebufferAliases)
+        {
+            throw new GraphicsException(
+                $"GLES subresource-view path mismatch: native entry point available={nativeDevice.TextureViewExt is not null}, " +
+                $"2D mip fallback={mipUsesFramebufferAlias}, array-layer fallback={arrayLayerUsesFramebufferAlias}.");
+        }
 
         IGraphicsCommandQueue queue = device.GetQueue(GraphicsQueueType.Graphics);
         using IGraphicsCommandList commands = queue.CreateCommandList();
