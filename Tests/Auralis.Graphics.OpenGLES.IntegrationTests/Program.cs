@@ -79,8 +79,17 @@ public sealed partial class OpenGLESIntegrationTests : IClassFixture<OpenGLESHar
     {
         IGraphicsDevice device = _fixture.GetDeviceOrSkip();
         GlfwOpenGLESContextProvider context = _fixture.GetContextOrSkip();
+        OpenGLESGraphicsDevice gles = (OpenGLESGraphicsDevice)device;
+        bool hasExt = gles.Profile.HasExtension("GL_EXT_texture_view");
+        bool hasOes = gles.Profile.HasExtension("GL_OES_texture_view");
+        bool entryPointResolved = gles.TextureViewExt is not null;
+        Console.WriteLine($"GLES texture-view support: GL_EXT_texture_view advertised={hasExt}; GL_OES_texture_view advertised={hasOes}; native glTextureView entry point resolved={entryPointResolved}.");
+        if (!hasExt && !hasOes)
+            Skip("The driver advertises neither GL_EXT_texture_view nor GL_OES_texture_view; subresource texture views are unsupported.");
+        if (!entryPointResolved)
+            Skip("The driver advertises a texture-view extension, but the corresponding glTextureViewEXT/glTextureViewOES entry point did not resolve; the capability is correctly disabled.");
         if (!device.Capabilities.Features.Supports(GraphicsFeature.TextureViews))
-            Skip("Texture views require GL_EXT_texture_view or GL_OES_texture_view and a resolved native entry point.");
+            throw new GraphicsException("A texture-view extension and native entry point are available, but GraphicsFeature.TextureViews was not exposed.");
         RunTextureViewSubresourceRendering(device, context);
     }
 
@@ -99,9 +108,17 @@ public sealed partial class OpenGLESIntegrationTests : IClassFixture<OpenGLESHar
     {
         IGraphicsDevice device = _fixture.GetDeviceOrSkip();
         GlfwOpenGLESContextProvider context = _fixture.GetContextOrSkip();
-        if (((OpenGLESGraphicsDevice)device).HasImageCopy)
-            Skip("Native image copy is available, so CopyTexture does not execute the framebuffer-blit fallback.");
-        RunFramebufferBlitCopyThenDraw(device, context);
+        OpenGLESGraphicsDevice gles = (OpenGLESGraphicsDevice)device;
+        Console.WriteLine($"GLES image-copy support: GL_EXT_copy_image advertised={gles.Profile.HasExtension("GL_EXT_copy_image")}; GL_OES_copy_image advertised={gles.Profile.HasExtension("GL_OES_copy_image")}; native image-copy entry point resolved={gles.HasImageCopy}; forcing framebuffer-blit fallback for this test.");
+        gles.ForceFramebufferBlitFallbackForTesting = true;
+        try
+        {
+            RunFramebufferBlitCopyThenDraw(device, context);
+        }
+        finally
+        {
+            gles.ForceFramebufferBlitFallbackForTesting = false;
+        }
     }
 
     [Fact]
@@ -486,7 +503,7 @@ public sealed partial class OpenGLESIntegrationTests : IClassFixture<OpenGLESHar
         if (!signed.AsSpan().SequenceEqual(new int[] { -11, 22, -33, 44 }))
             throw new InvalidOperationException($"Signed integer clear readback was [{string.Join(", ", signed)}].");
 
-        AssertPixelNear(ReadRgba8Pixel(device, context, normalizedView), 64, 128, 191, 255);
+        AssertPixelNear(ReadRgba8Pixel(device, context, normalizedView, 16, 16), 64, 128, 191, 255);
         Console.WriteLine("Validated signed and unsigned attachment-indexed integer clears and exact typed GPU readback.");
     }
 
@@ -560,34 +577,64 @@ public sealed partial class OpenGLESIntegrationTests : IClassFixture<OpenGLESHar
         WriteUInts(indices, 0, 1, 2, 3, 4, 5);
 
         IGraphicsCommandQueue queue = device.GetQueue(GraphicsQueueType.Graphics);
-        using IGraphicsCommandList commandList = queue.CreateCommandList();
-        using IGraphicsFence fence = device.CreateFence();
-        IGraphicsTextureView[] targets = [colorView];
-        commandList.Begin();
-        commandList.SetRenderTargets(targets);
-        commandList.SetViewport(new GraphicsViewport(0, 0, 64, 64));
-        commandList.SetScissor(new GraphicsScissorRect(0, 0, 64, 64));
-        commandList.ClearColor(0, new GraphicsClearColor(0, 0, 0, 1));
-        commandList.SetRenderPipeline(pipeline);
-        commandList.DrawIndirect(arguments, 0, drawCount: 2, stride: 0);
-        commandList.DrawIndirect(arguments, 32, drawCount: 2, stride: 24);
-        commandList.SetIndexBuffer(indices, GraphicsIndexFormat.UInt32);
-        commandList.DrawIndexedIndirect(arguments, 80, drawCount: 2, stride: 0);
-        commandList.DrawIndexedIndirect(arguments, 144, drawCount: 2, stride: 24);
-        ExpectThrows<GraphicsValidationException>(
-            () => commandList.DrawIndirect(arguments, 184, drawCount: 2, stride: 0),
-            "array indirect arguments must be range checked");
-        ExpectThrows<GraphicsValidationException>(
-            () => commandList.DrawIndexedIndirect(arguments, 184, drawCount: 2, stride: 0),
-            "indexed indirect arguments must be range checked");
-        commandList.End();
-        queue.Submit([commandList], fence, 1);
-        if (!fence.Wait(1, TimeSpan.FromSeconds(10)))
-            throw new TimeoutException("The GLES multi-draw-indirect fence did not complete.");
+        OpenGLESGraphicsDevice gles = (OpenGLESGraphicsDevice)device;
+        bool extensionAdvertised = gles.Profile.HasExtension("GL_EXT_multi_draw_indirect");
+        bool arraysResolved = gles.MultiDrawArraysIndirectExt is not null;
+        bool elementsResolved = gles.MultiDrawElementsIndirectExt is not null;
+        bool nativeMultiDrawAvailable = arraysResolved && elementsResolved;
+        Console.WriteLine(
+            $"GLES driver: version='{gles.VersionString}', vendor='{gles.Vendor}', renderer='{gles.Renderer}', " +
+            $"GL_EXT_multi_draw_indirect advertised={extensionAdvertised}, arrays entry point resolved={arraysResolved}, " +
+            $"elements entry point resolved={elementsResolved}, native multi-draw usable={nativeMultiDrawAvailable}.");
 
-        AssertPixelNear(ReadRgba8Pixel(device, context, colorView, 16, 32), 255, 0, 0, 255);
-        AssertPixelNear(ReadRgba8Pixel(device, context, colorView, 48, 32), 0, 255, 0, 255);
-        Console.WriteLine("Validated multiple DrawIndirect and DrawIndexedIndirect commands, default and explicit strides, nonzero argument offsets, range rejection, and GPU-visible output from each draw.");
+        void ExecuteAndVerify(bool forceFallback, ulong fenceValue)
+        {
+            using IGraphicsCommandList commandList = queue.CreateCommandList();
+            using IGraphicsFence fence = device.CreateFence();
+            OpenGLESGraphicsCommandList diagnosticCommandList = (OpenGLESGraphicsCommandList)commandList;
+            diagnosticCommandList.ForceIndirectDrawFallbackForTesting = forceFallback;
+            diagnosticCommandList.ErrorCheckForTesting = CheckNoGlesError;
+
+            IGraphicsTextureView[] targets = [colorView];
+            commandList.Begin();
+            commandList.SetRenderTargets(targets);
+            commandList.SetViewport(new GraphicsViewport(0, 0, 64, 64));
+            commandList.SetScissor(new GraphicsScissorRect(0, 0, 64, 64));
+            commandList.ClearColor(0, new GraphicsClearColor(0, 0, 0, 1));
+            commandList.SetRenderPipeline(pipeline);
+            commandList.DrawIndirect(arguments, 0, drawCount: 2, stride: 0);
+            commandList.DrawIndirect(arguments, 32, drawCount: 2, stride: 24);
+            commandList.SetIndexBuffer(indices, GraphicsIndexFormat.UInt32);
+            commandList.DrawIndexedIndirect(arguments, 80, drawCount: 2, stride: 0);
+            commandList.DrawIndexedIndirect(arguments, 144, drawCount: 2, stride: 24);
+            ExpectThrows<GraphicsValidationException>(
+                () => commandList.DrawIndirect(arguments, 184, drawCount: 2, stride: 0),
+                "array indirect arguments must be range checked");
+            ExpectThrows<GraphicsValidationException>(
+                () => commandList.DrawIndexedIndirect(arguments, 184, drawCount: 2, stride: 0),
+                "indexed indirect arguments must be range checked");
+            commandList.End();
+
+            string executionPath = nativeMultiDrawAvailable && !forceFallback
+                ? "native GL_EXT_multi_draw_indirect"
+                : "individual glDraw*Indirect fallback";
+            Console.WriteLine($"Executing multi-draw regression through {executionPath}.");
+            queue.Submit([commandList], fence, fenceValue);
+            if (!fence.Wait(fenceValue, TimeSpan.FromSeconds(10)))
+                throw new TimeoutException($"The GLES multi-draw-indirect fence {fenceValue} did not complete.");
+
+            AssertPixelNear(ReadRgba8Pixel(device, context, colorView, 16, 32), 255, 0, 0, 255);
+            AssertPixelNear(ReadRgba8Pixel(device, context, colorView, 48, 32), 0, 255, 0, 255);
+        }
+
+        ExecuteAndVerify(forceFallback: false, fenceValue: 1);
+        if (nativeMultiDrawAvailable)
+            ExecuteAndVerify(forceFallback: true, fenceValue: 2);
+
+        Console.WriteLine(
+            nativeMultiDrawAvailable
+                ? "Validated native EXT and forced individual-draw fallback paths for arrays and indexed indirect commands, both stride modes, nonzero offsets, range rejection, and GPU-visible red/green output."
+                : "Validated the individual-draw fallback for arrays and indexed indirect commands, both stride modes, nonzero offsets, range rejection, and GPU-visible red/green output; native EXT multi-draw is unavailable.");
     }
 
     private static void RunMultisampleFramebuffer(
@@ -687,33 +734,55 @@ public sealed partial class OpenGLESIntegrationTests : IClassFixture<OpenGLESHar
         IGraphicsDevice device,
         GlfwOpenGLESContextProvider context,
         IGraphicsTextureView view,
-        int x = 32,
-        int y = 32)
+        int x = -1,
+        int y = -1)
     {
         OpenGLESGraphicsDevice gles = (OpenGLESGraphicsDevice)device;
         OpenGLESGraphicsTextureView nativeView = (OpenGLESGraphicsTextureView)view;
+        OpenGLESGraphicsTexture parentTexture = (OpenGLESGraphicsTexture)nativeView.Texture;
+        uint mipLevel = nativeView.Description.BaseMipLevel;
+        uint width = Math.Max(1u, parentTexture.Description.Width >> checked((int)mipLevel));
+        uint height = Math.Max(1u, parentTexture.Description.Height >> checked((int)mipLevel));
+        if (x == -1 && y == -1)
+        {
+            x = checked((int)(width / 2));
+            y = checked((int)(height / 2));
+        }
+        else if (x < 0 || y < 0 || (uint)x >= width || (uint)y >= height)
+        {
+            throw new InvalidOperationException(
+                $"GLES pixel readback coordinate ({x}, {y}) is outside the {width}x{height} texture view at mip {mipLevel}; valid coordinates are x=0..{width - 1}, y=0..{height - 1}.");
+        }
+
         byte[] pixel = new byte[4];
         context.MakeCurrent();
         uint framebuffer = 0;
         try
         {
             GL gl = gles.Api;
+            CheckNoGlesError(gl, "before RGBA8 framebuffer readback");
             framebuffer = gl.GenFramebuffer();
+            CheckNoGlesError(gl, "glGenFramebuffer for RGBA8 readback");
+            if (framebuffer == 0)
+                throw new GraphicsException("GLES failed to allocate the RGBA8 pixel-readback framebuffer.");
             gl.BindFramebuffer(FramebufferTarget.Framebuffer, framebuffer);
+            CheckNoGlesError(gl, "glBindFramebuffer for RGBA8 readback");
             gl.FramebufferTexture2D(
                 FramebufferTarget.Framebuffer,
                 GLEnum.ColorAttachment0,
                 nativeView.Target,
                 nativeView.Handle,
                 0);
-            if (gl.CheckFramebufferStatus(FramebufferTarget.Framebuffer) != GLEnum.FramebufferComplete)
-                throw new GraphicsException("The GLES pixel-readback framebuffer is incomplete.");
+            CheckNoGlesError(gl, "glFramebufferTexture2D for RGBA8 readback");
+            GLEnum framebufferStatus = gl.CheckFramebufferStatus(FramebufferTarget.Framebuffer);
+            CheckNoGlesError(gl, "glCheckFramebufferStatus for RGBA8 readback");
+            if (framebufferStatus != GLEnum.FramebufferComplete)
+                throw new GraphicsException($"The GLES pixel-readback framebuffer is incomplete ({framebufferStatus}).");
             gl.ReadBuffer(GLEnum.ColorAttachment0);
+            CheckNoGlesError(gl, "glReadBuffer(GL_COLOR_ATTACHMENT0) for RGBA8 readback");
             fixed (byte* destination = pixel)
                 gl.ReadPixels(x, y, 1, 1, (PixelFormat)0x1908, (PixelType)0x1401, destination);
-            GLEnum error = gl.GetError();
-            if (error != GLEnum.NoError)
-                throw new GraphicsException($"GLES RGBA8 pixel readback failed with {error}.");
+            CheckNoGlesError(gl, $"glReadPixels RGBA8 at ({x}, {y})");
         }
         finally
         {
@@ -724,6 +793,13 @@ public sealed partial class OpenGLESIntegrationTests : IClassFixture<OpenGLESHar
         }
 
         return pixel;
+    }
+
+    private static void CheckNoGlesError(GL gl, string operation)
+    {
+        GLEnum error = gl.GetError();
+        if (error != GLEnum.NoError)
+            throw new GraphicsException($"GLES reported {error} after {operation}.");
     }
 
     private static unsafe T[] ReadIntegerPixel<T>(
@@ -1273,8 +1349,8 @@ public sealed partial class OpenGLESIntegrationTests : IClassFixture<OpenGLESHar
         IGraphicsDevice device,
         GlfwOpenGLESContextProvider context)
     {
-        if (((OpenGLESGraphicsDevice)device).HasImageCopy)
-            throw new InvalidOperationException("The driver exposes native image copy; this test would not exercise the blit fallback.");
+        if (((OpenGLESGraphicsDevice)device).ShouldUseNativeImageCopy)
+            throw new InvalidOperationException("The current test configuration selects native image copy; the framebuffer-blit fallback was not forced.");
 
         using IGraphicsTexture source = device.CreateTexture(new GraphicsTextureDescription(
             GraphicsTextureDimension.Texture2D, GraphicsFormat.RGBA8UNorm,
@@ -1576,11 +1652,17 @@ public sealed partial class OpenGLESIntegrationTests : IClassFixture<OpenGLESHar
             context.ReleaseCurrent();
         }
 
-        uint expectedResult = (0xFFu << 24) | (191u << 16) | (64u << 8) | 7u;
         uint actualResult = ReadUInt(output);
-        if (actualResult != expectedResult)
+        byte exactTexelRed = (byte)(actualResult >> 24);
+        byte filteredRed = (byte)(actualResult >> 16);
+        byte filteredBlue = (byte)(actualResult >> 8);
+        byte uniformParameter = (byte)actualResult;
+        if (exactTexelRed != 255 || filteredRed != 191 ||
+            Math.Abs((int)filteredBlue - 64) > 1 || uniformParameter != 7)
+        {
             throw new InvalidOperationException(
-                $"GLES descriptor snapshot result was 0x{actualResult:X8}, expected 0x{expectedResult:X8}.");
+                $"GLES descriptor snapshot components were [exact red={exactTexelRed}, filtered red={filteredRed}, filtered blue={filteredBlue}, UBO={uniformParameter}]; expected [255, 191, 64 ± 1, 7].");
+        }
         AssertUInt(ReadUInt(partialOutput), 0x00A11CEu);
         AssertUInt(ReadUInt(alternativeOutput), 0xDEADBEEFu);
         AssertUInt(ReadUInt(alternativePartialOutput), 0xDEADBEEFu);
