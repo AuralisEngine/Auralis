@@ -229,22 +229,25 @@ public sealed class OpenGLResourceRetentionTests
     public void ReleaseAllContinuesAfterAnIndividualReferenceReleaseThrows()
     {
         var retention = new OpenGLResourceRetention();
-        var throwing = new ThrowingReleaseResource();
+        var throwing = new ThrowingReleaseResource("first");
+        var secondThrowing = new ThrowingReleaseResource("second");
         var resource = new InstrumentedNativeResource();
 
         retention.Retain(throwing);
+        retention.Retain(secondThrowing);
         retention.Retain(resource);
         resource.DisposeOwner();
 
-        Assert.Throws<InvalidOperationException>(retention.ReleaseAll);
+        AggregateException exception = Assert.Throws<AggregateException>(retention.ReleaseAll);
+        Assert.Equal(2, exception.InnerExceptions.Count);
         Assert.Equal(1, resource.NativeReleaseCount);
         Assert.Equal(0, retention.Count);
     }
 
-    private sealed class ThrowingReleaseResource : IOpenGLNativeResource
+    private sealed class ThrowingReleaseResource(string message) : IOpenGLNativeResource
     {
         public bool TryRetain() => true;
-        public void ReleaseReference() => throw new InvalidOperationException("Synthetic release failure.");
+        public void ReleaseReference() => throw new InvalidOperationException($"Synthetic release failure: {message}.");
         public void ReleaseNative(GL gl) { }
     }
 

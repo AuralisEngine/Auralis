@@ -258,19 +258,19 @@ public sealed class OpenGLESCapabilityProfileTests
         OpenGLESVersion es32 = new(3, 2);
         foreach (string version in new[] { "300", "310", "320" })
             OpenGLESShaderCompatibility.ValidateSourceVersion(
-                es32, GraphicsShaderStage.Vertex, $"#version {version} es\\nvoid main() {{}}");
+                es32, GraphicsShaderStage.Vertex, $"#version {version} es\nvoid main() {{}}");
 
         OpenGLESShaderCompatibility.ValidateSourceVersion(
-            es32, GraphicsShaderStage.Vertex, "  #version 300 es\\nvoid main() {}");
+            es32, GraphicsShaderStage.Vertex, "  #version 300 es\nvoid main() {}");
         Assert.Throws<GraphicsValidationException>(() =>
             OpenGLESShaderCompatibility.ValidateSourceVersion(
-                es32, GraphicsShaderStage.Vertex, "\\n#version 300 es\\nvoid main() {}"));
+                es32, GraphicsShaderStage.Vertex, "\n#version 300 es\nvoid main() {}"));
         Assert.Throws<GraphicsValidationException>(() =>
             OpenGLESShaderCompatibility.ValidateSourceVersion(
-                es32, GraphicsShaderStage.Vertex, "// comment\\n#version 300 es\\nvoid main() {}"));
+                es32, GraphicsShaderStage.Vertex, "// comment\n#version 300 es\nvoid main() {}"));
         Assert.Throws<GraphicsValidationException>(() =>
             OpenGLESShaderCompatibility.ValidateSourceVersion(
-                new OpenGLESVersion(3, 1), GraphicsShaderStage.Vertex, "#version 320 es\\nvoid main() {}"));
+                new OpenGLESVersion(3, 1), GraphicsShaderStage.Vertex, "#version 320 es\nvoid main() {}"));
     }
 
     [Fact]
@@ -280,22 +280,22 @@ public sealed class OpenGLESCapabilityProfileTests
         Assert.Throws<GraphicsValidationException>(() =>
             OpenGLESShaderCompatibility.ValidateSourceVersion(
                 es32, GraphicsShaderStage.Mesh,
-                "#version 320 es\\n// #extension GL_EXT_mesh_shader : require\\nvoid main() {}"));
+                "#version 320 es\n// #extension GL_EXT_mesh_shader : require\nvoid main() {}"));
         Assert.Throws<GraphicsValidationException>(() =>
             OpenGLESShaderCompatibility.ValidateSourceVersion(
                 es32, GraphicsShaderStage.Mesh,
-                "#version 320 es\\n/* #extension GL_EXT_mesh_shader : require */\\nvoid main() {}"));
+                "#version 320 es\n/* #extension GL_EXT_mesh_shader : require */\nvoid main() {}"));
         Assert.Throws<GraphicsValidationException>(() =>
             OpenGLESShaderCompatibility.ValidateSourceVersion(
                 es32, GraphicsShaderStage.Mesh,
-                "#version 320 es\\n#if 0\\n#extension GL_EXT_mesh_shader : require\\n#endif"));
+                "#version 320 es\n#if 0\n#extension GL_EXT_mesh_shader : require\n#endif"));
         Assert.Throws<GraphicsValidationException>(() =>
             OpenGLESShaderCompatibility.ValidateSourceVersion(
                 es32, GraphicsShaderStage.Mesh,
-                "#version 320 es\\n#extension GL_EXT_mesh_shader : disable\\nvoid main() {}"));
+                "#version 320 es\n#extension GL_EXT_mesh_shader : disable\nvoid main() {}"));
         OpenGLESShaderCompatibility.ValidateSourceVersion(
             es32, GraphicsShaderStage.Mesh,
-            "#version 320 es\\n#extension GL_EXT_mesh_shader : warn\\nvoid main() {}");
+            "#version 320 es\n#extension GL_EXT_mesh_shader : warn\nvoid main() {}");
     }
 
     [Fact]
