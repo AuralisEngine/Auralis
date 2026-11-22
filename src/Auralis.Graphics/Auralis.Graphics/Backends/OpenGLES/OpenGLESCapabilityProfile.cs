@@ -210,25 +210,25 @@ public sealed class OpenGLESCapabilityProfile
 
         // These features are exposed only when the exact GLES extension is advertised.
         if (multiDrawIndirectEntryPointsAvailable &&
-            Contains(extensionCopy, "GL_EXT_multi_draw_indirect"))
+            Contains(extensions, "GL_EXT_multi_draw_indirect"))
             features |= GraphicsFeature.MultiDrawIndirect;
         if (indexedBlendEntryPointsAvailable &&
-            Contains(extensionCopy, "GL_EXT_draw_buffers_indexed"))
+            Contains(extensions, "GL_EXT_draw_buffers_indexed"))
             features |= GraphicsFeature.IndependentBlend;
 
         if (baseVertexEntryPointsAvailable &&
-            Contains(extensionCopy, "GL_EXT_draw_elements_base_vertex"))
+            Contains(extensions, "GL_EXT_draw_elements_base_vertex"))
             features |= GraphicsFeature.BaseVertexDrawing;
         if (baseInstanceEntryPointsAvailable &&
-            Contains(extensionCopy, "GL_EXT_base_instance") &&
-            Contains(extensionCopy, "GL_EXT_draw_elements_base_vertex"))
+            Contains(extensions, "GL_EXT_base_instance") &&
+            Contains(extensions, "GL_EXT_draw_elements_base_vertex"))
             features |= GraphicsFeature.BaseInstanceDrawing;
         if (textureViewEntryPointAvailable &&
-            (Contains(extensionCopy, "GL_EXT_texture_view") || Contains(extensionCopy, "GL_OES_texture_view")))
+            (Contains(extensions, "GL_EXT_texture_view") || Contains(extensions, "GL_OES_texture_view")))
             features |= GraphicsFeature.TextureViews;
 
         // EXT_mesh_shader defines both stages for GLES 3.1+ with independent driver limits.
-        if (meshShaderEntryPointsAvailable && Contains(extensionCopy, "GL_EXT_mesh_shader"))
+        if (meshShaderEntryPointsAvailable && Contains(extensions, "GL_EXT_mesh_shader"))
             features |= GraphicsFeature.MeshShaders | GraphicsFeature.TaskShaders;
 
         GraphicsQueueCapabilities queues =
