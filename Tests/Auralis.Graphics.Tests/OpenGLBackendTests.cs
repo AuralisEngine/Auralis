@@ -238,6 +238,25 @@ public sealed class OpenGLBackendTests
         Assert.True(both.ExtTaskShaders);
         Assert.True(both.NvMeshShaders);
         Assert.True(both.NvTaskShaders);
+
+        OpenGLMeshShaderDialectCapabilities taskLimitsWithoutMesh =
+            OpenGLMeshShaderDialectCapabilities.Detect(
+                extExtensionPresent: true,
+                nvExtensionPresent: false,
+                bothEntryPoints,
+                extMeshCountX: 0,
+                extMeshCountY: 0,
+                extMeshCountZ: 0,
+                extMeshTotalCount: 0,
+                extTaskCountX: 16,
+                extTaskCountY: 8,
+                extTaskCountZ: 4,
+                extTaskTotalCount: 512,
+                nvDrawMeshTasksCount: 0);
+
+        Assert.False(taskLimitsWithoutMesh.ExtMeshShaders);
+        Assert.False(taskLimitsWithoutMesh.ExtTaskShaders);
+        Assert.False(taskLimitsWithoutMesh.SupportsTaskShaders);
     }
 
     [Fact]
