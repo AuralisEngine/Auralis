@@ -24,7 +24,18 @@ public sealed unsafe class GlfwOpenGLESContextProvider : IOpenGLESContextProvide
 
     public static GlfwOpenGLESContextProvider Create()
     {
-        Glfw glfw = Glfw.GetApi();
+        Glfw glfw;
+        try
+        {
+            glfw = Glfw.GetApi();
+        }
+        catch (Exception exception) when (exception is
+            DllNotFoundException or FileNotFoundException or EntryPointNotFoundException or BadImageFormatException)
+        {
+            throw new HardwareContextUnavailableException(
+                "The GLFW native library required for OpenGL ES integration tests could not be loaded.",
+                exception);
+        }
         WindowHandle* window = null;
         bool initialized = false;
         try
