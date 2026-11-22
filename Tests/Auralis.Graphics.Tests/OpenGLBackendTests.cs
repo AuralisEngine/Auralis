@@ -186,6 +186,93 @@ public sealed class OpenGLBackendTests
     }
 
     [Fact]
+    public void MeshShaderDialectsRemainIndependentWhenBothExtensionsArePresent()
+    {
+        OpenGLMeshShaderEntryPoints bothEntryPoints = new(
+            ExtDirect: true,
+            ExtIndirect: true,
+            ExtMultiDrawIndirect: true,
+            NvDirect: true);
+
+        OpenGLMeshShaderDialectCapabilities nvOnlyBecauseExtLimitsAreInvalid =
+            OpenGLMeshShaderDialectCapabilities.Detect(
+                extExtensionPresent: true,
+                nvExtensionPresent: true,
+                bothEntryPoints,
+                extMeshCountX: 0,
+                extMeshCountY: 0,
+                extMeshCountZ: 0,
+                extMeshTotalCount: 0,
+                extTaskCountX: 0,
+                extTaskCountY: 0,
+                extTaskCountZ: 0,
+                extTaskTotalCount: 0,
+                nvDrawMeshTasksCount: 65535);
+
+        Assert.False(nvOnlyBecauseExtLimitsAreInvalid.ExtMeshShaders);
+        Assert.False(nvOnlyBecauseExtLimitsAreInvalid.ExtTaskShaders);
+        Assert.True(nvOnlyBecauseExtLimitsAreInvalid.NvMeshShaders);
+        Assert.True(nvOnlyBecauseExtLimitsAreInvalid.NvTaskShaders);
+        Assert.True(nvOnlyBecauseExtLimitsAreInvalid.SupportsMeshShaders);
+        Assert.True(nvOnlyBecauseExtLimitsAreInvalid.SupportsTaskShaders);
+        Assert.True(nvOnlyBecauseExtLimitsAreInvalid.SupportsMeshShader(OpenGLMeshShaderDialect.Nv));
+        Assert.True(nvOnlyBecauseExtLimitsAreInvalid.SupportsTaskShader(OpenGLMeshShaderDialect.Nv));
+        Assert.False(nvOnlyBecauseExtLimitsAreInvalid.SupportsMeshShader(OpenGLMeshShaderDialect.Ext));
+
+        OpenGLMeshShaderDialectCapabilities both =
+            OpenGLMeshShaderDialectCapabilities.Detect(
+                extExtensionPresent: true,
+                nvExtensionPresent: true,
+                bothEntryPoints,
+                extMeshCountX: 64,
+                extMeshCountY: 32,
+                extMeshCountZ: 8,
+                extMeshTotalCount: 4096,
+                extTaskCountX: 32,
+                extTaskCountY: 16,
+                extTaskCountZ: 4,
+                extTaskTotalCount: 2048,
+                nvDrawMeshTasksCount: 65535);
+
+        Assert.True(both.ExtMeshShaders);
+        Assert.True(both.ExtTaskShaders);
+        Assert.True(both.NvMeshShaders);
+        Assert.True(both.NvTaskShaders);
+    }
+
+    [Fact]
+    public void MeshAndTaskDialectCapabilitiesUseIndependentExtensionAndStageLimits()
+    {
+        OpenGLMeshShaderEntryPoints entries = new(
+            ExtDirect: true,
+            ExtIndirect: true,
+            ExtMultiDrawIndirect: false,
+            NvDirect: false);
+
+        OpenGLMeshShaderDialectCapabilities meshOnlyExt =
+            OpenGLMeshShaderDialectCapabilities.Detect(
+                extExtensionPresent: true,
+                nvExtensionPresent: false,
+                entries,
+                extMeshCountX: 64,
+                extMeshCountY: 32,
+                extMeshCountZ: 8,
+                extMeshTotalCount: 4096,
+                extTaskCountX: 0,
+                extTaskCountY: 0,
+                extTaskCountZ: 0,
+                extTaskTotalCount: 0,
+                nvDrawMeshTasksCount: 0);
+
+        Assert.True(meshOnlyExt.ExtMeshShaders);
+        Assert.False(meshOnlyExt.ExtTaskShaders);
+        Assert.False(meshOnlyExt.NvMeshShaders);
+        Assert.False(meshOnlyExt.NvTaskShaders);
+        Assert.True(meshOnlyExt.SupportsMeshShaders);
+        Assert.False(meshOnlyExt.SupportsTaskShaders);
+    }
+
+    [Fact]
     public void NvMeshShaderDirectDispatchIsRestrictedToItsOneDimensionalContract()
     {
         // GL_NV_mesh_shader exposes DrawMeshTasksNV(first, count). Auralis maps
