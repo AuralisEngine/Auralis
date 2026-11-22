@@ -50,6 +50,8 @@ internal static class Program
             int skipped = 0;
             int failed = 0;
 
+            Run("disposed signal fence rejection preserves executable command lists", session, DisposedSignalFenceIsRejectedBeforeSubmission,
+                ref passed, ref skipped, ref failed);
             Run("buffer copy after dispose-before-submit", session, CopyBufferAfterRecordDispose,
                 ref passed, ref skipped, ref failed);
             Run("texture copy after dispose-before-submit", session, CopyTextureAfterRecordDispose,
@@ -81,6 +83,34 @@ internal static class Program
             Console.WriteLine($"Hardware integration result: {passed} passed, {skipped} skipped, {failed} failed.");
             return failed == 0 ? 0 : 1;
         }
+    }
+
+    private static void DisposedSignalFenceIsRejectedBeforeSubmission(GlfwOpenGLHardwareSession session)
+    {
+        IGraphicsDevice device = session.Device;
+        IGraphicsCommandQueue queue = device.GetQueue(GraphicsQueueType.Graphics);
+        using IGraphicsCommandList command = queue.CreateCommandList();
+        using IGraphicsFence fence = device.CreateFence();
+
+        command.Begin();
+        command.End();
+        fence.Dispose();
+
+        bool rejected = false;
+        try
+        {
+            queue.Submit([command], fence, 1);
+        }
+        catch (GraphicsValidationException)
+        {
+            rejected = true;
+        }
+
+        if (!rejected)
+            throw new InvalidOperationException("Submission accepted a disposed desktop OpenGL signal fence.");
+        if (command.State != GraphicsCommandListState.Executable)
+            throw new InvalidOperationException(
+                $"Disposed-fence validation changed the command list to {command.State}; expected Executable.");
     }
 
     private static void Run(

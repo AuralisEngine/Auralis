@@ -89,6 +89,13 @@ internal static class Program
             else
                 SkipTest("MRT rendering and attachment ordering", "at least two color attachments and draw buffers", "driver-reported attachment or draw-buffer limit is below two");
 
+            if (device.Capabilities.Limits.MaxColorAttachments >= 2 &&
+                device.Capabilities.Limits.MaxColorDrawBuffers >= 2 &&
+                ((OpenGLESGraphicsDevice)device).DrawBuffersIndexedApi is not null)
+                RunTest("MRT independent write masks survive clear operations", "GL_EXT_draw_buffers_indexed and at least two color attachments", () => RunMrtIndependentWriteMasks(device, context));
+            else
+                SkipTest("MRT independent write masks survive clear operations", "GL_EXT_draw_buffers_indexed and at least two color attachments", "indexed draw-buffer mask entry points or two color attachments/draw buffers are unavailable");
+
             bool hasIntegerColorAttachments =
                 device.Capabilities.TryGetFormatCapabilities(GraphicsFormat.RGBA8UInt, out GraphicsFormatCapabilities unsignedCaps) &&
                 unsignedCaps.Supports(GraphicsFormatSupport.ColorAttachment) &&
@@ -112,9 +119,15 @@ internal static class Program
                 SkipTest("subresource texture-view rendering and parent retention", "GL_EXT_texture_view or GL_OES_texture_view", "the extension or native texture-view entry point is unavailable");
 
             if (((OpenGLESGraphicsDevice)device).HasImageCopy)
+            {
                 RunTest("native full-resource image copy without destination attachment usage", "GL_EXT_copy_image or GL_OES_copy_image", () => RunNativeImageCopy(device, context));
+                SkipTest("framebuffer-blit copy restores the active render target between draws", "GLES framebuffer-blit fallback without native image-copy support", "native image-copy support is available, so CopyTexture selects the native path and does not exercise the fallback");
+            }
             else
-                SkipTest("native full-resource image copy without destination attachment usage", "GL_EXT_copy_image or GL_OES_copy_image", "neither image-copy extension and its entry point is available; the framebuffer-blit fallback is covered by the offscreen rendering case");
+            {
+                SkipTest("native full-resource image copy without destination attachment usage", "GL_EXT_copy_image or GL_OES_copy_image", "neither image-copy extension and its entry point is available");
+                RunTest("framebuffer-blit copy restores the active render target between draws", "GLES framebuffer-blit fallback without native image-copy support", () => RunFramebufferBlitCopyThenDraw(device, context));
+            }
 
             uint multisampleCount =
                 device.Capabilities.SupportsSampleCount(GraphicsFormat.RGBA8UNorm, 4) ? 4u :
@@ -360,6 +373,97 @@ internal static class Program
         invalid.End();
 
         Console.WriteLine("Validated MRT attachment-indexed clears, fragment output locations, attachment ordering, GPU pixel readback, and attachment-count rejection.");
+    }
+
+    private static void RunMrtIndependentWriteMasks(IGraphicsDevice device, GlfwOpenGLESContextProvider context)
+    {
+        if (device.Capabilities.Limits.MaxColorAttachments < 2 ||
+            device.Capabilities.Limits.MaxColorDrawBuffers < 2 ||
+            ((OpenGLESGraphicsDevice)device).DrawBuffersIndexedApi is null)
+            throw new GraphicsFeatureNotSupportedException(GraphicsFeature.IndependentBlend, GraphicsFeature.IndependentBlend);
+
+        using IGraphicsTexture first = device.CreateTexture(new GraphicsTextureDescription(
+            GraphicsTextureDimension.Texture2D, GraphicsFormat.RGBA8UNorm,
+            64, 64, 1, 1, 1, 1, GraphicsTextureUsage.ColorAttachment));
+        using IGraphicsTexture second = device.CreateTexture(new GraphicsTextureDescription(
+            GraphicsTextureDimension.Texture2D, GraphicsFormat.RGBA8UNorm,
+            64, 64, 1, 1, 1, 1, GraphicsTextureUsage.ColorAttachment));
+        using IGraphicsTextureView firstView = first.CreateView(new GraphicsTextureViewDescription(
+            GraphicsFormat.Unknown, GraphicsTextureViewType.Texture2D, 0, 1, 0, 1));
+        using IGraphicsTextureView secondView = second.CreateView(new GraphicsTextureViewDescription(
+            GraphicsFormat.Unknown, GraphicsTextureViewType.Texture2D, 0, 1, 0, 1));
+
+        using IGraphicsPipelineLayout layout = device.CreatePipelineLayout(Array.Empty<IGraphicsBindingLayout>());
+        using IGraphicsShader vertex = device.CreateShader(new GraphicsShaderDescription
+        {
+            Stage = GraphicsShaderStage.Vertex,
+            Format = GraphicsShaderFormat.GlslSource,
+            Code = Encoding.UTF8.GetBytes(
+                """
+                #version 310 es
+                const vec2 positions[3] = vec2[3](
+                    vec2(-1.0, -1.0),
+                    vec2( 3.0, -1.0),
+                    vec2(-1.0,  3.0));
+                void main() { gl_Position = vec4(positions[gl_VertexID], 0.0, 1.0); }
+                """)
+        });
+        using IGraphicsShader fragment = device.CreateShader(new GraphicsShaderDescription
+        {
+            Stage = GraphicsShaderStage.Fragment,
+            Format = GraphicsShaderFormat.GlslSource,
+            Code = Encoding.UTF8.GetBytes(
+                """
+                #version 310 es
+                precision highp float;
+                layout(location = 0) out vec4 firstOutput;
+                layout(location = 1) out vec4 secondOutput;
+                void main()
+                {
+                    firstOutput = vec4(200.0, 210.0, 220.0, 230.0) / 255.0;
+                    secondOutput = vec4(140.0, 160.0, 180.0, 200.0) / 255.0;
+                }
+                """)
+        });
+
+        GraphicsBlendAttachmentState[] states =
+        [
+            new(false, GraphicsBlendFactor.One, GraphicsBlendFactor.Zero, GraphicsBlendOperation.Add,
+                GraphicsBlendFactor.One, GraphicsBlendFactor.Zero, GraphicsBlendOperation.Add,
+                GraphicsColorWriteMask.Red),
+            new(false, GraphicsBlendFactor.One, GraphicsBlendFactor.Zero, GraphicsBlendOperation.Add,
+                GraphicsBlendFactor.One, GraphicsBlendFactor.Zero, GraphicsBlendOperation.Add,
+                GraphicsColorWriteMask.Green | GraphicsColorWriteMask.Alpha)
+        ];
+        GraphicsBlendState blend = new(states);
+        IGraphicsShader[] shaders = [vertex, fragment];
+        GraphicsFormat[] formats = [GraphicsFormat.RGBA8UNorm, GraphicsFormat.RGBA8UNorm];
+        using IGraphicsRenderPipeline pipeline = device.CreateRenderPipeline(
+            new GraphicsRenderPipelineDescription(
+                layout, shaders, GraphicsPrimitiveTopology.TriangleList, formats, blend: blend));
+
+        IGraphicsTextureView[] targets = [firstView, secondView];
+        IGraphicsCommandQueue queue = device.GetQueue(GraphicsQueueType.Graphics);
+        using IGraphicsCommandList command = queue.CreateCommandList();
+        using IGraphicsFence fence = device.CreateFence();
+
+        command.Begin();
+        command.SetRenderTargets(targets);
+        command.SetViewport(new GraphicsViewport(0, 0, 64, 64));
+        command.SetScissor(new GraphicsScissorRect(0, 0, 64, 64));
+        command.SetRenderPipeline(pipeline);
+        command.ClearColor(0, new GraphicsClearColor(16f / 255f, 32f / 255f, 48f / 255f, 64f / 255f));
+        command.ClearColor(1, new GraphicsClearColor(80f / 255f, 96f / 255f, 112f / 255f, 128f / 255f));
+        command.Draw(3);
+        command.End();
+
+        queue.Submit([command], fence, 1);
+        if (!fence.Wait(1, TimeSpan.FromSeconds(10)))
+            throw new TimeoutException("The GLES MRT independent-mask fence did not complete.");
+
+        AssertPixelNear(ReadRgba8Pixel(device, context, firstView), 200, 32, 48, 64);
+        AssertPixelNear(ReadRgba8Pixel(device, context, secondView), 80, 160, 112, 200);
+        Console.WriteLine("Validated independent indexed color write masks across pipeline binding, typed clears, subsequent drawing, and GPU readback.");
     }
 
     private static void RunIntegerColorClears(IGraphicsDevice device, GlfwOpenGLESContextProvider context)
@@ -996,6 +1100,99 @@ internal static class Program
         Console.WriteLine("PASS: GLES vertex/fragment compilation, graphics pipeline link, FBO attachments, viewport/scissor, color/depth/stencil clear, combined sampled-texture/sampler binding, draw, and validated color-texture blit copy.");
     }
 
+
+    private static void RunFramebufferBlitCopyThenDraw(
+        IGraphicsDevice device,
+        GlfwOpenGLESContextProvider context)
+    {
+        if (((OpenGLESGraphicsDevice)device).HasImageCopy)
+            throw new InvalidOperationException("The driver exposes native image copy; this test would not exercise the blit fallback.");
+
+        using IGraphicsTexture source = device.CreateTexture(new GraphicsTextureDescription(
+            GraphicsTextureDimension.Texture2D, GraphicsFormat.RGBA8UNorm,
+            64, 64, 1, 1, 1, 1,
+            GraphicsTextureUsage.ColorAttachment | GraphicsTextureUsage.CopySource));
+        using IGraphicsTexture destination = device.CreateTexture(new GraphicsTextureDescription(
+            GraphicsTextureDimension.Texture2D, GraphicsFormat.RGBA8UNorm,
+            64, 64, 1, 1, 1, 1,
+            GraphicsTextureUsage.ColorAttachment | GraphicsTextureUsage.CopyDestination));
+        using IGraphicsTextureView sourceView = source.CreateView(new GraphicsTextureViewDescription(
+            GraphicsFormat.Unknown, GraphicsTextureViewType.Texture2D, 0, 1, 0, 1));
+        using IGraphicsTextureView destinationView = destination.CreateView(new GraphicsTextureViewDescription(
+            GraphicsFormat.Unknown, GraphicsTextureViewType.Texture2D, 0, 1, 0, 1));
+
+        using IGraphicsPipelineLayout layout = device.CreatePipelineLayout(Array.Empty<IGraphicsBindingLayout>());
+        using IGraphicsShader vertex = device.CreateShader(new GraphicsShaderDescription
+        {
+            Stage = GraphicsShaderStage.Vertex,
+            Format = GraphicsShaderFormat.GlslSource,
+            Code = Encoding.UTF8.GetBytes(
+                """
+                #version 310 es
+                const vec2 positions[3] = vec2[3](
+                    vec2(-1.0, -1.0),
+                    vec2( 3.0, -1.0),
+                    vec2(-1.0,  3.0));
+                void main() { gl_Position = vec4(positions[gl_VertexID], 0.0, 1.0); }
+                """)
+        });
+        using IGraphicsShader firstFragment = device.CreateShader(new GraphicsShaderDescription
+        {
+            Stage = GraphicsShaderStage.Fragment,
+            Format = GraphicsShaderFormat.GlslSource,
+            Code = Encoding.UTF8.GetBytes(
+                """
+                #version 310 es
+                precision highp float;
+                layout(location = 0) out vec4 outputColor;
+                void main() { outputColor = vec4(1.0, 0.0, 0.0, 1.0); }
+                """)
+        });
+        using IGraphicsShader secondFragment = device.CreateShader(new GraphicsShaderDescription
+        {
+            Stage = GraphicsShaderStage.Fragment,
+            Format = GraphicsShaderFormat.GlslSource,
+            Code = Encoding.UTF8.GetBytes(
+                """
+                #version 310 es
+                precision highp float;
+                layout(location = 0) out vec4 outputColor;
+                void main() { outputColor = vec4(0.0, 1.0, 0.0, 1.0); }
+                """)
+        });
+
+        IGraphicsShader[] firstShaders = [vertex, firstFragment];
+        IGraphicsShader[] secondShaders = [vertex, secondFragment];
+        GraphicsFormat[] formats = [GraphicsFormat.RGBA8UNorm];
+        using IGraphicsRenderPipeline firstPipeline = device.CreateRenderPipeline(
+            new GraphicsRenderPipelineDescription(layout, firstShaders, GraphicsPrimitiveTopology.TriangleList, formats));
+        using IGraphicsRenderPipeline secondPipeline = device.CreateRenderPipeline(
+            new GraphicsRenderPipelineDescription(layout, secondShaders, GraphicsPrimitiveTopology.TriangleList, formats));
+
+        IGraphicsTextureView[] targets = [sourceView];
+        IGraphicsCommandQueue queue = device.GetQueue(GraphicsQueueType.Graphics);
+        using IGraphicsCommandList command = queue.CreateCommandList();
+        using IGraphicsFence fence = device.CreateFence();
+
+        command.Begin();
+        command.SetRenderTargets(targets);
+        command.SetViewport(new GraphicsViewport(0, 0, 64, 64));
+        command.SetScissor(new GraphicsScissorRect(0, 0, 64, 64));
+        command.SetRenderPipeline(firstPipeline);
+        command.Draw(3);
+        command.CopyTexture(source, destination);
+        command.SetRenderPipeline(secondPipeline);
+        command.Draw(3);
+        command.End();
+
+        queue.Submit([command], fence, 1);
+        if (!fence.Wait(1, TimeSpan.FromSeconds(10)))
+            throw new TimeoutException("The GLES framebuffer-blit copy regression fence did not complete.");
+
+        AssertPixelNear(ReadRgba8Pixel(device, context, destinationView), 255, 0, 0, 255);
+        AssertPixelNear(ReadRgba8Pixel(device, context, sourceView), 0, 255, 0, 255);
+        Console.WriteLine("Validated framebuffer-blit CopyTexture within one command list: the copied image retained the first draw and the original render framebuffer accepted the second draw.");
+    }
 
     private static void RunComputeDescriptorTypesAndSnapshots(
         IGraphicsDevice device,
