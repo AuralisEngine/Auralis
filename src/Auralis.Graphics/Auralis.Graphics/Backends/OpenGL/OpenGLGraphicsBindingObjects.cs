@@ -51,7 +51,7 @@ internal sealed class OpenGLGraphicsBindingLayout : GraphicsDeviceObject, IGraph
         }
 
         ValueCount = valueOffset;
-        Description = new GraphicsBindingLayoutDescription(description.Entries);
+        Description = description;
     }
 
     public GraphicsBindingLayoutDescription Description { get; }
@@ -96,12 +96,8 @@ internal sealed class OpenGLGraphicsPipelineLayout : GraphicsDeviceObject, IGrap
                 throw new GraphicsValidationException("Every pipeline binding layout must belong to this OpenGL device.");
         }
 
-        GraphicsBindingLayoutDescription[] descriptions = new GraphicsBindingLayoutDescription[_bindingLayouts.Length];
-        for (int i = 0; i < _bindingLayouts.Length; i++)
-            descriptions[i] = ((OpenGLGraphicsBindingLayout)_bindingLayouts[i]).Description;
-
         _mappings = OpenGLDescriptorBindingAllocator.Allocate(
-            descriptions,
+            _bindingLayouts,
             device.MaxUniformBufferBindings,
             device.MaxStorageBufferBindings,
             device.MaxTextureUnits,

@@ -1,3 +1,4 @@
+using System.Buffers;
 using Auralis.Graphics.Abstractions;
 using Auralis.Graphics.Devices;
 using Auralis.Graphics.Pipelines;
@@ -21,7 +22,6 @@ internal readonly record struct OpenGLESDescriptorMapping(
 
 internal sealed class OpenGLESGraphicsBindingLayout : GraphicsDeviceObject, IGraphicsBindingLayout
 {
-    private readonly GraphicsBindingLayoutEntry[] _entries;
     private readonly int[] _offsets;
     private readonly int _valueCount;
 
@@ -31,37 +31,38 @@ internal sealed class OpenGLESGraphicsBindingLayout : GraphicsDeviceObject, IGra
         ArgumentNullException.ThrowIfNull(description);
         description.Validate();
 
-        _entries = description.Entries.ToArray();
-        _offsets = new int[_entries.Length];
+        Description = description;
+        ReadOnlySpan<GraphicsBindingLayoutEntry> entries = Description.Entries;
+        _offsets = new int[entries.Length];
         int count = 0;
-        for (int i = 0; i < _entries.Length; i++)
+        for (int i = 0; i < entries.Length; i++)
         {
-            GraphicsBindingFlags unsupported = _entries[i].Flags &
+            GraphicsBindingFlags unsupported = entries[i].Flags &
                 ~(GraphicsBindingFlags.PartiallyBound);
             if (unsupported != GraphicsBindingFlags.None)
                 throw new GraphicsValidationException(
                     $"OpenGL ES does not implement descriptor flags: {unsupported}.");
             _offsets[i] = count;
-            count = checked(count + (int)_entries[i].Count);
+            count = checked(count + (int)entries[i].Count);
         }
 
         _valueCount = count;
-        Description = new GraphicsBindingLayoutDescription(_entries);
     }
 
     public GraphicsBindingLayoutDescription Description { get; }
 
-    internal ReadOnlySpan<GraphicsBindingLayoutEntry> Entries => _entries;
+    internal ReadOnlySpan<GraphicsBindingLayoutEntry> Entries => Description.Entries;
 
     internal int ValueCount => _valueCount;
 
     internal bool TryGetEntry(uint binding, out GraphicsBindingLayoutEntry entry, out int offset)
     {
-        for (int i = 0; i < _entries.Length; i++)
+        ReadOnlySpan<GraphicsBindingLayoutEntry> entries = Description.Entries;
+        for (int i = 0; i < entries.Length; i++)
         {
-            if (_entries[i].Binding == binding)
+            if (entries[i].Binding == binding)
             {
-                entry = _entries[i];
+                entry = entries[i];
                 offset = _offsets[i];
                 return true;
             }
@@ -94,33 +95,63 @@ internal sealed class OpenGLESGraphicsPipelineLayout : GraphicsDeviceObject, IGr
                     "Every pipeline binding layout must belong to this OpenGL ES device.");
         }
 
-        List<OpenGLESDescriptorMapping> mappings = new();
-        uint uniformSlot = 0;
-        uint storageSlot = 0;
-        uint textureSlot = 0;
-        uint imageSlot = 0;
-        for (uint set = 0; set < (uint)_bindingLayouts.Length; set++)
+        int mappingCount = 0;
+        int scratchLength = 0;
+        for (int i = 0; i < _bindingLayouts.Length; i++)
         {
-            OpenGLESGraphicsBindingLayout layout = (OpenGLESGraphicsBindingLayout)_bindingLayouts[(int)set];
-            GraphicsBindingLayoutEntry[] ordered = layout.Entries.ToArray();
-            Array.Sort(ordered, static (left, right) => left.Binding.CompareTo(right.Binding));
-            for (int i = 0; i < ordered.Length; i++)
-            {
-                GraphicsBindingLayoutEntry entry = ordered[i];
-                ref uint nextSlot = ref GetNextSlot(entry.Type, ref uniformSlot, ref storageSlot, ref textureSlot, ref imageSlot);
-                uint baseSlot = nextSlot;
-                nextSlot = checked(nextSlot + entry.Count);
-                mappings.Add(new OpenGLESDescriptorMapping(set, entry.Binding, entry.Type, baseSlot));
-            }
+            ReadOnlySpan<GraphicsBindingLayoutEntry> entries =
+                ((OpenGLESGraphicsBindingLayout)_bindingLayouts[i]).Entries;
+            mappingCount = checked(mappingCount + entries.Length);
+            scratchLength = Math.Max(scratchLength, entries.Length);
         }
 
-        if (uniformSlot > device.MaxUniformBufferBindings ||
-            storageSlot > device.MaxStorageBufferBindings ||
-            textureSlot > device.MaxTextureUnits ||
-            imageSlot > device.MaxImageUnits)
-            throw new GraphicsValidationException("The pipeline layout exceeds the OpenGL ES descriptor binding limits.");
+        _mappings = new OpenGLESDescriptorMapping[mappingCount];
+        Span<GraphicsBindingLayoutEntry> stackScratch = stackalloc GraphicsBindingLayoutEntry[32];
+        GraphicsBindingLayoutEntry[]? rentedScratch = null;
+        Span<GraphicsBindingLayoutEntry> scratch = stackScratch;
+        if (scratchLength > stackScratch.Length)
+        {
+            rentedScratch = ArrayPool<GraphicsBindingLayoutEntry>.Shared.Rent(scratchLength);
+            scratch = rentedScratch;
+        }
 
-        _mappings = mappings.ToArray();
+        try
+        {
+            uint uniformSlot = 0;
+            uint storageSlot = 0;
+            uint textureSlot = 0;
+            uint imageSlot = 0;
+            int mappingIndex = 0;
+            for (uint set = 0; set < (uint)_bindingLayouts.Length; set++)
+            {
+                OpenGLESGraphicsBindingLayout layout = (OpenGLESGraphicsBindingLayout)_bindingLayouts[(int)set];
+                ReadOnlySpan<GraphicsBindingLayoutEntry> entries = layout.Entries;
+                Span<GraphicsBindingLayoutEntry> ordered = scratch[..entries.Length];
+                entries.CopyTo(ordered);
+                SortByBinding(ordered);
+
+                for (int i = 0; i < ordered.Length; i++)
+                {
+                    GraphicsBindingLayoutEntry entry = ordered[i];
+                    ref uint nextSlot = ref GetNextSlot(entry.Type, ref uniformSlot, ref storageSlot, ref textureSlot, ref imageSlot);
+                    uint baseSlot = nextSlot;
+                    nextSlot = checked(nextSlot + entry.Count);
+                    _mappings[mappingIndex++] =
+                        new OpenGLESDescriptorMapping(set, entry.Binding, entry.Type, baseSlot);
+                }
+            }
+
+            if (uniformSlot > device.MaxUniformBufferBindings ||
+                storageSlot > device.MaxStorageBufferBindings ||
+                textureSlot > device.MaxTextureUnits ||
+                imageSlot > device.MaxImageUnits)
+                throw new GraphicsValidationException("The pipeline layout exceeds the OpenGL ES descriptor binding limits.");
+        }
+        finally
+        {
+            if (rentedScratch is not null)
+                ArrayPool<GraphicsBindingLayoutEntry>.Shared.Return(rentedScratch);
+        }
         BindingLayouts = _bindingLayouts;
     }
 
@@ -144,6 +175,21 @@ internal sealed class OpenGLESGraphicsPipelineLayout : GraphicsDeviceObject, IGr
 
         mapping = default;
         return false;
+    }
+
+    private static void SortByBinding(Span<GraphicsBindingLayoutEntry> entries)
+    {
+        for (int i = 1; i < entries.Length; i++)
+        {
+            GraphicsBindingLayoutEntry value = entries[i];
+            int index = i;
+            while (index > 0 && entries[index - 1].Binding > value.Binding)
+            {
+                entries[index] = entries[index - 1];
+                index--;
+            }
+            entries[index] = value;
+        }
     }
 
     private static ref uint GetNextSlot(
