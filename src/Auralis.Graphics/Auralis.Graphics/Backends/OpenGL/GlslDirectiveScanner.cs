@@ -71,7 +71,11 @@ internal static class GlslDirectiveScanner
                     if (rentedLineBuffer is null || rentedLineBuffer.Length < sourceLine.Length)
                     {
                         if (rentedLineBuffer is not null)
-                            ArrayPool<char>.Shared.Return(rentedLineBuffer);
+                        {
+                            char[] previousBuffer = rentedLineBuffer;
+                            rentedLineBuffer = null;
+                            ArrayPool<char>.Shared.Return(previousBuffer);
+                        }
                         rentedLineBuffer = ArrayPool<char>.Shared.Rent(sourceLine.Length);
                     }
 
