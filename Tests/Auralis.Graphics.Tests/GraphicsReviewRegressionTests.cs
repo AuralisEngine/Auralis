@@ -81,6 +81,11 @@ public sealed class GraphicsReviewRegressionTests
         Assert.True(GraphicsContextGate.TryEnter(
             lockGate, TimeSpan.FromMilliseconds(100), CancellationToken.None));
         lockGate.Exit();
+        Assert.True(GraphicsContextGate.TryEnter(lockGate, TimeSpan.MaxValue, CancellationToken.None));
+        lockGate.Exit();
+
+        Assert.True(GraphicsContextGate.TryEnter(monitorGate, TimeSpan.MaxValue, CancellationToken.None));
+        Monitor.Exit(monitorGate);
     }
 
     [Fact]
