@@ -432,10 +432,4 @@ internal static class OpenGLESTextureViewValidation
         };
     }
 
-    internal static void EnsureNativeSupport(bool isIdentity, bool nativeEntryPointAvailable)
-    {
-        if (!isIdentity && !nativeEntryPointAvailable)
-            throw new GraphicsValidationException(
-                "Subresource or format-reinterpreted GLES texture views require GL_EXT_texture_view or GL_OES_texture_view and the corresponding native entry point.");
-    }
 }
