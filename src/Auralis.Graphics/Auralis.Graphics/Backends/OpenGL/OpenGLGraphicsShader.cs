@@ -115,6 +115,12 @@ internal sealed unsafe class OpenGLGraphicsShader : OpenGLNativeDeviceObject, IG
                 device.MeshShaderApi is not null,
                 device.NvMeshShaderApi is not null,
                 requiredFeature);
+
+            bool dialectStageSupported = description.Stage == GraphicsShaderStage.Mesh
+                ? device.MeshShaderCapabilities.SupportsMeshShader(meshShaderDialect)
+                : device.MeshShaderCapabilities.SupportsTaskShader(meshShaderDialect);
+            if (!dialectStageSupported)
+                throw new GraphicsFeatureNotSupportedException(requiredFeature, requiredFeature);
         }
 
         GraphicsShaderDescription shaderDescription = description;
