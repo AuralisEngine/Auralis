@@ -5,7 +5,7 @@ using Silk.NET.GLFW;
 namespace Auralis.Graphics.OpenGL.TestSupport;
 
 /// <summary>
-/// Creates a hidden GLFW OpenGL ES 3.1 context for opt-in driver tests only. This helper lives in test
+/// Creates a hidden GLFW OpenGL ES 3.1 context for hardware integration tests. This helper lives in test
 /// support; the graphics backend itself receives the already-created context and owns no EGL/Android code.
 /// </summary>
 public sealed unsafe class GlfwOpenGLESContextProvider : IOpenGLESContextProvider
@@ -30,7 +30,7 @@ public sealed unsafe class GlfwOpenGLESContextProvider : IOpenGLESContextProvide
         try
         {
             if (!glfw.Init())
-                throw new InvalidOperationException("GLFW could not initialize. A usable display/session and GLFW native library are required.");
+                throw new HardwareContextUnavailableException("GLFW could not initialize. A usable display/session and GLFW native library are required.");
 
             initialized = true;
             glfw.DefaultWindowHints();
@@ -42,11 +42,11 @@ public sealed unsafe class GlfwOpenGLESContextProvider : IOpenGLESContextProvide
 
             window = glfw.CreateWindow(64, 64, "Auralis OpenGL ES Hardware Tests", null, null);
             if (window is null)
-                throw new InvalidOperationException("GLFW could not create a hidden OpenGL ES 3.1 context.");
+                throw new HardwareContextUnavailableException("GLFW could not create a hidden OpenGL ES 3.1 context.");
 
             glfw.MakeContextCurrent(window);
             if (glfw.GetCurrentContext() != window)
-                throw new InvalidOperationException("GLFW failed to make the OpenGL ES context current.");
+                throw new HardwareContextUnavailableException("GLFW failed to make the OpenGL ES context current.");
 
             return new GlfwOpenGLESContextProvider(glfw, window);
         }

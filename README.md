@@ -21,6 +21,7 @@ The default branch currently contains the core libraries and the backend-indepen
 | `Auralis.Graphics` | Backend-independent graphics contracts: device/provider creation, resources, commands, pipelines, synchronization, capabilities, validation, and presentation interop. **The current default branch does not contain a concrete native graphics backend.** |
 | `Auralis.Tools.AssetPipeline.Interchange` | Initial FBX document/node model and reader/writer foundation. The full binary/ASCII parser and scene importer are being developed in [PR #9](https://github.com/mahdikshk/Auralis/pull/9). |
 | `Tests/Auralis.Graphics.Tests` | Hardware-independent tests for the graphics abstraction and its validation/lifecycle contracts. |
+| `Tests/Auralis.Graphics.OpenGL.IntegrationTests` and `Tests/Auralis.Graphics.OpenGLES.IntegrationTests` | Automatically discovered desktop OpenGL and OpenGL ES driver integration tests. They run when a compatible context is available and are reported as skipped when the host cannot provide one. |
 
 The graphics API is intentionally separate from window creation and platform integration. A host application or platform layer is responsible for supplying native presentation handles; a graphics backend is responsible for translating Auralis contracts to its native API.
 
@@ -44,7 +45,10 @@ Auralis/
 │       └── AssetPipeline/
 │           └── Auralis.Tools.AssetPipeline.Interchange/
 └── Tests/
-    └── Auralis.Graphics.Tests/
+    ├── Auralis.Graphics.Tests/
+    ├── Auralis.Graphics.OpenGL.TestSupport/
+    ├── Auralis.Graphics.OpenGL.IntegrationTests/
+    └── Auralis.Graphics.OpenGLES.IntegrationTests/
 ```
 
 The solution also reserves folders for future areas such as animation, audio, editor tooling, memory, physics, platform integration, rendering, scenes, simulation, and world management. A folder entry in the solution does not imply that the corresponding subsystem is implemented.
@@ -67,7 +71,7 @@ dotnet build Auralis.slnx --configuration Release
 dotnet test Auralis.slnx --configuration Release
 ```
 
-These commands validate the projects and tests currently included in the checked-out branch. The draft pull requests below add their own projects and validation workflows.
+On `feature/opengl-backend-silknet`, the final command discovers and runs the hardware-independent graphics tests plus the desktop OpenGL and OpenGL ES integration tests. The integration tests attempt to create their required contexts automatically. When a compatible display, GLFW native library, driver, or API version is unavailable, the affected tests are reported as skipped with a reason; test failures remain failures. No environment variables or test-specific command-line flags are required.
 
 ## Work in progress
 
@@ -125,7 +129,7 @@ Current work in the branch includes:
 - Desktop OpenGL EXT mesh/task shaders and a separate NV mesh/task path. EXT and NV GLSL dialects cannot be mixed. NV supports direct one-dimensional dispatch; NV indirect remains unsupported because its native `{ count, first }` record does not match Auralis's common three-dimensional indirect command.
 - GLES multiple render targets, typed integer clears, independent blending when `GL_EXT_draw_buffers_indexed` is available, native/fallback multi-draw indirect, extension-gated base-vertex/base-instance drawing, ES 3.2 tessellation patch counts, multisample textures, texture views, image-copy extensions, and optional EXT mesh/task shaders.
 - Per-format GLES capability reporting. `BGRA8UNorm` and `BGRA8UNormSrgb` are not mapped or advertised; compressed formats and some depth/float usages are extension/version-gated.
-- Opt-in desktop and GLES hardware integration runners, hardware-independent regression tests, and a separate BenchmarkDotNet project.
+- Automatically discovered desktop OpenGL and OpenGL ES xUnit integration tests, hardware-independent regression tests, and a separate BenchmarkDotNet project.
 
 **Platform and API boundaries:**
 
@@ -136,7 +140,7 @@ Current work in the branch includes:
 - Descriptor indexing, update-after-bind, variable descriptor counts, sparse residency, timestamp-query result retrieval, and multi-viewport remain unimplemented because the current common contracts do not express their required semantics.
 - Desktop NV indirect mesh drawing remains rejected because its argument layout is incompatible with the common indirect command.
 
-**Validation:** [Graphics validation run #467](https://github.com/mahdikshk/Auralis/actions/runs/45020934100), on commit `25abc5c783e8929ba980e5da11d8e1cfd97e93ca` (the implementation and integration-test state immediately before this validation-record-only documentation commit), successfully built all four Release targets with **0 warnings and 0 errors** and passed **242 hardware-independent tests** (0 failed, 0 skipped). CI built both hardware integration runners and the BenchmarkDotNet project; it did not execute either runner against a driver or run benchmarks. The authoritative detailed test/limitation record is in the [Auralis.Graphics documentation](src/Auralis.Graphics/Auralis.Graphics/README.md).
+**Earlier validation (before the integration runners became test projects):** [Graphics validation run #467](https://github.com/mahdikshk/Auralis/actions/runs/45020934100) built the graphics targets and passed **242 hardware-independent tests**. That historical run built, but did not execute, the hardware runners. The workflow now runs `dotnet test Auralis.slnx --configuration Release`, which executes the discoverable integration tests and reports unavailable hardware as skipped. A headless runner may therefore show hardware skips; that is not a real-driver pass. The authoritative test and limitation record is in the [Auralis.Graphics documentation](src/Auralis.Graphics/Auralis.Graphics/README.md).
 ## Planned areas
 
 The solution reserves space for additional engine subsystems, but they should not be considered available features until implementation work lands. Areas include rendering, physics, audio, animation, scene/world management, platform integration, editor tooling, and a serialized asset format.

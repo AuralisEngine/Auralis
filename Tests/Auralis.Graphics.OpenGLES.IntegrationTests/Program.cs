@@ -8,158 +8,118 @@ using Auralis.Graphics.Pipelines;
 using Auralis.Graphics.Resources;
 using Auralis.Graphics.Synchronization;
 using Silk.NET.OpenGLES;
+using Xunit;
+using Xunit.Sdk;
 
 namespace Auralis.Graphics.OpenGLES.IntegrationTests;
 
-internal static class Program
+public sealed partial class OpenGLESIntegrationTests : IClassFixture<OpenGLESHardwareFixture>
 {
-    private const string RunVariable = "AURALIS_RUN_OPENGLES_HARDWARE_TESTS";
 
-    private static async Task<int> Main()
+    private readonly OpenGLESHardwareFixture _fixture;
+    public OpenGLESIntegrationTests(OpenGLESHardwareFixture fixture) => _fixture = fixture;
+    private void RunHardwareTest(Action<IGraphicsDevice> test) => test(_fixture.GetDeviceOrSkip());
+    private void RunHardwareTest(Action<IGraphicsDevice, GlfwOpenGLESContextProvider> test) =>
+        test(_fixture.GetDeviceOrSkip(), _fixture.GetContextOrSkip());
+    private static void Skip(string reason) => throw SkipException.ForSkip(reason);
+
+    [Fact] public void NestedContextProviderActivationIsBalanced() => RunHardwareTest((device, context) => RunNestedContextActivation(device, context));
+    [Fact] public void FenceWaitTimeoutIsBoundedByContextGateContention() => RunHardwareTest(device => RunFenceWaitTimeoutUnderContextContention(device));
+    [Fact] public void BufferCopyMappingAndFenceWork() => RunHardwareTest(device => RunBufferCopyAndFence(device));
+    [Fact] public void ComputeDispatchAndSsboReadbackWork() => RunHardwareTest(device => RunComputeDispatch(device));
+    [Fact] public void DescriptorTypesSnapshotsAndGpuOutputWork() => RunHardwareTest((device, context) => RunComputeDescriptorTypesAndSnapshots(device, context));
+    [Fact] public void ComputePipelineLayoutSwitchingWorks() => RunHardwareTest(device => RunComputePipelineLayoutSwitch(device));
+    [Fact] public void TextureAndSamplerAllocationWork() => RunHardwareTest(device => RunTextureAndSamplerResources(device));
+    [Fact] public void ResourceRetentionAfterRecordingWorks() => RunHardwareTest(device => RunResourceRetentionAfterRecording(device));
+    [Fact] public void ReusableCommandListResubmissionWorks() => RunHardwareTest(device => RunReusableCommandListAfterOwnerDisposal(device));
+    [Fact] public void OffscreenGraphicsPipelineWorks() => RunHardwareTest((device, context) => RunOffscreenGraphicsPipeline(device, context));
+
+    [Fact]
+    public void MrtRenderingAndAttachmentOrderingWork()
     {
-        if (!string.Equals(Environment.GetEnvironmentVariable(RunVariable), "1", StringComparison.Ordinal))
-        {
-            Console.WriteLine($"SKIP: set {RunVariable}=1 to execute tests against an actual OpenGL ES 3.1+ context.");
-            return 77;
-        }
-
-        GlfwOpenGLESContextProvider context;
-        try
-        {
-            context = GlfwOpenGLESContextProvider.Create();
-        }
-        catch (Exception exception)
-        {
-            Console.WriteLine($"SKIP: GLFW could not create a host OpenGL ES context: {exception.Message}");
-            return 77;
-        }
-
-        IGraphicsDevice? device = null;
-        try
-        {
-            GraphicsBackendProviderRegistry registry = new();
-            registry.Register(new OpenGLESGraphicsBackendProvider(context));
-
-            device = await GraphicsDeviceFactory.CreateAsync(
-                registry,
-                new GraphicsDeviceOptions
-                {
-                    Backend = GraphicsBackend.OpenGLES,
-                    RequiredQueues = GraphicsQueueCapabilities.Graphics | GraphicsQueueCapabilities.Compute
-                });
-
-            Console.WriteLine($"OpenGL ES driver: {device.Info.Name}; API: {device.Info.ApiVersion}; driver: {device.Info.DriverVersion}");
-
-            int passed = 0;
-            int skipped = 0;
-            int failed = 0;
-
-            void RunTest(string name, string requirements, Action test)
-            {
-                try
-                {
-                    test();
-                    passed++;
-                    Console.WriteLine($"PASS: {name} (requires {requirements}).");
-                }
-                catch (Exception exception)
-                {
-                    failed++;
-                    Console.Error.WriteLine($"FAIL: {name} (requires {requirements}): {exception}");
-                }
-            }
-
-            void SkipTest(string name, string requirements, string reason)
-            {
-                skipped++;
-                Console.WriteLine($"SKIP: {name} (requires {requirements}): {reason}");
-            }
-
-            RunTest("nested context-provider activation is balanced", "GLFW currentable GLES context", () => RunNestedContextActivation(device, context));
-            RunTest("fence timeout is bounded by context-gate contention", "unsignaled GLES fence and held device context", () => RunFenceWaitTimeoutUnderContextContention(device));
-            RunTest("buffer copy, mapping, and fence", "OpenGL ES 3.1", () => RunBufferCopyAndFence(device));
-            RunTest("compute dispatch and SSBO readback", "OpenGL ES 3.1", () => RunComputeDispatch(device));
-            RunTest("descriptor types, recording snapshots, and GPU output", "OpenGL ES 3.1", () => RunComputeDescriptorTypesAndSnapshots(device, context));
-            RunTest("compute pipeline-layout switching", "OpenGL ES 3.1", () => RunComputePipelineLayoutSwitch(device));
-            RunTest("texture and sampler allocation", "OpenGL ES 3.1", () => RunTextureAndSamplerResources(device));
-            RunTest("resource retention after recording", "OpenGL ES 3.1", () => RunResourceRetentionAfterRecording(device));
-            RunTest("reusable command-list resubmission", "OpenGL ES 3.1", () => RunReusableCommandListAfterOwnerDisposal(device));
-            RunTest("offscreen graphics pipeline", "OpenGL ES 3.1", () => RunOffscreenGraphicsPipeline(device, context));
-            if (device.Capabilities.Limits.MaxColorAttachments >= 2 &&
-                device.Capabilities.Limits.MaxColorDrawBuffers >= 2)
-                RunTest("MRT rendering and attachment ordering", "OpenGL ES 3.1, at least two color attachments", () => RunMrtRendering(device, context));
-            else
-                SkipTest("MRT rendering and attachment ordering", "at least two color attachments and draw buffers", "driver-reported attachment or draw-buffer limit is below two");
-
-            if (device.Capabilities.Limits.MaxColorAttachments >= 2 &&
-                device.Capabilities.Limits.MaxColorDrawBuffers >= 2 &&
-                ((OpenGLESGraphicsDevice)device).DrawBuffersIndexedApi is not null)
-                RunTest("MRT independent write masks survive clear operations", "GL_EXT_draw_buffers_indexed and at least two color attachments", () => RunMrtIndependentWriteMasks(device, context));
-            else
-                SkipTest("MRT independent write masks survive clear operations", "GL_EXT_draw_buffers_indexed and at least two color attachments", "indexed draw-buffer mask entry points or two color attachments/draw buffers are unavailable");
-
-            bool hasIntegerColorAttachments =
-                device.Capabilities.TryGetFormatCapabilities(GraphicsFormat.RGBA8UInt, out GraphicsFormatCapabilities unsignedCaps) &&
-                unsignedCaps.Supports(GraphicsFormatSupport.ColorAttachment) &&
-                device.Capabilities.TryGetFormatCapabilities(GraphicsFormat.RGBA8SInt, out GraphicsFormatCapabilities signedCaps) &&
-                signedCaps.Supports(GraphicsFormatSupport.ColorAttachment);
-            if (hasIntegerColorAttachments &&
-                device.Capabilities.Limits.MaxColorAttachments >= 3 &&
-                device.Capabilities.Limits.MaxColorDrawBuffers >= 3)
-                RunTest("typed signed/unsigned integer color clears", "signed and unsigned integer formats plus three color attachments", () => RunIntegerColorClears(device, context));
-            else
-                SkipTest("typed signed/unsigned integer color clears", "signed and unsigned integer formats plus three color attachments", "the driver lacks one of the required RGBA8 integer color formats or reports fewer than three color attachments/draw buffers");
-
-            string multiDrawPath = device.Capabilities.Features.Supports(GraphicsFeature.MultiDrawIndirect)
-                ? "native GL_EXT_multi_draw_indirect"
-                : "GPU-resident single-draw fallback";
-            RunTest("multi-command array and indexed indirect drawing", $"OpenGL ES 3.1, {multiDrawPath}", () => RunMultiDrawIndirect(device, context));
-
-            if (device.Capabilities.Features.Supports(GraphicsFeature.TextureViews))
-                RunTest("subresource texture-view rendering and parent retention", "GL_EXT_texture_view or GL_OES_texture_view", () => RunTextureViewSubresourceRendering(device, context));
-            else
-                SkipTest("subresource texture-view rendering and parent retention", "GL_EXT_texture_view or GL_OES_texture_view", "the extension or native texture-view entry point is unavailable");
-
-            if (((OpenGLESGraphicsDevice)device).HasImageCopy)
-            {
-                RunTest("native full-resource image copy without destination attachment usage", "GL_EXT_copy_image or GL_OES_copy_image", () => RunNativeImageCopy(device, context));
-                SkipTest("framebuffer-blit copy restores the active render target between draws", "GLES framebuffer-blit fallback without native image-copy support", "native image-copy support is available, so CopyTexture selects the native path and does not exercise the fallback");
-            }
-            else
-            {
-                SkipTest("native full-resource image copy without destination attachment usage", "GL_EXT_copy_image or GL_OES_copy_image", "neither image-copy extension and its entry point is available");
-                RunTest("framebuffer-blit copy restores the active render target between draws", "GLES framebuffer-blit fallback without native image-copy support", () => RunFramebufferBlitCopyThenDraw(device, context));
-            }
-
-            uint multisampleCount =
-                device.Capabilities.SupportsSampleCount(GraphicsFormat.RGBA8UNorm, 4) ? 4u :
-                device.Capabilities.SupportsSampleCount(GraphicsFormat.RGBA8UNorm, 2) ? 2u : 1u;
-            if (multisampleCount > 1)
-                RunTest("multisample framebuffer clear and shader sample readback", $"RGBA8 {multisampleCount}x sample support", () => RunMultisampleFramebuffer(device, context, multisampleCount));
-            else
-                SkipTest("multisample framebuffer clear and shader sample readback", "RGBA8 multisample sample-count support", "the driver reports only single-sample RGBA8 storage");
-
-            Console.WriteLine($"SUMMARY: {passed} passed, {skipped} skipped, {failed} failed.");
-            return failed == 0 ? 0 : 1;
-        }
-        catch (GraphicsBackendUnavailableException exception)
-        {
-            Console.WriteLine($"SKIP: the created context does not meet the OpenGL ES backend requirements: {exception.Message}");
-            return 77;
-        }
-        catch (Exception exception)
-        {
-            Console.Error.WriteLine($"FAIL: OpenGL ES hardware integration failed: {exception}");
-            return 1;
-        }
-        finally
-        {
-            if (device is not null)
-                device.Dispose();
-            else
-                context.Dispose();
-        }
+        IGraphicsDevice device = _fixture.GetDeviceOrSkip();
+        GlfwOpenGLESContextProvider context = _fixture.GetContextOrSkip();
+        if (device.Capabilities.Limits.MaxColorAttachments < 2 || device.Capabilities.Limits.MaxColorDrawBuffers < 2)
+            Skip($"MRT rendering requires at least two attachments and draw buffers; the driver reports {device.Capabilities.Limits.MaxColorAttachments} and {device.Capabilities.Limits.MaxColorDrawBuffers}.");
+        RunMrtRendering(device, context);
     }
+
+    [Fact]
+    public void MrtIndependentWriteMasksSurviveClearOperations()
+    {
+        IGraphicsDevice device = _fixture.GetDeviceOrSkip();
+        GlfwOpenGLESContextProvider context = _fixture.GetContextOrSkip();
+        if (device.Capabilities.Limits.MaxColorAttachments < 2 ||
+            device.Capabilities.Limits.MaxColorDrawBuffers < 2 ||
+            ((OpenGLESGraphicsDevice)device).DrawBuffersIndexedApi is null)
+            Skip("Independent MRT write masks require GL_EXT_draw_buffers_indexed and at least two color attachments/draw buffers.");
+        RunMrtIndependentWriteMasks(device, context);
+    }
+
+    [Fact]
+    public void TypedSignedAndUnsignedIntegerColorClearsWork()
+    {
+        IGraphicsDevice device = _fixture.GetDeviceOrSkip();
+        GlfwOpenGLESContextProvider context = _fixture.GetContextOrSkip();
+        bool supported =
+            device.Capabilities.TryGetFormatCapabilities(GraphicsFormat.RGBA8UInt, out GraphicsFormatCapabilities unsignedCaps) &&
+            unsignedCaps.Supports(GraphicsFormatSupport.ColorAttachment) &&
+            device.Capabilities.TryGetFormatCapabilities(GraphicsFormat.RGBA8SInt, out GraphicsFormatCapabilities signedCaps) &&
+            signedCaps.Supports(GraphicsFormatSupport.ColorAttachment);
+        if (!supported || device.Capabilities.Limits.MaxColorAttachments < 3 ||
+            device.Capabilities.Limits.MaxColorDrawBuffers < 3)
+            Skip("Integer clears require renderable RGBA8 UInt and SInt formats plus three color attachments/draw buffers.");
+        RunIntegerColorClears(device, context);
+    }
+
+    [Fact] public void MultiCommandArrayAndIndexedIndirectDrawingWorks() => RunHardwareTest((device, context) => RunMultiDrawIndirect(device, context));
+
+    [Fact]
+    public void SubresourceTextureViewRenderingAndParentRetentionWork()
+    {
+        IGraphicsDevice device = _fixture.GetDeviceOrSkip();
+        GlfwOpenGLESContextProvider context = _fixture.GetContextOrSkip();
+        if (!device.Capabilities.Features.Supports(GraphicsFeature.TextureViews))
+            Skip("Texture views require GL_EXT_texture_view or GL_OES_texture_view and a resolved native entry point.");
+        RunTextureViewSubresourceRendering(device, context);
+    }
+
+    [Fact]
+    public void NativeFullResourceImageCopyWorksWhenAvailable()
+    {
+        IGraphicsDevice device = _fixture.GetDeviceOrSkip();
+        GlfwOpenGLESContextProvider context = _fixture.GetContextOrSkip();
+        if (!((OpenGLESGraphicsDevice)device).HasImageCopy)
+            Skip("Native image copy requires GL_EXT_copy_image or GL_OES_copy_image and its native entry point.");
+        RunNativeImageCopy(device, context);
+    }
+
+    [Fact]
+    public void FramebufferBlitCopyRestoresTheActiveRenderTargetWhenFallbackIsUsed()
+    {
+        IGraphicsDevice device = _fixture.GetDeviceOrSkip();
+        GlfwOpenGLESContextProvider context = _fixture.GetContextOrSkip();
+        if (((OpenGLESGraphicsDevice)device).HasImageCopy)
+            Skip("Native image copy is available, so CopyTexture does not execute the framebuffer-blit fallback.");
+        RunFramebufferBlitCopyThenDraw(device, context);
+    }
+
+    [Fact]
+    public void MultisampleFramebufferClearAndShaderSampleReadbackWork()
+    {
+        IGraphicsDevice device = _fixture.GetDeviceOrSkip();
+        GlfwOpenGLESContextProvider context = _fixture.GetContextOrSkip();
+        uint sampleCount =
+            device.Capabilities.SupportsSampleCount(GraphicsFormat.RGBA8UNorm, 4) ? 4u :
+            device.Capabilities.SupportsSampleCount(GraphicsFormat.RGBA8UNorm, 2) ? 2u : 1u;
+        if (sampleCount == 1)
+            Skip("Multisample readback requires RGBA8 storage with two or more samples; only single-sample support is available.");
+        RunMultisampleFramebuffer(device, context, sampleCount);
+    }
+
+
+
+    
 
     private static void RunTextureViewSubresourceRendering(
         IGraphicsDevice device,

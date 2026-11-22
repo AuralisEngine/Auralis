@@ -9,85 +9,51 @@ using Auralis.Graphics.Pipelines;
 using Auralis.Graphics.Resources;
 using Auralis.Graphics.Synchronization;
 using Silk.NET.OpenGL;
+using Xunit;
+using Xunit.Sdk;
 
 namespace Auralis.Graphics.OpenGL.IntegrationTests;
 
-internal static class Program
+public sealed partial class OpenGLIntegrationTests : IClassFixture<OpenGLHardwareFixture>
 {
-    private const string RunEnvironmentVariable = "AURALIS_RUN_OPENGL_HARDWARE_TESTS";
-    private static readonly TimeSpan s_gpuTimeout = TimeSpan.FromSeconds(15);
 
-    private static async Task<int> Main()
+    private readonly OpenGLHardwareFixture _fixture;
+    public OpenGLIntegrationTests(OpenGLHardwareFixture fixture) => _fixture = fixture;
+    private void RunHardwareTest(Action<GlfwOpenGLHardwareSession> test)
     {
-        if (!string.Equals(Environment.GetEnvironmentVariable(RunEnvironmentVariable), "1", StringComparison.Ordinal))
-        {
-            Console.WriteLine($"SKIP: set {RunEnvironmentVariable}=1 to run tests against a real desktop OpenGL 4.5 driver.");
-            return 77;
-        }
-
-        GlfwOpenGLHardwareSession session;
+        GlfwOpenGLHardwareSession session = _fixture.GetSessionOrSkip();
         try
         {
-            session = await GlfwOpenGLHardwareSession.CreateAsync();
+            test(session);
+            Assert.Empty(session.ContextProvider.DrainErrors());
         }
-        catch (Exception exception)
+        catch (HardwareTestSkippedException exception)
         {
-            Console.WriteLine($"SKIP: a usable GLFW/OpenGL 4.5 Core hardware context could not be created: {exception.Message}");
-            return 77;
-        }
-
-        using (session)
-        {
-            Console.WriteLine($"OpenGL hardware test session: {session.Device.Info}");
-            IReadOnlyList<Silk.NET.OpenGL.GLEnum> startupErrors = session.ContextProvider.DrainErrors();
-            if (startupErrors.Count != 0)
-            {
-                Console.Error.WriteLine($"FAIL: driver context initialization left GL errors: {string.Join(", ", startupErrors)}");
-                return 1;
-            }
-
-            int passed = 0;
-            int skipped = 0;
-            int failed = 0;
-
-            Run("nested context-provider activation is balanced", session, NestedContextProviderActivation,
-                ref passed, ref skipped, ref failed);
-            Run("fence timeout is bounded by context-gate contention", session, FenceWaitTimeoutUnderContextContention,
-                ref passed, ref skipped, ref failed);
-            Run("disposed signal fence rejection preserves executable command lists", session, DisposedSignalFenceIsRejectedBeforeSubmission,
-                ref passed, ref skipped, ref failed);
-            Run("buffer copy after dispose-before-submit", session, CopyBufferAfterRecordDispose,
-                ref passed, ref skipped, ref failed);
-            Run("texture copy after dispose-before-submit", session, CopyTextureAfterRecordDispose,
-                ref passed, ref skipped, ref failed);
-            Run("completion polling without a user-provided fence", session, CompletionPollingWithoutUserFence,
-                ref passed, ref skipped, ref failed);
-            Run("buffer dispose after submission while GPU work is pending", session, CopyBufferAfterSubmitDispose,
-                ref passed, ref skipped, ref failed);
-            Run("reusable command-list submissions after source-owner disposal", session, ReusableCommandListAfterOwnerDisposal,
-                ref passed, ref skipped, ref failed);
-            Run("partially-bound descriptor switching and indirect compute", session, PartiallyBoundIndirectCompute,
-                ref passed, ref skipped, ref failed);
-            Run("compute descriptor categories, snapshots, and resource retention", session, ComputeDescriptorTypesAndSnapshots,
-                ref passed, ref skipped, ref failed);
-            Run("offscreen graphics draw and texture-copy readback", session, OffscreenGraphicsDrawAndTextureCopyReadback,
-                ref passed, ref skipped, ref failed);
-            Run("conventional direct and indirect graphics draws", session, ConventionalDirectAndIndirectDraw,
-                ref passed, ref skipped, ref failed);
-            Run("EXT mesh-shader direct and indirect draws", session, MeshShaderDirectAndIndirectDraw,
-                ref passed, ref skipped, ref failed);
-            Run("EXT task+mesh shader pipeline", session, TaskAndMeshShaderDraw,
-                ref passed, ref skipped, ref failed);
-            Run("NV mesh-shader direct draw", session, NvMeshShaderDirectDraw,
-                ref passed, ref skipped, ref failed);
-            Run("NV task+mesh shader pipeline", session, NvTaskAndMeshShaderDraw,
-                ref passed, ref skipped, ref failed);
-
-            Console.WriteLine();
-            Console.WriteLine($"Hardware integration result: {passed} passed, {skipped} skipped, {failed} failed.");
-            return failed == 0 ? 0 : 1;
+            throw SkipException.ForSkip(exception.Message);
         }
     }
+
+    [Fact] public void NestedContextProviderActivationIsBalanced() => RunHardwareTest(NestedContextProviderActivation);
+    [Fact] public void FenceWaitTimeoutIsBoundedByContextGateContention() => RunHardwareTest(FenceWaitTimeoutUnderContextContention);
+    [Fact] public void DisposedSignalFenceIsRejectedBeforeSubmission() => RunHardwareTest(DisposedSignalFenceIsRejectedBeforeSubmission);
+    [Fact] public void BufferCopyAfterDisposeBeforeSubmit() => RunHardwareTest(CopyBufferAfterRecordDispose);
+    [Fact] public void TextureCopyAfterDisposeBeforeSubmit() => RunHardwareTest(CopyTextureAfterRecordDispose);
+    [Fact] public void CompletionPollingWorksWithoutUserProvidedFence() => RunHardwareTest(CompletionPollingWithoutUserFence);
+    [Fact] public void BufferCanBeDisposedWhileGpuWorkIsPending() => RunHardwareTest(CopyBufferAfterSubmitDispose);
+    [Fact] public void ReusableCommandListsRetainResourcesAfterOwnerDisposal() => RunHardwareTest(ReusableCommandListAfterOwnerDisposal);
+    [Fact] public void PartiallyBoundDescriptorSwitchingAndIndirectComputeWork() => RunHardwareTest(PartiallyBoundIndirectCompute);
+    [Fact] public void ComputeDescriptorCategoriesSnapshotsAndResourceRetentionWork() => RunHardwareTest(ComputeDescriptorTypesAndSnapshots);
+    [Fact] public void OffscreenGraphicsDrawAndTextureCopyReadbackWork() => RunHardwareTest(OffscreenGraphicsDrawAndTextureCopyReadback);
+    [Fact] public void ConventionalDirectAndIndirectGraphicsDrawsWork() => RunHardwareTest(ConventionalDirectAndIndirectDraw);
+    [Fact] public void ExtMeshShaderDirectAndIndirectDrawsWork() => RunHardwareTest(MeshShaderDirectAndIndirectDraw);
+    [Fact] public void ExtTaskAndMeshShaderPipelineWorks() => RunHardwareTest(TaskAndMeshShaderDraw);
+    [Fact] public void NvMeshShaderDirectDrawWorks() => RunHardwareTest(NvMeshShaderDirectDraw);
+    [Fact] public void NvTaskAndMeshShaderPipelineWorks() => RunHardwareTest(NvTaskAndMeshShaderDraw);
+
+
+    private static readonly TimeSpan s_gpuTimeout = TimeSpan.FromSeconds(15);
+
+    
 
     private static void NestedContextProviderActivation(GlfwOpenGLHardwareSession session)
     {
@@ -225,36 +191,7 @@ internal static class Program
                 $"Disposed-fence validation changed the command list to {command.State}; expected Executable.");
     }
 
-    private static void Run(
-        string name,
-        GlfwOpenGLHardwareSession session,
-        Action<GlfwOpenGLHardwareSession> test,
-        ref int passed,
-        ref int skipped,
-        ref int failed)
-    {
-        try
-        {
-            test(session);
-            IReadOnlyList<Silk.NET.OpenGL.GLEnum> errors = session.ContextProvider.DrainErrors();
-            if (errors.Count != 0)
-                throw new InvalidOperationException($"OpenGL reported errors after the test: {string.Join(", ", errors)}.");
 
-            passed++;
-            Console.WriteLine($"PASS: {name}");
-        }
-        catch (HardwareTestSkippedException exception)
-        {
-            skipped++;
-            Console.WriteLine($"SKIP: {name} — {exception.Message}");
-        }
-        catch (Exception exception)
-        {
-            failed++;
-            Console.Error.WriteLine($"FAIL: {name} — {exception}");
-        }
-
-    }
 
     private static void CopyBufferAfterRecordDispose(GlfwOpenGLHardwareSession session)
     {

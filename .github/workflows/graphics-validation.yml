@@ -5,6 +5,7 @@ on:
     branches: [master]
     paths:
       - "Auralis.slnx"
+      - "README.md"
       - "src/Auralis.Graphics/**"
       - "Tests/Auralis.Graphics.Tests/**"
       - "Tests/Auralis.Graphics.OpenGL.TestSupport/**"
@@ -13,31 +14,16 @@ on:
       - "Benchmarks/Auralis.Graphics.OpenGL.Benchmarks/**"
       - ".github/workflows/graphics-validation.yml"
   push:
-    branches: [feature/graphics-abstractions]
+    branches: [feature/opengl-backend-silknet]
 
 jobs:
   build-and-test:
+    name: Build and run the solution test suite
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 10.0.x
-      - name: Restore hardware-independent graphics tests
-        run: dotnet restore Tests/Auralis.Graphics.Tests/Auralis.Graphics.Tests.csproj
-      - name: Restore OpenGL hardware integration harness (build only)
-        run: dotnet restore Tests/Auralis.Graphics.OpenGL.IntegrationTests/Auralis.Graphics.OpenGL.IntegrationTests.csproj
-      - name: Restore OpenGL ES hardware integration harness (build only)
-        run: dotnet restore Tests/Auralis.Graphics.OpenGLES.IntegrationTests/Auralis.Graphics.OpenGLES.IntegrationTests.csproj
-      - name: Restore OpenGL benchmarks (build only)
-        run: dotnet restore Benchmarks/Auralis.Graphics.OpenGL.Benchmarks/Auralis.Graphics.OpenGL.Benchmarks.csproj
-      - name: Build graphics abstractions and hardware-independent tests
-        run: dotnet build Tests/Auralis.Graphics.Tests/Auralis.Graphics.Tests.csproj --configuration Release --no-restore
-      - name: Build OpenGL hardware integration harness without executing it
-        run: dotnet build Tests/Auralis.Graphics.OpenGL.IntegrationTests/Auralis.Graphics.OpenGL.IntegrationTests.csproj --configuration Release --no-restore
-      - name: Build OpenGL ES hardware integration harness without executing it
-        run: dotnet build Tests/Auralis.Graphics.OpenGLES.IntegrationTests/Auralis.Graphics.OpenGLES.IntegrationTests.csproj --configuration Release --no-restore
-      - name: Build OpenGL benchmarks without executing them
-        run: dotnet build Benchmarks/Auralis.Graphics.OpenGL.Benchmarks/Auralis.Graphics.OpenGL.Benchmarks.csproj --configuration Release --no-restore
-      - name: Run hardware-independent graphics unit tests only
-        run: dotnet test Tests/Auralis.Graphics.Tests/Auralis.Graphics.Tests.csproj --configuration Release --no-build
+      - name: Run all solution tests
+        run: dotnet test Auralis.slnx --configuration Release

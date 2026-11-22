@@ -33,7 +33,7 @@ public sealed unsafe class GlfwOpenGLContextProvider : IOpenGLContextProvider
         try
         {
             if (!glfw.Init())
-                throw new InvalidOperationException(
+                throw new HardwareContextUnavailableException(
                     "GLFW initialization failed. A usable desktop session/display and GLFW native library are required.");
 
             initialized = true;
@@ -47,12 +47,12 @@ public sealed unsafe class GlfwOpenGLContextProvider : IOpenGLContextProvider
 
             window = glfw.CreateWindow(64, 64, "Auralis OpenGL Hardware Tests", null, null);
             if (window is null)
-                throw new InvalidOperationException(
+                throw new HardwareContextUnavailableException(
                     "GLFW could not create a hidden OpenGL 4.5 Core window/context. The driver may not expose OpenGL 4.5.");
 
             glfw.MakeContextCurrent(window);
             if (glfw.GetCurrentContext() != window)
-                throw new InvalidOperationException("GLFW did not make the requested OpenGL context current.");
+                throw new HardwareContextUnavailableException("GLFW did not make the requested OpenGL context current.");
 
             return new GlfwOpenGLContextProvider(glfw, window);
         }
