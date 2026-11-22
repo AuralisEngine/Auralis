@@ -150,14 +150,21 @@ public sealed partial class OpenGLESIntegrationTests : IClassFixture<OpenGLESHar
                 (hasOes && string.Equals(entryPointName, "glTextureViewOES", StringComparison.Ordinal));
             Console.WriteLine($"GLES texture-view support: GL_EXT_texture_view advertised={hasExt}; GL_OES_texture_view advertised={hasOes}; native entry point='{entryPointName ?? "unresolved"}', resolved={entryPointResolved}.");
             if (!hasExt && !hasOes)
-                Skip("The driver advertises neither GL_EXT_texture_view nor GL_OES_texture_view; subresource texture views are unsupported.");
-            if (!entryPointResolved)
-                Skip("The driver advertises a texture-view extension, but neither corresponding glTextureViewEXT nor glTextureViewOES entry point resolved.");
-            if (!entryPointMatchesExtension)
-                throw new GraphicsException(
-                    $"Resolved texture-view entry point '{entryPointName}' does not correspond to an advertised GL_EXT_texture_view or GL_OES_texture_view extension.");
-            if (!device.Capabilities.Features.Supports(GraphicsFeature.TextureViews))
-                throw new GraphicsException("A texture-view extension and its native entry point are available, but GraphicsFeature.TextureViews was not exposed.");
+            {
+                Console.WriteLine(
+                    "Neither native texture-view extension is advertised; using framebuffer-only parent-storage aliases for one 2D mip or one 2D-array layer. These aliases are not sampleable texture views.");
+            }
+            else
+            {
+                if (!entryPointResolved)
+                    Skip("The driver advertises a texture-view extension, but neither corresponding glTextureViewEXT nor glTextureViewOES entry point resolved.");
+                if (!entryPointMatchesExtension)
+                    throw new GraphicsException(
+                        $"Resolved texture-view entry point '{entryPointName}' does not correspond to an advertised GL_EXT_texture_view or GL_OES_texture_view extension.");
+                if (!device.Capabilities.Features.Supports(GraphicsFeature.TextureViews))
+                    throw new GraphicsException("A texture-view extension and its native entry point are available, but GraphicsFeature.TextureViews was not exposed.");
+            }
+
             RunTextureViewSubresourceRendering(device, context);
         });
 
@@ -892,12 +899,10 @@ public sealed partial class OpenGLESIntegrationTests : IClassFixture<OpenGLESHar
                 throw new GraphicsException("GLES failed to allocate the RGBA8 pixel-readback framebuffer.");
             gl.BindFramebuffer(FramebufferTarget.Framebuffer, framebuffer);
             CheckNoGlesError(gl, "glBindFramebuffer for RGBA8 readback");
-            gl.FramebufferTexture2D(
+            nativeView.AttachToFramebuffer(
+                gl,
                 FramebufferTarget.Framebuffer,
-                GLEnum.ColorAttachment0,
-                nativeView.Target,
-                nativeView.Handle,
-                0);
+                GLEnum.ColorAttachment0);
             CheckNoGlesError(gl, "glFramebufferTexture2D for RGBA8 readback");
             GLEnum framebufferStatus = gl.CheckFramebufferStatus(FramebufferTarget.Framebuffer);
             CheckNoGlesError(gl, "glCheckFramebufferStatus for RGBA8 readback");
