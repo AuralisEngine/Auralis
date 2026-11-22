@@ -41,7 +41,7 @@ public interface IGraphicsTexture : IGraphicsResource
 /// backing native storage remains alive until all dependent views and recorded/submitted command
 /// references have been released. Disposing this view releases its backing-resource reference.
 /// Disposing the graphics device invalidates the view and all device resources.
-</summary>
+/// </summary>
 public interface IGraphicsTextureView : IGraphicsResource
 {
     /// <summary>
