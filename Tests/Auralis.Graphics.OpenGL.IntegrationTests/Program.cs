@@ -47,7 +47,7 @@ public sealed partial class OpenGLIntegrationTests : IClassFixture<OpenGLHardwar
     [Fact] public void ConventionalDirectAndIndirectGraphicsDrawsWork() => RunHardwareTest(ConventionalDirectAndIndirectDraw);
     [Fact] public void MeshShaderDirectAndIndirectDrawsWork() => RunHardwareTest(MeshShaderDirectAndIndirectDraw);
     [Fact] public void TaskAndMeshShaderPipelineWorks() => RunHardwareTest(TaskAndMeshShaderDraw);
-    [Fact] public void NvMeshShaderDirectDrawWorks() => RunHardwareTest(NvMeshShaderDirectDraw);
+    [Fact] public void NvMeshShaderDirectAndIndirectDrawsWork() => RunHardwareTest(NvMeshShaderDirectDraw);
     [Fact] public void NvTaskAndMeshShaderPipelineWorks() => RunHardwareTest(NvTaskAndMeshShaderDraw);
 
 
@@ -1109,6 +1109,11 @@ public sealed partial class OpenGLIntegrationTests : IClassFixture<OpenGLHardwar
             new GraphicsRenderPipelineDescription(
                 pipelineLayout, shaders, GraphicsPrimitiveTopology.TriangleList, formats));
 
+        using IGraphicsBuffer indirectArguments = CreateBuffer(
+            device, 2 * sizeof(uint), GraphicsBufferUsage.IndirectArguments, GraphicsMemoryAccess.CpuToGpu);
+        // GL_NV_mesh_shader's indirect command is { count, first }, not EXT's 3D triplet.
+        WriteUInts(indirectArguments, 1, 0);
+
         IGraphicsCommandQueue queue = device.GetQueue(GraphicsQueueType.Graphics);
         using IGraphicsCommandList commands = queue.CreateCommandList();
         using IGraphicsFence fence = device.CreateFence();
@@ -1120,6 +1125,7 @@ public sealed partial class OpenGLIntegrationTests : IClassFixture<OpenGLHardwar
         commands.ClearColor(0, new GraphicsClearColor(0, 0, 0, 1));
         commands.SetRenderPipeline(pipeline);
         commands.DrawMeshTasks(1, 1, 1);
+        commands.DrawMeshTasksIndirect(indirectArguments, 0);
         commands.End();
         queue.Submit([commands], fence, 1);
         WaitForGpu(fence, commands, 1);
