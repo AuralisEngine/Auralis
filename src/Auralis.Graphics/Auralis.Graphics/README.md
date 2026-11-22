@@ -237,6 +237,10 @@ Resource barriers are translated into GL memory-barrier bits based on destinatio
 
 The ordinary graphics test suite includes hardware-independent tests for provider registration/availability, presentation drawable/present-mode validation, texture targets, sampler translations, descriptor slot allocation, pipeline enum/vertex-format mappings, compute-dispatch and indirect-command boundaries/no-op semantics, resource barriers, effective-mip render-target validation, mapped-memory lifetime, SPIR-V validation, GLSL directive/comment/preprocessor behavior, GLSL ES first-line version placement, debug-option validation, line-width validation, blend-state validation, partially-bound descriptor snapshots, unsupported descriptor-flag rejection, all six GLES floating-point color-attachment capability gates, cleanup exception aggregation, bounded context-gate contention, nested context activation depth, optional pipeline-feature validation, and native resource-reference state. These instrumented tests do not establish actual-driver correctness.
 
+#### Latest CI validation record
+
+[Graphics validation run #463](https://github.com/mahdikshk/Auralis/actions/runs/45020432687) validates commit `56aec62a8780fe4a60a4a53c2e49b91806c1f0aa`. The workflow restored and built the hardware-independent graphics test project, the desktop OpenGL integration runner, the GLES integration runner, and the BenchmarkDotNet project. All four Release build steps succeeded with **0 warnings and 0 errors**. The hardware-independent test result was **242 passed, 0 failed, 0 skipped**. The two hardware runners and the benchmark suite were build-only: neither was executed by CI. No real driver/GPU validation or numerical benchmark result is claimed for this run.
+
 #### Opt-in hardware integration tests
 
 A separate executable test harness lives in `Tests/Auralis.Graphics.OpenGL.IntegrationTests`. It uses the test-only `Tests/Auralis.Graphics.OpenGL.TestSupport` project, which creates a hidden desktop OpenGL 4.5 Core context through the official Silk.NET GLFW binding. No windowing or GLFW dependency is added to the `Auralis.Graphics` backend assembly.
