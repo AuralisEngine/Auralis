@@ -126,7 +126,7 @@ The detailed and authoritative backend capability matrix, implementation behavio
 Current work in the branch includes:
 
 - Buffer, texture, texture-view, sampler, shader, descriptor, graphics/compute pipeline, synchronization, and presentation support.
-- Desktop OpenGL EXT mesh/task shaders and a separate NV mesh/task path. EXT and NV GLSL dialects cannot be mixed. NV supports direct one-dimensional dispatch; NV indirect remains unsupported because its native `{ count, first }` record does not match Auralis's common three-dimensional indirect command.
+- Desktop OpenGL EXT mesh/task shaders and a separate NV mesh/task path. EXT and NV GLSL dialects cannot be mixed. NV supports direct one-dimensional dispatch and native indirect dispatch using its `{ count, first }` command record.
 - GLES multiple render targets, typed integer clears, independent blending when `GL_EXT_draw_buffers_indexed` is available, native/fallback multi-draw indirect, extension-gated base-vertex/base-instance drawing, ES 3.2 tessellation patch counts, multisample textures, texture views, image-copy extensions, and optional EXT mesh/task shaders.
 - Per-format GLES capability reporting. `BGRA8UNorm` and `BGRA8UNormSrgb` are not mapped or advertised; compressed formats and some depth/float usages are extension/version-gated.
 - Automatically discovered desktop OpenGL and OpenGL ES xUnit integration tests, hardware-independent regression tests, and a separate BenchmarkDotNet project.
@@ -138,7 +138,7 @@ Current work in the branch includes:
 - GLES has no native 1D texture target. GLES SPIR-V ingestion is not implemented.
 - No common multisample resolve operation exists; `CopyTexture` is not reinterpreted as a resolve.
 - Descriptor indexing, update-after-bind, variable descriptor counts, sparse residency, timestamp-query result retrieval, and multi-viewport remain unimplemented because the current common contracts do not express their required semantics.
-- Desktop NV indirect mesh drawing remains rejected because its argument layout is incompatible with the common indirect command.
+- Desktop NV indirect mesh drawing uses its native two-field `{ count, first }` command layout.
 
 **Earlier validation (before the integration runners became test projects):** [Graphics validation run #467](https://github.com/mahdikshk/Auralis/actions/runs/45020934100) built the graphics targets and passed **242 hardware-independent tests**. That historical run built, but did not execute, the hardware runners. The workflow now runs `dotnet test Auralis.slnx --configuration Release`, which executes the discoverable integration tests and reports unavailable hardware as skipped. A headless runner may therefore show hardware skips; that is not a real-driver pass. The authoritative test and limitation record is in the [Auralis.Graphics documentation](src/Auralis.Graphics/Auralis.Graphics/README.md).
 ## Planned areas
