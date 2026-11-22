@@ -35,7 +35,7 @@ public sealed partial class OpenGLIntegrationTests : IClassFixture<OpenGLHardwar
 
     [Fact] public void NestedContextProviderActivationIsBalanced() => RunHardwareTest(NestedContextProviderActivation);
     [Fact] public void FenceWaitTimeoutIsBoundedByContextGateContention() => RunHardwareTest(FenceWaitTimeoutUnderContextContention);
-    [Fact] public void DisposedSignalFenceIsRejectedBeforeSubmission() => RunHardwareTest(DisposedSignalFenceIsRejectedBeforeSubmission);
+    [Fact] public void DisposedSignalFenceSubmissionRegression() => RunHardwareTest(DisposedSignalFenceIsRejectedBeforeSubmission);
     [Fact] public void BufferCopyAfterDisposeBeforeSubmit() => RunHardwareTest(CopyBufferAfterRecordDispose);
     [Fact] public void TextureCopyAfterDisposeBeforeSubmit() => RunHardwareTest(CopyTextureAfterRecordDispose);
     [Fact] public void CompletionPollingWorksWithoutUserProvidedFence() => RunHardwareTest(CompletionPollingWithoutUserFence);
