@@ -54,14 +54,14 @@ public class OpenGLBackendBenchmarks
 
             _expectedContents = new byte[BufferSize];
             Array.Fill(_expectedContents, SourcePattern);
-            Memory<byte> initial = _source.Map(GraphicsMapMode.Write, 0, BufferSize);
+            Memory<byte> initial = SourceBuffer.Map(GraphicsMapMode.Write, 0, BufferSize);
             try
             {
                 initial.Span.Fill(SourcePattern);
             }
             finally
             {
-                _source.Unmap();
+                SourceBuffer.Unmap();
             }
 
             _commandList = _copyQueue.CreateCommandList(GraphicsCommandListUsage.Reusable);
@@ -92,15 +92,15 @@ public class OpenGLBackendBenchmarks
     public int RecordEmptyCommandList()
     {
         PrepareList();
-        _commandList.End();
-        return _commandList.State == GraphicsCommandListState.Executable ? 1 : 0;
+        CommandList.End();
+        return CommandList.State == GraphicsCommandListState.Executable ? 1 : 0;
     }
 
     [Benchmark(Description = "Command recording: one 4 KiB buffer copy with native resource retention")]
     public int RecordCopyCommand()
     {
         RecordCopy();
-        return _commandList.State == GraphicsCommandListState.Executable ? 1 : 0;
+        return CommandList.State == GraphicsCommandListState.Executable ? 1 : 0;
     }
 
     [Benchmark(Description = "Command submission plus GPU fence wait")]
@@ -108,26 +108,26 @@ public class OpenGLBackendBenchmarks
     {
         RecordCopy();
         ulong value = checked(++_fenceValue);
-        _copyQueue.Submit([_commandList], _fence, value);
-        if (!_fence.Wait(value, GpuTimeout))
+        CopyQueue.Submit([CommandList], Fence, value);
+        if (!Fence.Wait(value, GpuTimeout))
             throw new TimeoutException($"Desktop OpenGL GPU fence {value} did not complete within {GpuTimeout}.");
 
-        return _commandList.State == GraphicsCommandListState.Executable ? 1 : 0;
+        return CommandList.State == GraphicsCommandListState.Executable ? 1 : 0;
     }
 
     [Benchmark(Description = "Read an already-completed fence value")]
-    public ulong ReadCompletedFenceValue() => _fence.CompletedValue;
+    public ulong ReadCompletedFenceValue() => Fence.CompletedValue;
 
     [Benchmark(Description = "Submit and poll fence until GPU completion")]
     public ulong SubmitAndPoll()
     {
         RecordCopy();
         ulong value = checked(++_fenceValue);
-        _copyQueue.Submit([_commandList], _fence, value);
+        CopyQueue.Submit([CommandList], Fence, value);
 
         long start = Stopwatch.GetTimestamp();
         ulong completed;
-        while ((completed = _fence.CompletedValue) < value)
+        while ((completed = Fence.CompletedValue) < value)
         {
             if (Stopwatch.GetElapsedTime(start) > GpuTimeout)
                 throw new TimeoutException(
@@ -136,7 +136,7 @@ public class OpenGLBackendBenchmarks
             Thread.SpinWait(16);
         }
 
-        if (_commandList.State != GraphicsCommandListState.Executable)
+        if (CommandList.State != GraphicsCommandListState.Executable)
             throw new InvalidOperationException(
                 "The desktop OpenGL queue did not retire the command list after its completion fence was signaled.");
 
@@ -170,10 +170,10 @@ public class OpenGLBackendBenchmarks
 
         try
         {
-            if (_commandList is not null && _commandList.State == GraphicsCommandListState.Pending)
+            if (_commandList is not null && CommandList.State == GraphicsCommandListState.Pending)
             {
-                if (_fence is null || !_fence.Wait(_fenceValue, GpuTimeout) ||
-                    _commandList.State == GraphicsCommandListState.Pending)
+                if (_fence is null || !Fence.Wait(_fenceValue, GpuTimeout) ||
+                    CommandList.State == GraphicsCommandListState.Pending)
                 {
                     failures.Add(new TimeoutException(
                         "The desktop OpenGL benchmark command list was still pending during cleanup; device shutdown will drain it."));
@@ -200,6 +200,16 @@ public class OpenGLBackendBenchmarks
             throw new AggregateException("Desktop OpenGL benchmark cleanup encountered one or more failures.", failures);
     }
 
+    private IGraphicsCommandList CommandList => _commandList ?? throw new InvalidOperationException("The benchmark command list is not initialized.");
+
+    private IGraphicsFence Fence => _fence ?? throw new InvalidOperationException("The benchmark fence is not initialized.");
+
+    private IGraphicsBuffer SourceBuffer => _source ?? throw new InvalidOperationException("The benchmark source buffer is not initialized.");
+
+    private IGraphicsBuffer DestinationBuffer => _destination ?? throw new InvalidOperationException("The benchmark destination buffer is not initialized.");
+
+    private IGraphicsCommandQueue CopyQueue => _copyQueue;
+
     private void PrintEnvironment()
     {
         Console.WriteLine($"Graphics backend: {_device.Backend}");
@@ -220,14 +230,14 @@ public class OpenGLBackendBenchmarks
     {
         RecordCopy();
         ulong value = checked(++_fenceValue);
-        _copyQueue.Submit([_commandList], _fence, value);
-        if (!_fence.Wait(value, GpuTimeout))
+        CopyQueue.Submit([CommandList], Fence, value);
+        if (!Fence.Wait(value, GpuTimeout))
             throw new TimeoutException($"The initial desktop OpenGL buffer-copy fence {value} did not complete.");
 
-        if (_commandList.State != GraphicsCommandListState.Executable)
+        if (CommandList.State != GraphicsCommandListState.Executable)
             throw new InvalidOperationException("The initial desktop OpenGL buffer-copy command list did not complete.");
 
-        Memory<byte> copied = _destination.Map(GraphicsMapMode.Read, 0, BufferSize);
+        Memory<byte> copied = DestinationBuffer.Map(GraphicsMapMode.Read, 0, BufferSize);
         try
         {
             if (!copied.Span.SequenceEqual(_expectedContents))
@@ -236,40 +246,40 @@ public class OpenGLBackendBenchmarks
         }
         finally
         {
-            _destination.Unmap();
+            DestinationBuffer.Unmap();
         }
 
-        _commandList.Reset();
+        CommandList.Reset();
     }
 
     private void PrepareList()
     {
-        GraphicsCommandListState state = _commandList.State;
+        GraphicsCommandListState state = CommandList.State;
         if (state == GraphicsCommandListState.Pending)
         {
-            if (!_fence.Wait(_fenceValue, GpuTimeout))
+            if (!Fence.Wait(_fenceValue, GpuTimeout))
                 throw new TimeoutException("A prior desktop OpenGL benchmark submission did not complete within the bounded wait.");
 
-            state = _commandList.State;
+            state = CommandList.State;
             if (state == GraphicsCommandListState.Pending)
                 throw new InvalidOperationException(
                     "The desktop OpenGL fence completed but its command queue still reports the reusable list as pending.");
         }
 
         if (state == GraphicsCommandListState.Executable)
-            _commandList.Reset();
+            CommandList.Reset();
         else if (state != GraphicsCommandListState.Initial)
             throw new InvalidOperationException(
                 $"Cannot begin desktop OpenGL benchmark recording while the list is in state {state}.");
 
-        _commandList.Begin();
+        CommandList.Begin();
     }
 
     private void RecordCopy()
     {
         PrepareList();
-        _commandList.CopyBuffer(_source, 0, _destination, 0, BufferSize);
-        _commandList.End();
+        CommandList.CopyBuffer(SourceBuffer, 0, DestinationBuffer, 0, BufferSize);
+        CommandList.End();
     }
 
     private static void DisposeSafely<T>(ref T? resource, List<Exception> failures)
