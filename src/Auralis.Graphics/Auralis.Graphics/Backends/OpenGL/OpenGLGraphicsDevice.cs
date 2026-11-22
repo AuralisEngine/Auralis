@@ -50,6 +50,7 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
     private readonly ArbPolygonOffsetClamp? _polygonOffsetClampApi;
     private readonly OpenGLExtMeshShader? _meshShaderApi;
     private readonly NVMeshShader? _nvMeshShaderApi;
+    private readonly bool _supportsExtMultiDrawMeshTasksIndirect;
     private readonly ArbES2Compatibility _shaderBinaryApi;
     private readonly ArbGlSpirv? _spirvApi;
     private readonly ArbComputeShader _computeShaderApi;
@@ -79,6 +80,7 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
     internal ArbPolygonOffsetClamp? PolygonOffsetClampApi => _polygonOffsetClampApi;
     internal OpenGLExtMeshShader? MeshShaderApi => _meshShaderApi;
     internal NVMeshShader? NvMeshShaderApi => _nvMeshShaderApi;
+    internal bool SupportsExtMultiDrawMeshTasksIndirect => _supportsExtMultiDrawMeshTasksIndirect;
     internal ArbES2Compatibility ShaderBinaryApi => _shaderBinaryApi;
     internal ArbGlSpirv? SpirVApi => _spirvApi;
     internal bool DebugLayerEnabled => _debugLayerEnabled;
@@ -107,6 +109,7 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
         ArbPolygonOffsetClamp? polygonOffsetClampApi,
         OpenGLExtMeshShader? meshShaderApi,
         NVMeshShader? nvMeshShaderApi,
+        bool supportsExtMultiDrawMeshTasksIndirect,
         ArbES2Compatibility shaderBinaryApi,
         ArbGlSpirv? spirvApi,
         OpenGLLineWidthRange supportedLineWidths,
@@ -157,6 +160,7 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
         _polygonOffsetClampApi = polygonOffsetClampApi;
         _meshShaderApi = meshShaderApi;
         _nvMeshShaderApi = nvMeshShaderApi;
+        _supportsExtMultiDrawMeshTasksIndirect = supportsExtMultiDrawMeshTasksIndirect;
         _shaderBinaryApi = shaderBinaryApi;
         _spirvApi = spirvApi;
         SupportedLineWidths = supportedLineWidths;
@@ -218,6 +222,7 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
         ArbPolygonOffsetClamp? polygonOffsetClampApi = null;
         OpenGLExtMeshShader? meshShaderApi = null;
         NVMeshShader? nvMeshShaderApi = null;
+        bool supportsExtMultiDrawMeshTasksIndirect = false;
         ArbES2Compatibility? shaderBinaryApi = null;
         ArbGlSpirv? spirvApi = null;
         ArbComputeShader? computeShaderApi = null;
@@ -270,20 +275,22 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
                 depthBoundsApi = new ExtDepthBoundsTest(gl.Context);
             if (gl.IsExtensionPresent(ArbPolygonOffsetClamp.ExtensionName))
                 polygonOffsetClampApi = new ArbPolygonOffsetClamp(gl.Context);
-            if (gl.IsExtensionPresent(OpenGLExtMeshShader.ExtensionName) &&
-                HasEntryPoints(
-                    contextProvider,
-                    "glDrawMeshTasksEXT",
-                    "glDrawMeshTasksIndirectEXT",
-                    "glMultiDrawMeshTasksIndirectEXT"))
+            bool hasExtMeshShader = gl.IsExtensionPresent(OpenGLExtMeshShader.ExtensionName);
+            bool hasNvMeshShader = gl.IsExtensionPresent(NVMeshShader.ExtensionName);
+            OpenGLMeshShaderEntryPoints meshShaderEntryPoints =
+                OpenGLMeshShaderEntryPoints.Resolve(contextProvider.GetProcAddress);
+
+            // The EXT direct and single-indirect functions are sufficient for the existing
+            // backend paths. Multi-draw is a separate optional operation and must not gate them.
+            if (meshShaderEntryPoints.SupportsExtMeshShader(hasExtMeshShader))
             {
                 meshShaderApi = new OpenGLExtMeshShader(gl.Context);
+                supportsExtMultiDrawMeshTasksIndirect =
+                    meshShaderEntryPoints.SupportsExtMultiDrawMeshTasksIndirect(hasExtMeshShader);
             }
-            if (gl.IsExtensionPresent(NVMeshShader.ExtensionName) &&
-                contextProvider.GetProcAddress("glDrawMeshTasksNV") != 0)
-            {
+
+            if (meshShaderEntryPoints.SupportsNvMeshShader(hasNvMeshShader))
                 nvMeshShaderApi = new NVMeshShader(gl.Context);
-            }
             shaderBinaryApi = new ArbES2Compatibility(gl.Context);
             if (gl.IsExtensionPresent(ArbGlSpirv.ExtensionName))
                 spirvApi = new ArbGlSpirv(gl.Context);
@@ -343,15 +350,12 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
             }
             if (nvMeshShaderApi is not null)
             {
+                // GL_NV_mesh_shader defines this as an ordinary GetIntegerv query. Keep
+                // native entry-point availability separate from the driver limit: a zero or
+                // invalid limit disables capability reporting/dispatch validation, but must
+                // not erase the fact that the native API was resolved.
                 maxNvDrawMeshTasksCount = ToUInt(gl.GetInteger((GLEnum)0x953D)); // GL_MAX_DRAW_MESH_TASKS_COUNT_NV
-                if (maxNvDrawMeshTasksCount == 0)
-                {
-                    // NV is optional. A broken/zero NV limit must not invalidate a usable
-                    // EXT implementation on a driver that happens to expose both extensions.
-                    nvMeshShaderApi.Dispose();
-                    nvMeshShaderApi = null;
-                }
-                else if (meshShaderApi is null)
+                if (meshShaderApi is null)
                 {
                     // With NV-only support, expose the one-dimensional NV limit through the
                     // common capability snapshot. NV pipelines retain the dedicated limit too.
@@ -404,7 +408,8 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
                 internalFormatQuery, syncApi, copyImageApi, viewportApi,
                 baseInstanceApi, drawIndirectApi, multiDrawIndirectApi, imageLoadStoreApi,
                 drawBuffersBlendApi, indexedDrawBuffersApi, depthBoundsApi, polygonOffsetClampApi,
-                meshShaderApi, nvMeshShaderApi, shaderBinaryApi!, spirvApi, supportedLineWidths, computeShaderApi!, uniformBufferObjectApi!,
+                meshShaderApi, nvMeshShaderApi, supportsExtMultiDrawMeshTasksIndirect,
+                shaderBinaryApi!, spirvApi, supportedLineWidths, computeShaderApi!, uniformBufferObjectApi!,
                 maxComputeWorkGroupCountX, maxComputeWorkGroupCountY, maxComputeWorkGroupCountZ,
                 maxMeshWorkGroupCountX, maxMeshWorkGroupCountY, maxMeshWorkGroupCountZ,
                 maxMeshWorkGroupTotalCount,
@@ -584,15 +589,6 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
             limits,
             formatBuffer[..formatCount]);
     }
-
-    private static bool HasEntryPoints(
-        IOpenGLContextProvider contextProvider,
-        string first,
-        string second,
-        string third) =>
-        contextProvider.GetProcAddress(first) != 0 &&
-        contextProvider.GetProcAddress(second) != 0 &&
-        contextProvider.GetProcAddress(third) != 0;
 
     private static uint ToUInt(int value) => value > 0 ? (uint)value : 0;
 
