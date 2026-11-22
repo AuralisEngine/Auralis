@@ -249,6 +249,28 @@ The solution contains three discoverable xUnit test projects:
 
 The two integration projects are ordinary .NET test projects. Their fixtures automatically attempt to create a hidden GLFW context and initialize the corresponding Auralis graphics device. They do not require environment variables, special command-line flags, or a separate `dotnet run` invocation.
 
+#### Windows hybrid-GPU selection for desktop OpenGL tests
+
+The GLFW test provider requests an OpenGL 4.5 Core context, but it does not select a physical GPU. On Windows hybrid-graphics systems, the active adapter is chosen by Windows graphics policy for the process that creates the GLFW context. The desktop integration-test output therefore prints the actual OpenGL vendor, renderer, driver/API version, mesh-shader extension enumeration, native mesh entry-point availability, and `Environment.ProcessPath`.
+
+To request the discrete GPU for a hardware-test run:
+
+1. Run a desktop OpenGL integration test and copy the **exact executable path** printed as `process='...'`. This is the process creating the context; depending on the test runner, it may be `testhost.exe` or another test executable. Do not assume that the `dotnet.exe`, IDE, terminal, or launcher path is the correct one.
+2. Open **Windows Settings → System → Display → Graphics**. Add that exact executable as a desktop app, select **Options**, choose **High performance**, and save.
+3. Fully exit the test process (and restart the test run/IDE if it owns that process), then rerun the integration tests. GPU preferences are applied when the process starts.
+
+On Windows 10 version 2004 (20H1) and later, including Windows 11, Windows' per-application graphics preference takes precedence over the preferred-graphics-processor setting in NVIDIA Control Panel. Configure the executable in Windows Graphics settings rather than relying only on NVIDIA Control Panel. See [NVIDIA's Windows GPU-preference explanation](https://nvidia.custhelp.com/app/answers/detail/a_id/5035).
+
+The reported `GL_RENDERER` and `GL_VENDOR` identify the adapter/driver actually backing the context. A setting change is not proof that the discrete GPU was selected: rerun the test and inspect those values. The backend must continue to use only the extensions advertised by that active context. An NVIDIA GPU elsewhere in the system does not make `GL_NV_mesh_shader` available to an OpenGL context created on Intel or another adapter.
+
+To run only the four desktop mesh-shader integration tests after changing the GPU preference:
+
+```bash
+dotnet test Tests/Auralis.Graphics.OpenGL.IntegrationTests/Auralis.Graphics.OpenGL.IntegrationTests.csproj --configuration Release --filter "FullyQualifiedName~MeshShader"
+```
+
+When the active adapter genuinely does not advertise a required extension, the corresponding test remains skipped. Neither EXT nor NV mesh-shader support is assumed based on vendor name alone.
+
 When a compatible context cannot be created because the host has no usable display, GLFW native library, driver, or required API version, the affected hardware tests are reported by xUnit as **skipped**, with the reason attached to each test. Optional capabilities are checked independently, so only cases requiring an unavailable extension, format, or limit are skipped. Unexpected initialization errors, test assertion failures, and graphics-driver errors remain **failed** tests; they are not converted into skips. A skipped test is never counted as passed.
 
 The desktop integration cases cover context activation and fence behavior, resource retention and deferred destruction, buffer/texture copies, compute descriptors and dispatch, conventional graphics draws, and capability-specific EXT/NV mesh and task shaders. The GLES cases cover context/fence behavior, staging maps, resource retention, compute and descriptor operations, texture/sampler allocation, offscreen rendering, MRT and typed clears, indirect draws, texture views, native image copies or the framebuffer-blit fallback, and multisample sampling. Capability-specific skip behavior is preserved as individual test results.
