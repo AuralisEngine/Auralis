@@ -761,44 +761,44 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
 
         Span<GraphicsFormatCapabilities> formatBuffer = stackalloc GraphicsFormatCapabilities[48];
         int formatCount = 0;
-        formatBuffer[formatCount++] = new(GraphicsFormat.R8UNorm, normalizedSingleSupport, GetSampleCounts(formatSampleCounts, GraphicsFormat.R8UNorm);
-        formatBuffer[formatCount++] = new(GraphicsFormat.RG8UNorm, normalizedSingleSupport, GetSampleCounts(formatSampleCounts, GraphicsFormat.RG8UNorm);
-        formatBuffer[formatCount++] = new(GraphicsFormat.RGBA8UNorm, rgba8Support, GetSampleCounts(formatSampleCounts, GraphicsFormat.RGBA8UNorm);
-        formatBuffer[formatCount++] = new(GraphicsFormat.R8UInt, integerColorSupport, GetSampleCounts(formatSampleCounts, GraphicsFormat.R8UInt);
-        formatBuffer[formatCount++] = new(GraphicsFormat.R8SInt, integerColorSupport, GetSampleCounts(formatSampleCounts, GraphicsFormat.R8SInt);
-        formatBuffer[formatCount++] = new(GraphicsFormat.RG8UInt, integerColorSupport, GetSampleCounts(formatSampleCounts, GraphicsFormat.RG8UInt);
-        formatBuffer[formatCount++] = new(GraphicsFormat.RG8SInt, integerColorSupport, GetSampleCounts(formatSampleCounts, GraphicsFormat.RG8SInt);
-        formatBuffer[formatCount++] = new(GraphicsFormat.RGBA8UInt, integerColorSupport, GetSampleCounts(formatSampleCounts, GraphicsFormat.RGBA8UInt);
-        formatBuffer[formatCount++] = new(GraphicsFormat.RGBA8SInt, integerColorSupport, GetSampleCounts(formatSampleCounts, GraphicsFormat.RGBA8SInt);
+        formatBuffer[formatCount++] = new(GraphicsFormat.R8UNorm, normalizedSingleSupport, GetSampleCounts(formatSampleCounts, GraphicsFormat.R8UNorm))
+        formatBuffer[formatCount++] = new(GraphicsFormat.RG8UNorm, normalizedSingleSupport, GetSampleCounts(formatSampleCounts, GraphicsFormat.RG8UNorm))
+        formatBuffer[formatCount++] = new(GraphicsFormat.RGBA8UNorm, rgba8Support, GetSampleCounts(formatSampleCounts, GraphicsFormat.RGBA8UNorm))
+        formatBuffer[formatCount++] = new(GraphicsFormat.R8UInt, integerColorSupport, GetSampleCounts(formatSampleCounts, GraphicsFormat.R8UInt))
+        formatBuffer[formatCount++] = new(GraphicsFormat.R8SInt, integerColorSupport, GetSampleCounts(formatSampleCounts, GraphicsFormat.R8SInt))
+        formatBuffer[formatCount++] = new(GraphicsFormat.RG8UInt, integerColorSupport, GetSampleCounts(formatSampleCounts, GraphicsFormat.RG8UInt))
+        formatBuffer[formatCount++] = new(GraphicsFormat.RG8SInt, integerColorSupport, GetSampleCounts(formatSampleCounts, GraphicsFormat.RG8SInt))
+        formatBuffer[formatCount++] = new(GraphicsFormat.RGBA8UInt, integerColorSupport, GetSampleCounts(formatSampleCounts, GraphicsFormat.RGBA8UInt))
+        formatBuffer[formatCount++] = new(GraphicsFormat.RGBA8SInt, integerColorSupport, GetSampleCounts(formatSampleCounts, GraphicsFormat.RGBA8SInt))
         formatBuffer[formatCount++] = new(GraphicsFormat.RGBA8UNormSrgb,
                 GraphicsFormatSupport.Sampled | GraphicsFormatSupport.ColorAttachment |
                 GraphicsFormatSupport.Blend | GraphicsFormatSupport.CopySource |
                 GraphicsFormatSupport.CopyDestination | GraphicsFormatSupport.LinearFiltering,
                 GetSampleCounts(formatSampleCounts, GraphicsFormat.RGBA8UNormSrgb));
-        formatBuffer[formatCount++] = new(GraphicsFormat.R8SNorm, signedNormalizedSupport, GetSampleCounts(formatSampleCounts, GraphicsFormat.R8SNorm);
-        formatBuffer[formatCount++] = new(GraphicsFormat.RG8SNorm, signedNormalizedSupport, GetSampleCounts(formatSampleCounts, GraphicsFormat.RG8SNorm);
-        formatBuffer[formatCount++] = new(GraphicsFormat.RGBA8SNorm, signedNormalizedSupport, GetSampleCounts(formatSampleCounts, GraphicsFormat.RGBA8SNorm);
-        formatBuffer[formatCount++] = new(GraphicsFormat.R16Float, halfFloatStorageSupport, GetSampleCounts(formatSampleCounts, GraphicsFormat.R16Float);
-        formatBuffer[formatCount++] = new(GraphicsFormat.RG16Float, halfFloatStorageSupport, GetSampleCounts(formatSampleCounts, GraphicsFormat.RG16Float);
-        formatBuffer[formatCount++] = new(GraphicsFormat.RGBA16Float, halfFloatStorageSupport, GetSampleCounts(formatSampleCounts, GraphicsFormat.RGBA16Float);
-        formatBuffer[formatCount++] = new(GraphicsFormat.R32Float, fullFloatStorageSupport, GetSampleCounts(formatSampleCounts, GraphicsFormat.R32Float);
-        formatBuffer[formatCount++] = new(GraphicsFormat.RG32Float, fullFloatStorageSupport, GetSampleCounts(formatSampleCounts, GraphicsFormat.RG32Float);
-        formatBuffer[formatCount++] = new(GraphicsFormat.RGB32Float, floatingSampledSupport, GetSampleCounts(formatSampleCounts, GraphicsFormat.RGB32Float);
-        formatBuffer[formatCount++] = new(GraphicsFormat.RGBA32Float, fullFloatStorageSupport, GetSampleCounts(formatSampleCounts, GraphicsFormat.RGBA32Float);
-        formatBuffer[formatCount++] = new(GraphicsFormat.R16UInt, integerStorageSupport, GetSampleCounts(formatSampleCounts, GraphicsFormat.R16UInt);
-        formatBuffer[formatCount++] = new(GraphicsFormat.R16SInt, integerStorageSupport, GetSampleCounts(formatSampleCounts, GraphicsFormat.R16SInt);
-        formatBuffer[formatCount++] = new(GraphicsFormat.RG16UInt, integerStorageSupport, GetSampleCounts(formatSampleCounts, GraphicsFormat.RG16UInt);
-        formatBuffer[formatCount++] = new(GraphicsFormat.RG16SInt, integerStorageSupport, GetSampleCounts(formatSampleCounts, GraphicsFormat.RG16SInt);
-        formatBuffer[formatCount++] = new(GraphicsFormat.RGBA16UInt, integerStorageSupport, GetSampleCounts(formatSampleCounts, GraphicsFormat.RGBA16UInt);
-        formatBuffer[formatCount++] = new(GraphicsFormat.RGBA16SInt, integerStorageSupport, GetSampleCounts(formatSampleCounts, GraphicsFormat.RGBA16SInt);
-        formatBuffer[formatCount++] = new(GraphicsFormat.R32UInt, integerStorageSupport, GetSampleCounts(formatSampleCounts, GraphicsFormat.R32UInt);
-        formatBuffer[formatCount++] = new(GraphicsFormat.R32SInt, integerStorageSupport, GetSampleCounts(formatSampleCounts, GraphicsFormat.R32SInt);
-        formatBuffer[formatCount++] = new(GraphicsFormat.RG32UInt, integerStorageSupport, GetSampleCounts(formatSampleCounts, GraphicsFormat.RG32UInt);
-        formatBuffer[formatCount++] = new(GraphicsFormat.RG32SInt, integerStorageSupport, GetSampleCounts(formatSampleCounts, GraphicsFormat.RG32SInt);
-        formatBuffer[formatCount++] = new(GraphicsFormat.RGBA32UInt, integerStorageSupport, GetSampleCounts(formatSampleCounts, GraphicsFormat.RGBA32UInt);
-        formatBuffer[formatCount++] = new(GraphicsFormat.RGBA32SInt, integerStorageSupport, GetSampleCounts(formatSampleCounts, GraphicsFormat.RGBA32SInt);
-        formatBuffer[formatCount++] = new(GraphicsFormat.D16UNorm, depthSupport, GetSampleCounts(formatSampleCounts, GraphicsFormat.D16UNorm);
-        formatBuffer[formatCount++] = new(GraphicsFormat.D24UNormS8UInt, depthSupport, GetSampleCounts(formatSampleCounts, GraphicsFormat.D24UNormS8UInt);
+        formatBuffer[formatCount++] = new(GraphicsFormat.R8SNorm, signedNormalizedSupport, GetSampleCounts(formatSampleCounts, GraphicsFormat.R8SNorm))
+        formatBuffer[formatCount++] = new(GraphicsFormat.RG8SNorm, signedNormalizedSupport, GetSampleCounts(formatSampleCounts, GraphicsFormat.RG8SNorm))
+        formatBuffer[formatCount++] = new(GraphicsFormat.RGBA8SNorm, signedNormalizedSupport, GetSampleCounts(formatSampleCounts, GraphicsFormat.RGBA8SNorm))
+        formatBuffer[formatCount++] = new(GraphicsFormat.R16Float, halfFloatStorageSupport, GetSampleCounts(formatSampleCounts, GraphicsFormat.R16Float))
+        formatBuffer[formatCount++] = new(GraphicsFormat.RG16Float, halfFloatStorageSupport, GetSampleCounts(formatSampleCounts, GraphicsFormat.RG16Float))
+        formatBuffer[formatCount++] = new(GraphicsFormat.RGBA16Float, halfFloatStorageSupport, GetSampleCounts(formatSampleCounts, GraphicsFormat.RGBA16Float))
+        formatBuffer[formatCount++] = new(GraphicsFormat.R32Float, fullFloatStorageSupport, GetSampleCounts(formatSampleCounts, GraphicsFormat.R32Float))
+        formatBuffer[formatCount++] = new(GraphicsFormat.RG32Float, fullFloatStorageSupport, GetSampleCounts(formatSampleCounts, GraphicsFormat.RG32Float))
+        formatBuffer[formatCount++] = new(GraphicsFormat.RGB32Float, floatingSampledSupport, GetSampleCounts(formatSampleCounts, GraphicsFormat.RGB32Float))
+        formatBuffer[formatCount++] = new(GraphicsFormat.RGBA32Float, fullFloatStorageSupport, GetSampleCounts(formatSampleCounts, GraphicsFormat.RGBA32Float))
+        formatBuffer[formatCount++] = new(GraphicsFormat.R16UInt, integerStorageSupport, GetSampleCounts(formatSampleCounts, GraphicsFormat.R16UInt))
+        formatBuffer[formatCount++] = new(GraphicsFormat.R16SInt, integerStorageSupport, GetSampleCounts(formatSampleCounts, GraphicsFormat.R16SInt))
+        formatBuffer[formatCount++] = new(GraphicsFormat.RG16UInt, integerStorageSupport, GetSampleCounts(formatSampleCounts, GraphicsFormat.RG16UInt))
+        formatBuffer[formatCount++] = new(GraphicsFormat.RG16SInt, integerStorageSupport, GetSampleCounts(formatSampleCounts, GraphicsFormat.RG16SInt))
+        formatBuffer[formatCount++] = new(GraphicsFormat.RGBA16UInt, integerStorageSupport, GetSampleCounts(formatSampleCounts, GraphicsFormat.RGBA16UInt))
+        formatBuffer[formatCount++] = new(GraphicsFormat.RGBA16SInt, integerStorageSupport, GetSampleCounts(formatSampleCounts, GraphicsFormat.RGBA16SInt))
+        formatBuffer[formatCount++] = new(GraphicsFormat.R32UInt, integerStorageSupport, GetSampleCounts(formatSampleCounts, GraphicsFormat.R32UInt))
+        formatBuffer[formatCount++] = new(GraphicsFormat.R32SInt, integerStorageSupport, GetSampleCounts(formatSampleCounts, GraphicsFormat.R32SInt))
+        formatBuffer[formatCount++] = new(GraphicsFormat.RG32UInt, integerStorageSupport, GetSampleCounts(formatSampleCounts, GraphicsFormat.RG32UInt))
+        formatBuffer[formatCount++] = new(GraphicsFormat.RG32SInt, integerStorageSupport, GetSampleCounts(formatSampleCounts, GraphicsFormat.RG32SInt))
+        formatBuffer[formatCount++] = new(GraphicsFormat.RGBA32UInt, integerStorageSupport, GetSampleCounts(formatSampleCounts, GraphicsFormat.RGBA32UInt))
+        formatBuffer[formatCount++] = new(GraphicsFormat.RGBA32SInt, integerStorageSupport, GetSampleCounts(formatSampleCounts, GraphicsFormat.RGBA32SInt))
+        formatBuffer[formatCount++] = new(GraphicsFormat.D16UNorm, depthSupport, GetSampleCounts(formatSampleCounts, GraphicsFormat.D16UNorm))
+        formatBuffer[formatCount++] = new(GraphicsFormat.D24UNormS8UInt, depthSupport, GetSampleCounts(formatSampleCounts, GraphicsFormat.D24UNormS8UInt))
 
         // DEPTH_COMPONENT32F and DEPTH32F_STENCIL8 are required sized depth formats in
         // GLES 3.2. Do not expose their tokens or query them on GLES 3.1 contexts.
