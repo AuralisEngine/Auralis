@@ -310,7 +310,7 @@ internal sealed class OpenGLGraphicsBindingSet : GraphicsDeviceObject, IGraphics
 {
     private readonly OpenGLGraphicsBindingLayout _layout;
     private readonly OpenGLBindingValue[] _values;
-    private readonly object _gate = new();
+    private readonly Lock _gate = new();
 
     internal OpenGLGraphicsBindingSet(OpenGLGraphicsBindingLayout layout) : base(layout.Device)
     {

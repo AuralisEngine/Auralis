@@ -16,7 +16,7 @@ namespace Auralis.Graphics.Backends.OpenGL;
 internal sealed class OpenGLGraphicsCommandQueue : IGraphicsCommandQueue
 {
     private readonly OpenGLGraphicsDevice _device;
-    private readonly object _gate = new();
+    private readonly Lock _gate = new();
     private readonly List<PendingSubmission> _pending = new(8);
 
     internal OpenGLGraphicsCommandQueue(OpenGLGraphicsDevice device, GraphicsQueueType queueType)
@@ -277,48 +277,75 @@ internal sealed class OpenGLGraphicsCommandQueue : IGraphicsCommandQueue
         if (_device.IsDisposed)
             return;
 
-        List<PendingSubmission>? completed = null;
-        _device.WithContext(gl =>
+        PendingSubmission[]? completed = null;
+        int completedCount = 0;
+        Exception? pollFailure = null;
+        try
         {
-            lock (_gate)
+            _device.WithContext(gl =>
             {
-                for (int i = _pending.Count - 1; i >= 0; i--)
+                lock (_gate)
                 {
-                    PendingSubmission submission = _pending[i];
-                    ARB status = _device.SyncApi.ClientWaitSync(
-                        submission.Sync,
-                        (SyncObjectMask)0,
-                        0);
+                    for (int i = _pending.Count - 1; i >= 0; i--)
+                    {
+                        PendingSubmission submission = _pending[i];
+                        ARB status = _device.SyncApi.ClientWaitSync(
+                            submission.Sync,
+                            (SyncObjectMask)0,
+                            0);
 
-                    if (status == ARB.TimeoutExpired)
-                        continue;
-                    if (status == ARB.WaitFailed)
-                        throw new GraphicsException("OpenGL failed to poll a command submission sync.");
+                        if (status == ARB.TimeoutExpired)
+                            continue;
+                        if (status == ARB.WaitFailed)
+                            throw new GraphicsException("OpenGL failed to poll a command submission sync.");
+                        if (status is not (ARB.AlreadySignaled or ARB.ConditionSatisfied))
+                            throw new GraphicsException($"OpenGL returned unexpected command submission sync status {status}.");
 
-                    // Publish the lifecycle transition while the owning queue record is still
-                    // protected. A concurrent Dispose can then never mistake a completed record
-                    // for an unowned Pending list.
-                    _device.SyncApi.DeleteSync(submission.Sync);
-                    MarkSubmissionCompleted(submission);
-                    _pending.RemoveAt(i);
-                    completed ??= new List<PendingSubmission>(4);
-                    completed.Add(submission);
+                        // Rent before mutating queue ownership so an allocation failure leaves the
+                        // native sync and its pending record available for a later poll.
+                        completed ??= ArrayPool<PendingSubmission>.Shared.Rent(_pending.Count);
+
+                        try { _device.SyncApi.DeleteSync(submission.Sync); }
+                        catch (Exception exception) { pollFailure ??= exception; }
+
+                        try { MarkSubmissionCompleted(submission); }
+                        catch (Exception exception) { pollFailure ??= exception; }
+
+                        _pending.RemoveAt(i);
+                        completed[completedCount++] = submission;
+                    }
                 }
-            }
-        });
-
-        if (completed is null)
-            return;
-
-        Exception? failure = null;
-        for (int i = 0; i < completed.Count; i++)
+            });
+        }
+        catch (Exception exception)
         {
-            try { CompleteSubmission(completed[i]); }
-            catch (Exception exception) { failure ??= exception; }
+            pollFailure ??= exception;
         }
 
-        if (failure is not null)
-            ExceptionDispatchInfo.Capture(failure).Throw();
+        Exception? completionFailure = null;
+        try
+        {
+            for (int i = 0; i < completedCount; i++)
+            {
+                try { CompleteSubmission(completed![i]); }
+                catch (Exception exception) { completionFailure ??= exception; }
+            }
+        }
+        finally
+        {
+            if (completed is not null)
+                ArrayPool<PendingSubmission>.Shared.Return(completed, clearArray: true);
+        }
+
+        if (pollFailure is not null && completionFailure is not null)
+            throw new AggregateException(
+                "OpenGL submission polling and completion cleanup both reported failures.",
+                pollFailure,
+                completionFailure);
+        if (pollFailure is not null)
+            ExceptionDispatchInfo.Capture(pollFailure).Throw();
+        if (completionFailure is not null)
+            ExceptionDispatchInfo.Capture(completionFailure).Throw();
     }
 
     internal void WaitForCompletion(OpenGLGraphicsCommandList commandList)
@@ -389,10 +416,15 @@ internal sealed class OpenGLGraphicsCommandQueue : IGraphicsCommandQueue
 
     internal void DrainUnderContext(GL gl)
     {
-        List<PendingSubmission>? completed = null;
+        PendingSubmission[]? completed = null;
+        int completedCount = 0;
         Exception? failure = null;
+
         lock (_gate)
         {
+            if (_pending.Count != 0)
+                completed = ArrayPool<PendingSubmission>.Shared.Rent(_pending.Count);
+
             for (int i = _pending.Count - 1; i >= 0; i--)
             {
                 PendingSubmission submission = _pending[i];
@@ -403,18 +435,22 @@ internal sealed class OpenGLGraphicsCommandQueue : IGraphicsCommandQueue
                 catch (Exception exception) { failure ??= exception; }
 
                 _pending.RemoveAt(i);
-                completed ??= new List<PendingSubmission>(4);
-                completed.Add(submission);
+                completed![completedCount++] = submission;
             }
         }
 
-        if (completed is not null)
+        try
         {
-            for (int i = 0; i < completed.Count; i++)
+            for (int i = 0; i < completedCount; i++)
             {
-                try { CompleteSubmission(completed[i]); }
+                try { CompleteSubmission(completed![i]); }
                 catch (Exception exception) { failure ??= exception; }
             }
+        }
+        finally
+        {
+            if (completed is not null)
+                ArrayPool<PendingSubmission>.Shared.Return(completed, clearArray: true);
         }
 
         if (failure is not null)
@@ -423,8 +459,15 @@ internal sealed class OpenGLGraphicsCommandQueue : IGraphicsCommandQueue
 
     private static void MarkSubmissionCompleted(PendingSubmission submission)
     {
+        Exception? failure = null;
         for (int i = 0; i < submission.Count; i++)
-            submission.CommandLists[i].MarkCompletedAfterGpu();
+        {
+            try { submission.CommandLists[i].MarkCompletedAfterGpu(); }
+            catch (Exception exception) { failure ??= exception; }
+        }
+
+        if (failure is not null)
+            ExceptionDispatchInfo.Capture(failure).Throw();
     }
 
     private void CompleteSubmission(PendingSubmission submission)

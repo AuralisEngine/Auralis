@@ -13,7 +13,7 @@ namespace Auralis.Graphics.Backends.OpenGLES;
 internal sealed unsafe class OpenGLESGraphicsBuffer : OpenGLESNativeDeviceObject, IGraphicsBuffer
 {
     private readonly OpenGLESGraphicsDevice _device;
-    private readonly object _mapGate = new();
+    private readonly Lock _mapGate = new();
     private uint _handle;
     private OpenGLESMappedStagingMemoryManager? _mapped;
     private ulong _mappedOffset;

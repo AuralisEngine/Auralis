@@ -66,6 +66,77 @@ public sealed class GraphicsReviewRegressionTests
         Assert.InRange(elapsed.TotalMilliseconds, 20, 500);
     }
 
+    [Fact]
+    public void ContextGateLockAcquisitionTimesOutWhenAnotherThreadHoldsTheGate()
+    {
+        Lock gate = new();
+        using ManualResetEventSlim started = new();
+        using ManualResetEventSlim completed = new();
+        bool acquired = true;
+        Thread waiter = new(() =>
+        {
+            started.Set();
+            acquired = GraphicsContextGate.TryEnter(
+                gate, TimeSpan.FromMilliseconds(30), CancellationToken.None);
+            if (acquired)
+                gate.Exit();
+            completed.Set();
+        });
+        long start = System.Diagnostics.Stopwatch.GetTimestamp();
+
+        lock (gate)
+        {
+            waiter.Start();
+            Assert.True(started.Wait(TimeSpan.FromSeconds(1)));
+            Assert.True(completed.Wait(TimeSpan.FromSeconds(1)));
+            Assert.False(acquired);
+        }
+
+        Assert.True(waiter.Join(TimeSpan.FromSeconds(1)));
+        TimeSpan elapsed = System.Diagnostics.Stopwatch.GetElapsedTime(start);
+        Assert.InRange(elapsed.TotalMilliseconds, 20, 500);
+    }
+
+    [Fact]
+    public void ContextGateLockAcquisitionHonorsCancellation()
+    {
+        Lock gate = new();
+        using ManualResetEventSlim started = new();
+        using ManualResetEventSlim completed = new();
+        using CancellationTokenSource cancellation = new();
+        bool cancellationObserved = false;
+        Thread waiter = new(() =>
+        {
+            started.Set();
+            try
+            {
+                bool acquired = GraphicsContextGate.TryEnter(
+                    gate, Timeout.InfiniteTimeSpan, cancellation.Token);
+                if (acquired)
+                    gate.Exit();
+            }
+            catch (OperationCanceledException)
+            {
+                cancellationObserved = true;
+            }
+            finally
+            {
+                completed.Set();
+            }
+        });
+
+        lock (gate)
+        {
+            waiter.Start();
+            Assert.True(started.Wait(TimeSpan.FromSeconds(1)));
+            cancellation.Cancel();
+            Assert.True(completed.Wait(TimeSpan.FromSeconds(1)));
+        }
+
+        Assert.True(waiter.Join(TimeSpan.FromSeconds(1)));
+        Assert.True(cancellationObserved);
+    }
+
     [Theory]
     [InlineData(16)]
     [InlineData(20)]

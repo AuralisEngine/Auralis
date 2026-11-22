@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Runtime.ExceptionServices;
 using Auralis.Graphics.Abstractions;
 using Auralis.Graphics.Commands;
@@ -14,7 +15,7 @@ namespace Auralis.Graphics.Backends.OpenGLES;
 internal sealed class OpenGLESGraphicsCommandQueue : IGraphicsCommandQueue
 {
     private readonly OpenGLESGraphicsDevice _device;
-    private readonly object _gate = new();
+    private readonly Lock _gate = new();
     private readonly List<PendingSubmission> _pending = new(8);
 
     internal OpenGLESGraphicsCommandQueue(OpenGLESGraphicsDevice device, GraphicsQueueType queueType)
@@ -46,7 +47,8 @@ internal sealed class OpenGLESGraphicsCommandQueue : IGraphicsCommandQueue
         if (commandLists.IsEmpty)
             throw new ArgumentException("At least one command list is required.", nameof(commandLists));
 
-        OpenGLESGraphicsCommandList[] lists = new OpenGLESGraphicsCommandList[commandLists.Length];
+        // Validate the input span before renting storage. Duplicate detection does not need a
+        // temporary array and remains bounded by the submission size.
         for (int i = 0; i < commandLists.Length; i++)
         {
             if (commandLists[i] is not OpenGLESGraphicsCommandList list ||
@@ -57,9 +59,8 @@ internal sealed class OpenGLESGraphicsCommandQueue : IGraphicsCommandQueue
                     "Submitted lists must be executable lists created by this GLES device and queue.");
 
             for (int j = 0; j < i; j++)
-                if (ReferenceEquals(lists[j], list))
+                if (ReferenceEquals(commandLists[j], list))
                     throw new GraphicsValidationException("A command list cannot be submitted more than once in one batch.");
-            lists[i] = list;
         }
 
         OpenGLESGraphicsFence? fence = null;
@@ -74,78 +75,95 @@ internal sealed class OpenGLESGraphicsCommandQueue : IGraphicsCommandQueue
             throw new ArgumentException("A non-zero signal value requires a signal fence.", nameof(signalValue));
         }
 
+        int listCount = commandLists.Length;
+        OpenGLESGraphicsCommandList[] lists =
+            ArrayPool<OpenGLESGraphicsCommandList>.Shared.Rent(listCount);
+        for (int i = 0; i < listCount; i++)
+            lists[i] = (OpenGLESGraphicsCommandList)commandLists[i];
+
         int submitted = 0;
         bool commandsStarted = false;
+        bool submissionQueued = false;
         nint completionSync = 0;
 
-        _device.WithContext(gl =>
+        try
         {
-            try
+            _device.WithContext(gl =>
             {
-                // Keep Executable -> Pending and failure recovery serialized with Dispose.
-                for (int i = 0; i < lists.Length; i++)
-                {
-                    lists[i].MarkSubmitted();
-                    submitted++;
-                }
-
-                commandsStarted = true;
-                for (int i = 0; i < lists.Length; i++)
-                    lists[i].Execute(gl);
-
-                completionSync = gl.FenceSync(SyncCondition.SyncGpuCommandsComplete, (uint)0);
-                if (completionSync == 0)
-                    throw new GraphicsException("OpenGL ES failed to create a command-submission sync object.");
-
-                fence?.SignalFromGpu(gl, signalValue);
-                gl.Flush();
-
-                lock (_gate)
-                {
-                    _pending.Add(new PendingSubmission(lists, completionSync));
-                }
-            }
-            catch (Exception submissionError)
-            {
-                // This recovery runs before the context gate is released. A disposer waiting on
-                // that gate therefore observes either an owning queue record or a completed list.
-                Exception? cleanupFailure = null;
                 try
                 {
-                    GraphicsCommandListSubmissionRecovery.RecoverFailedSubmission(
-                        lists,
-                        submitted,
-                        commandsStarted,
-                        gl.Finish,
-                        static list =>
-                        {
-                            if (list.Lifecycle.State == GraphicsCommandListState.Pending)
-                                list.MarkCompletedAfterGpu();
-                        });
+                    // Keep Executable -> Pending and failure recovery serialized with Dispose.
+                    for (int i = 0; i < listCount; i++)
+                    {
+                        lists[i].MarkSubmitted();
+                        submitted++;
+                    }
+
+                    commandsStarted = true;
+                    for (int i = 0; i < listCount; i++)
+                        lists[i].Execute(gl);
+
+                    completionSync = gl.FenceSync(SyncCondition.SyncGpuCommandsComplete, (uint)0);
+                    if (completionSync == 0)
+                        throw new GraphicsException("OpenGL ES failed to create a command-submission sync object.");
+
+                    fence?.SignalFromGpu(gl, signalValue);
+                    gl.Flush();
+
+                    lock (_gate)
+                    {
+                        // Ownership transfers only after the pending record is successfully added.
+                        _pending.Add(new PendingSubmission(lists, listCount, completionSync));
+                        submissionQueued = true;
+                        completionSync = 0;
+                    }
                 }
-                catch (Exception exception)
+                catch (Exception submissionError)
                 {
-                    cleanupFailure ??= exception;
+                    // A disposer waiting on the context gate observes either an owning queue record
+                    // or command lists whose issued GPU work has been safely finished.
+                    Exception? cleanupFailure = null;
+                    try
+                    {
+                        GraphicsCommandListSubmissionRecovery.RecoverFailedSubmission(
+                            lists,
+                            submitted,
+                            commandsStarted,
+                            gl.Finish,
+                            static list =>
+                            {
+                                if (list.Lifecycle.State == GraphicsCommandListState.Pending)
+                                    list.MarkCompletedAfterGpu();
+                            });
+                    }
+                    catch (Exception exception)
+                    {
+                        cleanupFailure ??= exception;
+                    }
+
+                    if (completionSync != 0)
+                    {
+                        try { gl.DeleteSync(completionSync); }
+                        catch (Exception exception) { cleanupFailure ??= exception; }
+                        completionSync = 0;
+                    }
+
+                    if (cleanupFailure is not null)
+                        throw new AggregateException(
+                            "GLES submission failed and its in-context recovery also failed.",
+                            submissionError,
+                            cleanupFailure);
+
+                    ExceptionDispatchInfo.Capture(submissionError).Throw();
+                    throw;
                 }
-
-                if (completionSync != 0)
-                {
-                    try { gl.DeleteSync(completionSync); }
-                    catch (Exception exception) { cleanupFailure ??= exception; }
-                    completionSync = 0;
-                }
-
-                if (cleanupFailure is not null)
-                    throw new AggregateException(
-                        "GLES submission failed and its in-context recovery also failed.",
-                        submissionError,
-                        cleanupFailure);
-
-                ExceptionDispatchInfo.Capture(submissionError).Throw();
-                throw;
-            }
-        });
-
+            });
+        }
+        finally
+        {
+            if (!submissionQueued)
+                ArrayPool<OpenGLESGraphicsCommandList>.Shared.Return(lists, clearArray: true);
+        }
     }
 
     public void Wait(IGraphicsFence fence, ulong value)
@@ -162,33 +180,71 @@ internal sealed class OpenGLESGraphicsCommandQueue : IGraphicsCommandQueue
         if (_device.IsDisposed)
             return;
 
-        List<PendingSubmission>? completed = null;
-        _device.WithContext(gl =>
+        PendingSubmission[]? completed = null;
+        int completedCount = 0;
+        Exception? pollingFailure = null;
+        try
         {
-            lock (_gate)
+            _device.WithContext(gl =>
             {
-                for (int i = _pending.Count - 1; i >= 0; i--)
+                lock (_gate)
                 {
-                    PendingSubmission submission = _pending[i];
-                    GLEnum status = gl.ClientWaitSync(submission.Sync, (uint)0, 0);
-                    if (status == GLEnum.TimeoutExpired)
-                        continue;
-                    if (status == GLEnum.WaitFailed)
-                        throw new GraphicsException("OpenGL ES failed while polling a command submission.");
-                    if (status is not (GLEnum.AlreadySignaled or GLEnum.ConditionSatisfied))
-                        throw new GraphicsException($"OpenGL ES returned unexpected sync status {status}.");
+                    for (int i = _pending.Count - 1; i >= 0; i--)
+                    {
+                        PendingSubmission submission = _pending[i];
+                        GLEnum status = gl.ClientWaitSync(submission.Sync, (uint)0, 0);
+                        if (status == GLEnum.TimeoutExpired)
+                            continue;
+                        if (status == GLEnum.WaitFailed)
+                            throw new GraphicsException("OpenGL ES failed while polling a command submission.");
+                        if (status is not (GLEnum.AlreadySignaled or GLEnum.ConditionSatisfied))
+                            throw new GraphicsException($"OpenGL ES returned unexpected sync status {status}.");
 
-                    gl.DeleteSync(submission.Sync);
-                    MarkSubmissionCompleted(submission);
-                    _pending.RemoveAt(i);
-                    completed ??= new List<PendingSubmission>(4);
-                    completed.Add(submission);
+                        // The pool rent happens before ownership is mutated. A rent failure leaves
+                        // this record and its live sync in the pending queue.
+                        completed ??= ArrayPool<PendingSubmission>.Shared.Rent(_pending.Count);
+
+                        try { gl.DeleteSync(submission.Sync); }
+                        catch (Exception exception) { pollingFailure ??= exception; }
+
+                        try { MarkSubmissionCompleted(submission); }
+                        catch (Exception exception) { pollingFailure ??= exception; }
+
+                        _pending.RemoveAt(i);
+                        completed[completedCount++] = submission;
+                    }
                 }
-            }
-        });
+            });
+        }
+        catch (Exception exception)
+        {
+            pollingFailure ??= exception;
+        }
 
-        if (completed is not null)
-            CompleteAll(completed);
+        Exception? completionFailure = null;
+        try
+        {
+            if (completedCount != 0)
+            {
+                try { CompleteAll(completed!, completedCount); }
+                catch (Exception exception) { completionFailure = exception; }
+            }
+        }
+        finally
+        {
+            if (completed is not null)
+                ArrayPool<PendingSubmission>.Shared.Return(completed, clearArray: true);
+        }
+
+        if (pollingFailure is not null && completionFailure is not null)
+            throw new AggregateException(
+                "OpenGL ES submission polling and completion cleanup both reported failures.",
+                pollingFailure,
+                completionFailure);
+        if (pollingFailure is not null)
+            ExceptionDispatchInfo.Capture(pollingFailure).Throw();
+        if (completionFailure is not null)
+            ExceptionDispatchInfo.Capture(completionFailure).Throw();
     }
 
     internal void WaitForCompletion(OpenGLESGraphicsCommandList commandList)
@@ -207,7 +263,7 @@ internal sealed class OpenGLESGraphicsCommandQueue : IGraphicsCommandQueue
                     {
                         PendingSubmission submission = _pending[i];
                         bool contains = false;
-                        for (int j = 0; j < submission.CommandLists.Length; j++)
+                        for (int j = 0; j < submission.Count; j++)
                             contains |= ReferenceEquals(submission.CommandLists[j], commandList);
                         if (!contains)
                             continue;
@@ -253,35 +309,73 @@ internal sealed class OpenGLESGraphicsCommandQueue : IGraphicsCommandQueue
 
     private static void MarkSubmissionCompleted(PendingSubmission submission)
     {
-        for (int i = 0; i < submission.CommandLists.Length; i++)
-            submission.CommandLists[i].MarkCompletedAfterGpu();
+        Exception? failure = null;
+        for (int i = 0; i < submission.Count; i++)
+        {
+            try { submission.CommandLists[i].MarkCompletedAfterGpu(); }
+            catch (Exception exception) { failure ??= exception; }
+        }
+
+        if (failure is not null)
+            ExceptionDispatchInfo.Capture(failure).Throw();
     }
 
     /// <summary>Called with the owning context current after the device has finished the GPU.</summary>
     internal void DrainUnderContext(GL gl)
     {
-        List<PendingSubmission>? completed = null;
+        PendingSubmission[]? completed = null;
+        int completedCount = 0;
+        Exception? drainFailure = null;
+
         lock (_gate)
         {
+            if (_pending.Count != 0)
+                completed = ArrayPool<PendingSubmission>.Shared.Rent(_pending.Count);
+
             for (int i = _pending.Count - 1; i >= 0; i--)
             {
                 PendingSubmission submission = _pending[i];
-                gl.DeleteSync(submission.Sync);
-                MarkSubmissionCompleted(submission);
-                completed ??= new List<PendingSubmission>(4);
-                completed.Add(submission);
+                try { gl.DeleteSync(submission.Sync); }
+                catch (Exception exception) { drainFailure ??= exception; }
+
+                try { MarkSubmissionCompleted(submission); }
+                catch (Exception exception) { drainFailure ??= exception; }
+
+                _pending.RemoveAt(i);
+                completed![completedCount++] = submission;
             }
-            _pending.Clear();
         }
 
-        if (completed is not null)
-            CompleteAll(completed);
+        Exception? completionFailure = null;
+        try
+        {
+            if (completedCount != 0)
+            {
+                try { CompleteAll(completed!, completedCount); }
+                catch (Exception exception) { completionFailure = exception; }
+            }
+        }
+        finally
+        {
+            if (completed is not null)
+                ArrayPool<PendingSubmission>.Shared.Return(completed, clearArray: true);
+        }
+
+        if (drainFailure is not null && completionFailure is not null)
+            throw new AggregateException(
+                "OpenGL ES submission draining and resource cleanup both reported failures.",
+                drainFailure,
+                completionFailure);
+        if (drainFailure is not null)
+            ExceptionDispatchInfo.Capture(drainFailure).Throw();
+        if (completionFailure is not null)
+            ExceptionDispatchInfo.Capture(completionFailure).Throw();
     }
 
-    private static void CompleteAll(IReadOnlyList<PendingSubmission> submissions)
+    private static void CompleteAll(PendingSubmission[] submissions, int count)
     {
         List<Exception>? failures = null;
-        for (int i = 0; i < submissions.Count; i++)
+        for (int i = 0; i < count; i++)
         {
             try { CompleteSubmission(submissions[i]); }
             catch (Exception exception)
@@ -300,10 +394,19 @@ internal sealed class OpenGLESGraphicsCommandQueue : IGraphicsCommandQueue
     private static void CompleteSubmission(PendingSubmission submission)
     {
         Exception? failure = null;
-        for (int i = 0; i < submission.CommandLists.Length; i++)
+        try
         {
-            try { submission.CommandLists[i].ReleaseCompletedResourcesIfDisposed(); }
-            catch (Exception exception) { failure ??= exception; }
+            for (int i = 0; i < submission.Count; i++)
+            {
+                try { submission.CommandLists[i].ReleaseCompletedResourcesIfDisposed(); }
+                catch (Exception exception) { failure ??= exception; }
+            }
+        }
+        finally
+        {
+            ArrayPool<OpenGLESGraphicsCommandList>.Shared.Return(
+                submission.CommandLists,
+                clearArray: true);
         }
 
         if (failure is not null)
@@ -312,5 +415,6 @@ internal sealed class OpenGLESGraphicsCommandQueue : IGraphicsCommandQueue
 
     private readonly record struct PendingSubmission(
         OpenGLESGraphicsCommandList[] CommandLists,
+        int Count,
         nint Sync);
 }

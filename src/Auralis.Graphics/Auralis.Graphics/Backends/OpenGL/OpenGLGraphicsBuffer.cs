@@ -114,7 +114,7 @@ internal abstract class OpenGLNativeDeviceObject : GraphicsDeviceObject, IOpenGL
 internal sealed unsafe class OpenGLGraphicsBuffer : OpenGLNativeDeviceObject, IGraphicsBuffer, IOpenGLNativeResourcePreparation
 {
     private readonly OpenGLGraphicsDevice _device;
-    private readonly object _mappingGate = new();
+    private readonly Lock _mappingGate = new();
     private uint _handle;
     private OpenGLMappedMemoryManager? _mapped;
     private bool _isMapped;

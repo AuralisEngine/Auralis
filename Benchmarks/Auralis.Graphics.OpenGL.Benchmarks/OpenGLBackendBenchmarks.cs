@@ -30,6 +30,7 @@ public class OpenGLBackendBenchmarks
     private IGraphicsBuffer? _source;
     private IGraphicsBuffer? _destination;
     private IGraphicsCommandList? _commandList;
+    private IGraphicsCommandList[] _submitLists = [];
     private IGraphicsFence? _fence;
     private byte[] _expectedContents = [];
     private ulong _fenceValue;
@@ -65,10 +66,15 @@ public class OpenGLBackendBenchmarks
             }
 
             _commandList = _copyQueue.CreateCommandList(GraphicsCommandListUsage.Reusable);
+            _submitLists = [CommandList];
             _fence = _device.CreateFence();
 
             PrintEnvironment();
             ValidateInitialBufferCopy();
+
+            // Keep a pre-recorded reusable list available for submission-only measurements.
+            CommandList.Begin();
+            CommandList.End();
         }
         catch (Exception setupError)
         {
@@ -108,7 +114,18 @@ public class OpenGLBackendBenchmarks
     {
         RecordCopy();
         ulong value = checked(++_fenceValue);
-        CopyQueue.Submit([CommandList], Fence, value);
+        CopyQueue.Submit(_submitLists, Fence, value);
+        if (!Fence.Wait(value, GpuTimeout))
+            throw new TimeoutException($"Desktop OpenGL GPU fence {value} did not complete within {GpuTimeout}.");
+
+        return CommandList.State == GraphicsCommandListState.Executable ? 1 : 0;
+    }
+
+    [Benchmark(Description = "Submission: pre-recorded reusable command list plus fence wait")]
+    public int SubmitPreRecordedCommandList()
+    {
+        ulong value = checked(++_fenceValue);
+        CopyQueue.Submit(_submitLists, Fence, value);
         if (!Fence.Wait(value, GpuTimeout))
             throw new TimeoutException($"Desktop OpenGL GPU fence {value} did not complete within {GpuTimeout}.");
 
@@ -123,7 +140,7 @@ public class OpenGLBackendBenchmarks
     {
         RecordCopy();
         ulong value = checked(++_fenceValue);
-        CopyQueue.Submit([CommandList], Fence, value);
+        CopyQueue.Submit(_submitLists, Fence, value);
 
         long start = Stopwatch.GetTimestamp();
         ulong completed;
@@ -230,7 +247,7 @@ public class OpenGLBackendBenchmarks
     {
         RecordCopy();
         ulong value = checked(++_fenceValue);
-        CopyQueue.Submit([CommandList], Fence, value);
+        CopyQueue.Submit(_submitLists, Fence, value);
         if (!Fence.Wait(value, GpuTimeout))
             throw new TimeoutException($"The initial desktop OpenGL buffer-copy fence {value} did not complete.");
 

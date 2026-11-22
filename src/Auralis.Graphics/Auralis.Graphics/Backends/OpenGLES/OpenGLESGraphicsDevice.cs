@@ -102,11 +102,11 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
     private readonly DrawMeshTasksExtDelegate? _drawMeshTasksExt;
     private readonly DrawMeshTasksIndirectExtDelegate? _drawMeshTasksIndirectExt;
     private readonly MultiDrawMeshTasksIndirectExtDelegate? _multiDrawMeshTasksIndirectExt;
-    private readonly object _contextGate = new();
+    private readonly Lock _contextGate = new();
     private readonly GraphicsContextActivation _contextActivation;
-    private readonly object _resourceGate = new();
+    private readonly Lock _resourceGate = new();
     private readonly HashSet<IOpenGLESNativeResource> _resources = new(ReferenceEqualityComparer.Instance);
-    private readonly object _queueGate = new();
+    private readonly Lock _queueGate = new();
     private readonly OpenGLESGraphicsCommandQueue?[] _queues = new OpenGLESGraphicsCommandQueue?[3];
     private readonly bool _ownsContextProvider;
     private int _disposed;
@@ -1177,7 +1177,7 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
         }
         finally
         {
-            Monitor.Exit(_contextGate);
+            _contextGate.Exit();
         }
     }
 

@@ -11,7 +11,7 @@ namespace Auralis.Graphics.Backends.OpenGL;
 internal sealed class OpenGLGraphicsPresentationSurface : GraphicsDeviceObject, IGraphicsPresentationSurface
 {
     private readonly OpenGLGraphicsDevice _device;
-    private readonly object _gate = new();
+    private readonly Lock _gate = new();
     private GraphicsPresentationTargetSnapshot _snapshot;
 
     internal OpenGLGraphicsPresentationSurface(

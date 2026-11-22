@@ -172,7 +172,7 @@ internal sealed class OpenGLESGraphicsBindingSet : GraphicsDeviceObject, IGraphi
 {
     private readonly OpenGLESGraphicsBindingLayout _layout;
     private readonly OpenGLESBindingValue[] _values;
-    private readonly object _gate = new();
+    private readonly Lock _gate = new();
 
     internal OpenGLESGraphicsBindingSet(OpenGLESGraphicsBindingLayout layout) : base(layout.Device)
     {

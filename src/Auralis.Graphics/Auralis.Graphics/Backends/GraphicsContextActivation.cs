@@ -98,4 +98,50 @@ internal static class GraphicsContextGate
             return true;
         }
     }
+
+    internal static bool TryEnter(System.Threading.Lock gate, TimeSpan timeout, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(gate);
+        if (timeout < TimeSpan.Zero && timeout != Timeout.InfiniteTimeSpan)
+            throw new ArgumentOutOfRangeException(nameof(timeout));
+
+        long start = Stopwatch.GetTimestamp();
+        long timeoutTicks = timeout == Timeout.InfiniteTimeSpan
+            ? long.MaxValue
+            : (long)(timeout.TotalSeconds * Stopwatch.Frequency);
+
+        while (true)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            long elapsed = Stopwatch.GetTimestamp() - start;
+            long remaining = timeoutTicks == long.MaxValue ? long.MaxValue : timeoutTicks - elapsed;
+            if (remaining <= 0)
+                return false;
+
+            int waitMilliseconds = remaining == long.MaxValue || remaining >= Stopwatch.Frequency / 1000
+                ? 1
+                : 0;
+            if (!gate.TryEnter(waitMilliseconds))
+                continue;
+
+            try
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+            }
+            catch
+            {
+                gate.Exit();
+                throw;
+            }
+
+            if (timeoutTicks != long.MaxValue &&
+                Stopwatch.GetTimestamp() - start > timeoutTicks)
+            {
+                gate.Exit();
+                return false;
+            }
+
+            return true;
+        }
+    }
 }

@@ -28,7 +28,7 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
     private readonly object _contextGate = new();
     private readonly GraphicsContextActivation _contextActivation;
     private readonly HashSet<IOpenGLNativeResource> _resources = new(ReferenceEqualityComparer.Instance);
-    private readonly object _queueGate = new();
+    private readonly Lock _queueGate = new();
     private readonly OpenGLGraphicsCommandQueue?[] _queues = new OpenGLGraphicsCommandQueue?[3];
     private int _pendingSubmissionCount;
     private readonly GL _gl;

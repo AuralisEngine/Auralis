@@ -12,7 +12,7 @@ namespace Auralis.Graphics.Backends.OpenGLES;
 internal sealed class OpenGLESGraphicsPresentationSurface : GraphicsDeviceObject, IGraphicsPresentationSurface
 {
     private readonly OpenGLESGraphicsDevice _device;
-    private readonly object _gate = new();
+    private readonly Lock _gate = new();
     private GraphicsPresentationTargetSnapshot _snapshot;
 
     internal OpenGLESGraphicsPresentationSurface(
