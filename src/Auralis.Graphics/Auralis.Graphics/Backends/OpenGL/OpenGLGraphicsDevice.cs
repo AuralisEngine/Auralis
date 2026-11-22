@@ -50,6 +50,8 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
     private readonly ArbPolygonOffsetClamp? _polygonOffsetClampApi;
     private readonly OpenGLExtMeshShader? _meshShaderApi;
     private readonly NVMeshShader? _nvMeshShaderApi;
+    private readonly bool _hasExtMeshShaderExtension;
+    private readonly bool _hasNvMeshShaderExtension;
     private readonly bool _supportsExtDirectMeshTasks;
     private readonly bool _supportsExtIndirectMeshTasks;
     private readonly bool _supportsExtMultiDrawMeshTasksIndirect;
@@ -83,6 +85,8 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
     internal ArbPolygonOffsetClamp? PolygonOffsetClampApi => _polygonOffsetClampApi;
     internal OpenGLExtMeshShader? MeshShaderApi => _meshShaderApi;
     internal NVMeshShader? NvMeshShaderApi => _nvMeshShaderApi;
+    internal bool HasExtMeshShaderExtension => _hasExtMeshShaderExtension;
+    internal bool HasNvMeshShaderExtension => _hasNvMeshShaderExtension;
     internal bool SupportsExtDirectMeshTasks => _supportsExtDirectMeshTasks;
     internal bool SupportsExtIndirectMeshTasks => _supportsExtIndirectMeshTasks;
     internal bool SupportsExtMultiDrawMeshTasksIndirect => _supportsExtMultiDrawMeshTasksIndirect;
@@ -115,6 +119,8 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
         ArbPolygonOffsetClamp? polygonOffsetClampApi,
         OpenGLExtMeshShader? meshShaderApi,
         NVMeshShader? nvMeshShaderApi,
+        bool hasExtMeshShaderExtension,
+        bool hasNvMeshShaderExtension,
         bool supportsExtDirectMeshTasks,
         bool supportsExtIndirectMeshTasks,
         bool supportsExtMultiDrawMeshTasksIndirect,
@@ -169,6 +175,8 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
         _polygonOffsetClampApi = polygonOffsetClampApi;
         _meshShaderApi = meshShaderApi;
         _nvMeshShaderApi = nvMeshShaderApi;
+        _hasExtMeshShaderExtension = hasExtMeshShaderExtension;
+        _hasNvMeshShaderExtension = hasNvMeshShaderExtension;
         _supportsExtDirectMeshTasks = supportsExtDirectMeshTasks;
         _supportsExtIndirectMeshTasks = supportsExtIndirectMeshTasks;
         _supportsExtMultiDrawMeshTasksIndirect = supportsExtMultiDrawMeshTasksIndirect;
@@ -433,6 +441,7 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
                 baseInstanceApi, drawIndirectApi, multiDrawIndirectApi, imageLoadStoreApi,
                 drawBuffersBlendApi, indexedDrawBuffersApi, depthBoundsApi, polygonOffsetClampApi,
                 meshShaderApi, nvMeshShaderApi,
+                hasExtMeshShader, hasNvMeshShader,
                 supportsExtDirectMeshTasks, supportsExtIndirectMeshTasks,
                 supportsExtMultiDrawMeshTasksIndirect, meshShaderCapabilities,
                 shaderBinaryApi!, spirvApi, supportedLineWidths, computeShaderApi!, uniformBufferObjectApi!,
