@@ -5,7 +5,7 @@ using Silk.NET.GLFW;
 namespace Auralis.Graphics.OpenGL.TestSupport;
 
 /// <summary>
-/// Creates a hidden GLFW OpenGL ES 3.1 context for hardware integration tests. This helper lives in test
+/// Creates a hidden GLFW OpenGL ES 3.1 context for hardware integration tests and benchmarks. This helper lives in test
 /// support; the graphics backend itself receives the already-created context and owns no EGL/Android code.
 /// </summary>
 public sealed unsafe class GlfwOpenGLESContextProvider : IOpenGLESContextProvider
@@ -33,7 +33,7 @@ public sealed unsafe class GlfwOpenGLESContextProvider : IOpenGLESContextProvide
             DllNotFoundException or FileNotFoundException or EntryPointNotFoundException or BadImageFormatException)
         {
             throw new HardwareContextUnavailableException(
-                "The GLFW native library required for OpenGL ES integration tests could not be loaded.",
+                "The GLFW native library required for OpenGL ES hardware tests and benchmarks could not be loaded.",
                 exception);
         }
         WindowHandle* window = null;
@@ -41,7 +41,7 @@ public sealed unsafe class GlfwOpenGLESContextProvider : IOpenGLESContextProvide
         try
         {
             if (!glfw.Init())
-                throw new HardwareContextUnavailableException("GLFW could not initialize. A usable display/session and GLFW native library are required.");
+                throw new HardwareContextUnavailableException("GLFW could not initialize. OpenGL ES hardware tests and benchmarks require the GLFW native library and a usable display/session.");
 
             initialized = true;
             glfw.DefaultWindowHints();
@@ -53,7 +53,7 @@ public sealed unsafe class GlfwOpenGLESContextProvider : IOpenGLESContextProvide
 
             window = glfw.CreateWindow(64, 64, "Auralis OpenGL ES Hardware Tests", null, null);
             if (window is null)
-                throw new HardwareContextUnavailableException("GLFW could not create a hidden OpenGL ES 3.1 context.");
+                throw new HardwareContextUnavailableException("GLFW could not create a hidden OpenGL ES 3.1 context. A compatible GLES 3.1+ driver and usable display/session are required.");
 
             glfw.MakeContextCurrent(window);
             if (glfw.GetCurrentContext() != window)
