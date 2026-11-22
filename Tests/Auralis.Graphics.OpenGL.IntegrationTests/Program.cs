@@ -51,8 +51,8 @@ public sealed partial class OpenGLIntegrationTests : IClassFixture<OpenGLHardwar
     [Fact] public void ComputeDescriptorCategoriesSnapshotsAndResourceRetentionWork() => RunHardwareTest(ComputeDescriptorTypesAndSnapshots);
     [Fact] public void OffscreenGraphicsDrawAndTextureCopyReadbackWork() => RunHardwareTest(OffscreenGraphicsDrawAndTextureCopyReadback);
     [Fact] public void ConventionalDirectAndIndirectGraphicsDrawsWork() => RunHardwareTest(ConventionalDirectAndIndirectDraw);
-    [Fact] public void MeshShaderDirectAndIndirectDrawsWork() => RunHardwareTest(MeshShaderDirectAndIndirectDraw);
-    [Fact] public void TaskAndMeshShaderPipelineWorks() => RunHardwareTest(TaskAndMeshShaderDraw);
+    [Fact] public void ExtMeshShaderDirectAndIndirectDrawsWork() => RunHardwareTest(ExtMeshShaderDirectAndIndirectDraw);
+    [Fact] public void ExtTaskAndMeshShaderPipelineWorks() => RunHardwareTest(ExtTaskAndMeshShaderDraw);
     [Fact] public void NvMeshShaderDirectDrawWorks() => RunHardwareTest(NvMeshShaderDirectDraw);
     [Fact] public void NvTaskAndMeshShaderPipelineWorks() => RunHardwareTest(NvTaskAndMeshShaderDraw);
 
@@ -927,29 +927,23 @@ public sealed partial class OpenGLIntegrationTests : IClassFixture<OpenGLHardwar
                 $"Unexpected {channel} value at pixel ({x}, {y}): expected {expected} ± 1, received {actual}.");
     }
 
-    private static void MeshShaderDirectAndIndirectDraw(GlfwOpenGLHardwareSession session)
+    private static void ExtMeshShaderDirectAndIndirectDraw(GlfwOpenGLHardwareSession session)
     {
         IGraphicsDevice device = session.Device;
         OpenGLGraphicsDevice nativeDevice = (OpenGLGraphicsDevice)device;
-        OpenGLMeshShaderDialect dialect =
-            nativeDevice.MeshShaderCapabilities.SupportsMeshShader(OpenGLMeshShaderDialect.Ext)
-                ? OpenGLMeshShaderDialect.Ext
-                : nativeDevice.MeshShaderCapabilities.SupportsMeshShader(OpenGLMeshShaderDialect.Nv)
-                    ? OpenGLMeshShaderDialect.Nv
-                    : OpenGLMeshShaderDialect.None;
-        if (dialect == OpenGLMeshShaderDialect.None)
-        {
+        if (nativeDevice.MeshShaderApi is null)
+            throw new HardwareTestSkippedException("The context does not advertise GL_EXT_mesh_shader.");
+        if (!nativeDevice.MeshShaderCapabilities.SupportsMeshShader(OpenGLMeshShaderDialect.Ext))
             throw new HardwareTestSkippedException(
-                $"Neither GL_EXT_mesh_shader nor GL_NV_mesh_shader exposes usable mesh-shader limits. Active adapter: {nativeDevice.Info.DriverName} / {nativeDevice.Info.Name} (GL {nativeDevice.Info.DriverVersion}); process: {Environment.ProcessPath}.");
-        }
+                $"GL_EXT_mesh_shader is advertised, but its mesh work-group limits are unusable: " +
+                $"count=({nativeDevice.MaxMeshWorkGroupCountX}, {nativeDevice.MaxMeshWorkGroupCountY}, {nativeDevice.MaxMeshWorkGroupCountZ}), " +
+                $"total={nativeDevice.MaxMeshWorkGroupTotalCount}.");
 
         RequireFormat(device, GraphicsFormat.RGBA8UNorm, GraphicsFormatSupport.ColorAttachment);
         using IGraphicsTexture colorTarget = CreateColorTarget(device);
         using IGraphicsTextureView colorView = colorTarget.CreateView(new GraphicsTextureViewDescription(
             GraphicsFormat.Unknown, GraphicsTextureViewType.Texture2D, 0, 1, 0, 1));
-        using IGraphicsShader meshShader = dialect == OpenGLMeshShaderDialect.Ext
-            ? CreateMeshShader(device)
-            : CreateNvMeshShader(device);
+        using IGraphicsShader meshShader = CreateMeshShader(device);
         using IGraphicsShader fragmentShader = CreateShader(
             device,
             GraphicsShaderStage.Fragment,
@@ -968,11 +962,8 @@ public sealed partial class OpenGLIntegrationTests : IClassFixture<OpenGLHardwar
                 GraphicsPrimitiveTopology.TriangleList,
                 colorFormats));
 
-        // EXT's indirect command is { groupCountX, groupCountY, groupCountZ }.
-        // NV's native command is { count, first }; first=0 matches the direct call below.
-        uint[] indirectValues = dialect == OpenGLMeshShaderDialect.Ext
-            ? [1u, 1u, 1u]
-            : [1u, 0u];
+        // GL_EXT_mesh_shader uses a three-dimensional indirect group-count record.
+        uint[] indirectValues = [1u, 1u, 1u];
         using IGraphicsBuffer indirectArguments = CreateBuffer(
             device,
             (ulong)(indirectValues.Length * sizeof(uint)),
@@ -1001,21 +992,17 @@ public sealed partial class OpenGLIntegrationTests : IClassFixture<OpenGLHardwar
         AssertPixelNear(pixels, 32, 16, 16, 204, 51, 26, 255);
     }
 
-    private static void TaskAndMeshShaderDraw(GlfwOpenGLHardwareSession session)
+    private static void ExtTaskAndMeshShaderDraw(GlfwOpenGLHardwareSession session)
     {
         IGraphicsDevice device = session.Device;
         OpenGLGraphicsDevice nativeDevice = (OpenGLGraphicsDevice)device;
+        if (nativeDevice.MeshShaderApi is null)
+            throw new HardwareTestSkippedException("The context does not advertise GL_EXT_mesh_shader.");
         if (!nativeDevice.MeshShaderCapabilities.SupportsTaskShader(OpenGLMeshShaderDialect.Ext))
-        {
-            if (nativeDevice.MeshShaderCapabilities.SupportsTaskShader(OpenGLMeshShaderDialect.Nv))
-            {
-                NvTaskAndMeshShaderDraw(session);
-                return;
-            }
-
             throw new HardwareTestSkippedException(
-                $"Neither GL_EXT_mesh_shader nor GL_NV_mesh_shader exposes usable task-shader limits. Active adapter: {nativeDevice.Info.DriverName} / {nativeDevice.Info.Name} (GL {nativeDevice.Info.DriverVersion}); process: {Environment.ProcessPath}.");
-        }
+                $"GL_EXT_mesh_shader is advertised, but its EXT task/mesh work-group limits are unusable: " +
+                $"mesh=({nativeDevice.MaxMeshWorkGroupCountX}, {nativeDevice.MaxMeshWorkGroupCountY}, {nativeDevice.MaxMeshWorkGroupCountZ}; total={nativeDevice.MaxMeshWorkGroupTotalCount}), " +
+                $"task=({nativeDevice.MaxTaskWorkGroupCountX}, {nativeDevice.MaxTaskWorkGroupCountY}, {nativeDevice.MaxTaskWorkGroupCountZ}; total={nativeDevice.MaxTaskWorkGroupTotalCount}).");
 
         RequireFormat(device, GraphicsFormat.RGBA8UNorm, GraphicsFormatSupport.ColorAttachment);
         using IGraphicsTexture colorTarget = CreateColorTarget(device);
@@ -1074,7 +1061,7 @@ public sealed partial class OpenGLIntegrationTests : IClassFixture<OpenGLHardwar
         IGraphicsDevice device = session.Device;
         OpenGLGraphicsDevice nativeDevice = (OpenGLGraphicsDevice)device;
         if (nativeDevice.NvMeshShaderApi is null)
-            throw new HardwareTestSkippedException($"The context does not advertise GL_NV_mesh_shader. Active adapter: {nativeDevice.Info.DriverName} / {nativeDevice.Info.Name} (GL {nativeDevice.Info.DriverVersion}); process: {Environment.ProcessPath}.");
+            throw new HardwareTestSkippedException("The context does not advertise GL_NV_mesh_shader.");
         if (nativeDevice.MaxNvDrawMeshTasksCount == 0)
             throw new HardwareTestSkippedException($"GL_NV_mesh_shader is advertised, but GL_MAX_DRAW_MESH_TASKS_COUNT_NV is zero. Active adapter: {nativeDevice.Info.DriverName} / {nativeDevice.Info.Name} (GL {nativeDevice.Info.DriverVersion}).");
 
@@ -1139,7 +1126,7 @@ public sealed partial class OpenGLIntegrationTests : IClassFixture<OpenGLHardwar
         IGraphicsDevice device = session.Device;
         OpenGLGraphicsDevice nativeDevice = (OpenGLGraphicsDevice)device;
         if (nativeDevice.NvMeshShaderApi is null)
-            throw new HardwareTestSkippedException($"The context does not advertise GL_NV_mesh_shader. Active adapter: {nativeDevice.Info.DriverName} / {nativeDevice.Info.Name} (GL {nativeDevice.Info.DriverVersion}); process: {Environment.ProcessPath}.");
+            throw new HardwareTestSkippedException("The context does not advertise GL_NV_mesh_shader.");
         if (!nativeDevice.MeshShaderCapabilities.SupportsTaskShader(OpenGLMeshShaderDialect.Nv))
             throw new HardwareTestSkippedException(
                 $"GL_NV_mesh_shader is advertised, but its NV task/mesh dispatch limit is unusable: {nativeDevice.MaxNvDrawMeshTasksCount}. Active adapter: {nativeDevice.Info.DriverName} / {nativeDevice.Info.Name} (GL {nativeDevice.Info.DriverVersion}); process: {Environment.ProcessPath}.");
