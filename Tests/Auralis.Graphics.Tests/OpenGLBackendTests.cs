@@ -162,6 +162,30 @@ public sealed class OpenGLBackendTests
     }
 
     [Fact]
+    public void NvTaskCapabilityDoesNotInheritExtTaskSupport()
+    {
+        OpenGLMeshShaderDialectCapabilities capabilities =
+            OpenGLMeshShaderDialectCapabilities.Detect(
+                extApiAvailable: true,
+                nvApiAvailable: true,
+                extMeshCountX: 64,
+                extMeshCountY: 32,
+                extMeshCountZ: 8,
+                extMeshTotalCount: 4096,
+                extTaskCountX: 32,
+                extTaskCountY: 16,
+                extTaskCountZ: 4,
+                extTaskTotalCount: 2048,
+                nvDrawMeshTasksCount: 0);
+
+        // The public feature is the union, but an NV-specific pipeline must not use it
+        // to infer that the NV dialect has a usable dispatch limit.
+        Assert.True(capabilities.SupportsTaskShaders);
+        Assert.True(capabilities.SupportsTaskShader(OpenGLMeshShaderDialect.Ext));
+        Assert.False(capabilities.SupportsTaskShader(OpenGLMeshShaderDialect.Nv));
+    }
+
+    [Fact]
     public void MeshAndTaskFeatureReportingRequiresTheirOwnUsableLimits()
     {
         // EXT limits are three-dimensional; NV limits use the independent one-dimensional
