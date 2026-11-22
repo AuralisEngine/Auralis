@@ -673,19 +673,8 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
     internal void WithContext(Action<GL> action)
     {
         ArgumentNullException.ThrowIfNull(action);
-        lock (_contextGate)
-        {
-            ObjectDisposedException.ThrowIf(IsDisposed, this);
-            _contextActivation.Enter();
-            try
-            {
-                action(_gl);
-            }
-            finally
-            {
-                _contextActivation.Exit();
-            }
-        }
+        using OpenGLContextScope context = AcquireContext();
+        action(context.Gl);
     }
 
     /// <summary>
@@ -699,30 +688,15 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
         out T result)
     {
         ArgumentNullException.ThrowIfNull(action);
-        if (!GraphicsContextGate.TryEnter(_contextGate, timeout, cancellationToken))
+        if (!TryAcquireContext(timeout, cancellationToken, out OpenGLContextScope context))
         {
             result = default!;
             return false;
         }
 
-        try
-        {
-            ObjectDisposedException.ThrowIf(IsDisposed, this);
-            _contextActivation.Enter();
-            try
-            {
-                result = action(_gl);
-                return true;
-            }
-            finally
-            {
-                _contextActivation.Exit();
-            }
-        }
-        finally
-        {
-            Monitor.Exit(_contextGate);
-        }
+        using (context)
+            result = action(context.Gl);
+        return true;
     }
 
     /// <summary>Registers a live native resource while the device context gate is held.</summary>

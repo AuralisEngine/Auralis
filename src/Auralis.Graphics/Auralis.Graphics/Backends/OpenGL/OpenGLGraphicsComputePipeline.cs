@@ -52,23 +52,20 @@ internal sealed class OpenGLGraphicsComputePipeline : OpenGLNativeDeviceObject, 
         if (shader.Description.Stage != GraphicsShaderStage.Compute)
             throw new GraphicsValidationException("A compute pipeline requires a Compute-stage GLSL shader.");
 
-        return device.WithContext(gl =>
+        using OpenGLContextScope context = device.AcquireContext();
+        uint program = OpenGLProgramLinker.Link(context.Gl, shader);
+        try
         {
-            IGraphicsShader[] shaders = [shader];
-            uint program = OpenGLProgramLinker.Link(gl, shaders);
-            try
-            {
-                device.LabelObject(ObjectIdentifier.Program, program, "Auralis Compute Pipeline Program");
-                OpenGLGraphicsComputePipeline pipeline = new(device, description, program);
-                device.RegisterUnderContext(pipeline);
-                return pipeline;
-            }
-            catch
-            {
-                gl.DeleteProgram(program);
-                throw;
-            }
-        });
+            device.LabelObject(ObjectIdentifier.Program, program, "Auralis Compute Pipeline Program");
+            OpenGLGraphicsComputePipeline pipeline = new(device, description, program);
+            device.RegisterUnderContext(pipeline);
+            return pipeline;
+        }
+        catch
+        {
+            context.Gl.DeleteProgram(program);
+            throw;
+        }
     }
 
     protected override void DisposeCore() => ReleaseOwnerReference();

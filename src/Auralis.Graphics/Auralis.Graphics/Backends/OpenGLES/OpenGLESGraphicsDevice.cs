@@ -1177,19 +1177,8 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
     internal void WithContext(Action<GL> action)
     {
         ArgumentNullException.ThrowIfNull(action);
-        lock (_contextGate)
-        {
-            ObjectDisposedException.ThrowIf(IsDisposed, this);
-            _contextActivation.Enter();
-            try
-            {
-                action(_gl);
-            }
-            finally
-            {
-                _contextActivation.Exit();
-            }
-        }
+        using OpenGLESContextScope context = AcquireContext();
+        action(context.Gl);
     }
 
     /// <summary>Executes an operation with a deadline-bounded attempt to acquire the GLES context gate.</summary>
@@ -1200,30 +1189,15 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
         out T result)
     {
         ArgumentNullException.ThrowIfNull(action);
-        if (!GraphicsContextGate.TryEnter(_contextGate, timeout, cancellationToken))
+        if (!TryAcquireContext(timeout, cancellationToken, out OpenGLESContextScope context))
         {
             result = default!;
             return false;
         }
 
-        try
-        {
-            ObjectDisposedException.ThrowIf(IsDisposed, this);
-            _contextActivation.Enter();
-            try
-            {
-                result = action(_gl);
-                return true;
-            }
-            finally
-            {
-                _contextActivation.Exit();
-            }
-        }
-        finally
-        {
-            _contextGate.Exit();
-        }
+        using (context)
+            result = action(context.Gl);
+        return true;
     }
 
     internal void RegisterUnderContext(IOpenGLESNativeResource resource)
