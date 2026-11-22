@@ -83,7 +83,7 @@ public sealed partial class OpenGLESIntegrationTests : IClassFixture<OpenGLESHar
         bool hasExt = gles.Profile.HasExtension("GL_EXT_texture_view");
         bool hasOes = gles.Profile.HasExtension("GL_OES_texture_view");
         bool entryPointResolved = gles.TextureViewExt is not null;
-        Console.WriteLine($"GLES texture-view support: GL_EXT_texture_view advertised={hasExt}; GL_OES_texture_view advertised={hasOes}; native glTextureView entry point resolved={entryPointResolved}.");
+        Console.WriteLine($"GLES texture-view support: GL_EXT_texture_view advertised={hasExt}; GL_OES_texture_view advertised={hasOes}; native entry point='{gles.TextureViewEntryPointName ?? "unresolved"}', resolved={entryPointResolved}.");
         if (!hasExt && !hasOes)
             Skip("The driver advertises neither GL_EXT_texture_view nor GL_OES_texture_view; subresource texture views are unsupported.");
         if (!entryPointResolved)
@@ -109,7 +109,7 @@ public sealed partial class OpenGLESIntegrationTests : IClassFixture<OpenGLESHar
         IGraphicsDevice device = _fixture.GetDeviceOrSkip();
         GlfwOpenGLESContextProvider context = _fixture.GetContextOrSkip();
         OpenGLESGraphicsDevice gles = (OpenGLESGraphicsDevice)device;
-        Console.WriteLine($"GLES image-copy support: GL_EXT_copy_image advertised={gles.Profile.HasExtension("GL_EXT_copy_image")}; GL_OES_copy_image advertised={gles.Profile.HasExtension("GL_OES_copy_image")}; native image-copy entry point resolved={gles.HasImageCopy}; forcing framebuffer-blit fallback for this test.");
+        Console.WriteLine($"GLES image-copy support: GL_EXT_copy_image advertised={gles.Profile.HasExtension("GL_EXT_copy_image")}; EXT glCopyImageSubData resolved={gles.CopyImageApi is not null}; GL_OES_copy_image advertised={gles.Profile.HasExtension("GL_OES_copy_image")}; OES glCopyImageSubData resolved={gles.CopyImageSubDataOes is not null}; forcing framebuffer-blit fallback for this test.");
         gles.ForceFramebufferBlitFallbackForTesting = true;
         try
         {
@@ -579,9 +579,10 @@ public sealed partial class OpenGLESIntegrationTests : IClassFixture<OpenGLESHar
         IGraphicsCommandQueue queue = device.GetQueue(GraphicsQueueType.Graphics);
         OpenGLESGraphicsDevice gles = (OpenGLESGraphicsDevice)device;
         bool extensionAdvertised = gles.Profile.HasExtension("GL_EXT_multi_draw_indirect");
-        bool arraysResolved = gles.MultiDrawArraysIndirectExt is not null;
-        bool elementsResolved = gles.MultiDrawElementsIndirectExt is not null;
-        bool nativeMultiDrawAvailable = arraysResolved && elementsResolved;
+        bool arraysResolved = gles.MultiDrawArraysIndirectEntryPointResolved;
+        bool elementsResolved = gles.MultiDrawElementsIndirectEntryPointResolved;
+        bool nativeMultiDrawAvailable = arraysResolved && elementsResolved &&
+            gles.MultiDrawArraysIndirectExt is not null && gles.MultiDrawElementsIndirectExt is not null;
         Console.WriteLine(
             $"GLES driver: version='{gles.VersionString}', vendor='{gles.Vendor}', renderer='{gles.Renderer}', " +
             $"GL_EXT_multi_draw_indirect advertised={extensionAdvertised}, arrays entry point resolved={arraysResolved}, " +
