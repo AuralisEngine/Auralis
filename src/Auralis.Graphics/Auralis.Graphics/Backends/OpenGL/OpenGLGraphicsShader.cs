@@ -119,40 +119,39 @@ internal sealed unsafe class OpenGLGraphicsShader : OpenGLNativeDeviceObject, IG
 
         GraphicsShaderDescription shaderDescription = description;
         GraphicsShaderStage stage = shaderDescription.Stage;
-        return device.WithContext(gl =>
+        using OpenGLContextScope context = device.AcquireContext();
+        GL gl = context.Gl;
+        uint handle = gl.CreateShader(ToShaderType(stage));
+        try
         {
-            uint handle = gl.CreateShader(ToShaderType(stage));
-            try
+            if (isGlsl)
             {
-                if (isGlsl)
-                {
-                    gl.ShaderSource(handle, source!);
-                    gl.CompileShader(handle);
-                }
-                else
-                {
-                    SpecializeSpirV(device, handle, shaderDescription);
-                }
-
-                gl.GetShader(handle, ShaderParameterName.CompileStatus, out int status);
-                if (status == 0)
-                {
-                    string log = gl.GetShaderInfoLog(handle);
-                    throw new GraphicsException(
-                        $"OpenGL {(isGlsl ? "GLSL compilation" : "SPIR-V specialization")} failed ({stage}):\n{log}");
-                }
-
-                device.LabelObject(ObjectIdentifier.Shader, handle, $"Auralis {stage} Shader");
-                OpenGLGraphicsShader resource = new(device, shaderDescription, handle, meshShaderDialect);
-                device.RegisterUnderContext(resource);
-                return resource;
+                gl.ShaderSource(handle, source!);
+                gl.CompileShader(handle);
             }
-            catch
+            else
             {
-                gl.DeleteShader(handle);
-                throw;
+                SpecializeSpirV(device, handle, shaderDescription);
             }
-        });
+
+            gl.GetShader(handle, ShaderParameterName.CompileStatus, out int status);
+            if (status == 0)
+            {
+                string log = gl.GetShaderInfoLog(handle);
+                throw new GraphicsException(
+                    $"OpenGL {(isGlsl ? "GLSL compilation" : "SPIR-V specialization")} failed ({stage}):\n{log}");
+            }
+
+            device.LabelObject(ObjectIdentifier.Shader, handle, $"Auralis {stage} Shader");
+            OpenGLGraphicsShader resource = new(device, shaderDescription, handle, meshShaderDialect);
+            device.RegisterUnderContext(resource);
+            return resource;
+        }
+        catch
+        {
+            gl.DeleteShader(handle);
+            throw;
+        }
     }
 
     private static void SpecializeSpirV(

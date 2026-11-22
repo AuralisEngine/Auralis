@@ -186,31 +186,30 @@ internal sealed class OpenGLGraphicsRenderPipeline : OpenGLNativeDeviceObject, I
             }
         }
 
-        return device.WithContext(gl =>
+        using OpenGLContextScope context = device.AcquireContext();
+        GL gl = context.Gl;
+        uint program = OpenGLProgramLinker.Link(gl, description.Shaders);
+        uint vertexArray = 0;
+        try
         {
-            uint program = OpenGLProgramLinker.Link(gl, description.Shaders);
-            uint vertexArray = 0;
-            try
-            {
-                device.DirectStateAccess.CreateVertexArrays(1, out vertexArray);
-                if (vertexArray == 0)
-                    throw new GraphicsException("OpenGL failed to create a vertex-array object.");
+            device.DirectStateAccess.CreateVertexArrays(1, out vertexArray);
+            if (vertexArray == 0)
+                throw new GraphicsException("OpenGL failed to create a vertex-array object.");
 
-                ConfigureVertexArray(device.DirectStateAccess, vertexArray, description.VertexInput);
-                device.LabelObject(ObjectIdentifier.Program, program, "Auralis Graphics Pipeline Program");
-                device.LabelObject(ObjectIdentifier.VertexArray, vertexArray, "Auralis Graphics Pipeline Vertex Array");
-                OpenGLGraphicsRenderPipeline pipeline = new(device, description, program, vertexArray, meshShaderDialect);
-                device.RegisterUnderContext(pipeline);
-                return pipeline;
-            }
-            catch
-            {
-                if (vertexArray != 0)
-                    gl.DeleteVertexArray(vertexArray);
-                gl.DeleteProgram(program);
-                throw;
-            }
-        });
+            ConfigureVertexArray(device.DirectStateAccess, vertexArray, description.VertexInput);
+            device.LabelObject(ObjectIdentifier.Program, program, "Auralis Graphics Pipeline Program");
+            device.LabelObject(ObjectIdentifier.VertexArray, vertexArray, "Auralis Graphics Pipeline Vertex Array");
+            OpenGLGraphicsRenderPipeline pipeline = new(device, description, program, vertexArray, meshShaderDialect);
+            device.RegisterUnderContext(pipeline);
+            return pipeline;
+        }
+        catch
+        {
+            if (vertexArray != 0)
+                gl.DeleteVertexArray(vertexArray);
+            gl.DeleteProgram(program);
+            throw;
+        }
     }
 
     private static void ConfigureVertexArray(

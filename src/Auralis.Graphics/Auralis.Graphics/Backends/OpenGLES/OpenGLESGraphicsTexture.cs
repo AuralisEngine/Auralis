@@ -103,9 +103,9 @@ internal sealed class OpenGLESGraphicsTexture : OpenGLESNativeDeviceObject, IGra
         copy.Validate(Description);
 
         OpenGLESGraphicsDevice device = (OpenGLESGraphicsDevice)Device;
-        return device.WithContext(gl =>
-            OpenGLESGraphicsTextureView.CreateUnderContext(
-                device, gl, device.TextureViewExt, this, copy));
+        using OpenGLESContextScope context = device.AcquireContext();
+        return OpenGLESGraphicsTextureView.CreateUnderContext(
+            device, context.Gl, device.TextureViewExt, this, copy);
     }
 
     protected override void DisposeCore() => ReleaseOwnerReference();

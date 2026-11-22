@@ -119,9 +119,9 @@ internal sealed class OpenGLGraphicsTexture : OpenGLNativeDeviceObject, IGraphic
         GraphicsTextureViewDescription viewDescription = description;
         _device.Capabilities.ValidateTextureViewDescription(Description, viewDescription);
 
-        return _device.WithContext(gl =>
-            OpenGLGraphicsTextureView.CreateUnderContext(
-                _device, gl, _device.DirectStateAccess, _device.TextureViewApi, this, viewDescription));
+        using OpenGLContextScope context = _device.AcquireContext();
+        return OpenGLGraphicsTextureView.CreateUnderContext(
+            _device, context.Gl, _device.DirectStateAccess, _device.TextureViewApi, this, viewDescription);
     }
 
     protected override void DisposeCore() => ReleaseOwnerReference();

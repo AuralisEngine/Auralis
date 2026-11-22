@@ -133,31 +133,30 @@ internal sealed unsafe class OpenGLESGraphicsRenderPipeline : OpenGLESGraphicsPi
 
         ValidateSupportedPipelineState(device, description);
 
+        using OpenGLESContextScope context = device.AcquireContext();
+        GL gl = context.Gl;
         uint program = 0;
         uint vertexArray = 0;
-        return device.WithContext(gl =>
+        try
         {
-            try
-            {
-                program = LinkProgram(device, gl, description.Shaders);
-                vertexArray = gl.GenVertexArray();
-                if (vertexArray == 0)
-                    throw new GraphicsException("OpenGL ES failed to create a vertex-array object.");
-                OpenGLESGraphicsRenderPipeline pipeline = new(device, description, program, vertexArray);
-                device.RegisterUnderContext(pipeline);
-                program = 0;
-                vertexArray = 0;
-                return pipeline;
-            }
-            catch
-            {
-                if (vertexArray != 0)
-                    gl.DeleteVertexArray(vertexArray);
-                if (program != 0)
-                    gl.DeleteProgram(program);
-                throw;
-            }
-        });
+            program = LinkProgram(device, gl, description.Shaders);
+            vertexArray = gl.GenVertexArray();
+            if (vertexArray == 0)
+                throw new GraphicsException("OpenGL ES failed to create a vertex-array object.");
+            OpenGLESGraphicsRenderPipeline pipeline = new(device, description, program, vertexArray);
+            device.RegisterUnderContext(pipeline);
+            program = 0;
+            vertexArray = 0;
+            return pipeline;
+        }
+        catch
+        {
+            if (vertexArray != 0)
+                gl.DeleteVertexArray(vertexArray);
+            if (program != 0)
+                gl.DeleteProgram(program);
+            throw;
+        }
     }
 
     private static void ValidateSupportedPipelineState(
@@ -526,29 +525,28 @@ internal sealed class OpenGLESGraphicsComputePipeline : OpenGLESGraphicsPipeline
             !ReferenceEquals(description.Layout.Device, device))
             throw new GraphicsValidationException("The compute pipeline layout must belong to this GLES device.");
 
-        return device.WithContext(gl =>
+        using OpenGLESContextScope context = device.AcquireContext();
+        GL gl = context.Gl;
+        uint program = LinkProgram(device, gl, [description.ComputeShader]);
+        try
         {
-            uint program = LinkProgram(device, gl, [description.ComputeShader]);
-            try
-            {
-                Span<int> localWorkGroupSize = stackalloc int[3];
-                gl.GetProgram(program, GLEnum.ComputeWorkGroupSize, localWorkGroupSize);
-                OpenGLESComputeWorkGroupValidation.ValidateLocalSize(
-                    localWorkGroupSize[0],
-                    localWorkGroupSize[1],
-                    localWorkGroupSize[2],
-                    device.Capabilities.Limits);
+            Span<int> localWorkGroupSize = stackalloc int[3];
+            gl.GetProgram(program, GLEnum.ComputeWorkGroupSize, localWorkGroupSize);
+            OpenGLESComputeWorkGroupValidation.ValidateLocalSize(
+                localWorkGroupSize[0],
+                localWorkGroupSize[1],
+                localWorkGroupSize[2],
+                device.Capabilities.Limits);
 
-                OpenGLESGraphicsComputePipeline pipeline = new(device, description, program);
-                device.RegisterUnderContext(pipeline);
-                return pipeline;
-            }
-            catch
-            {
-                gl.DeleteProgram(program);
-                throw;
-            }
-        });
+            OpenGLESGraphicsComputePipeline pipeline = new(device, description, program);
+            device.RegisterUnderContext(pipeline);
+            return pipeline;
+        }
+        catch
+        {
+            gl.DeleteProgram(program);
+            throw;
+        }
     }
 
     internal void BindPipelineState(GL gl) => gl.UseProgram(Program);

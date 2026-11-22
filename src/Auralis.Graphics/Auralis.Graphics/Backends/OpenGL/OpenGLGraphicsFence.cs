@@ -36,14 +36,12 @@ internal sealed class OpenGLGraphicsFence : OpenGLNativeDeviceObject, IGraphicsF
         get
         {
             ThrowIfDisposed();
-            return _device.WithContext(gl =>
+            using OpenGLContextScope context = _device.AcquireContext();
+            lock (_gate)
             {
-                lock (_gate)
-                {
-                    PollCompleted(gl, 0);
-                    return _completedValue;
-                }
-            });
+                PollCompleted(context.Gl, 0);
+                return _completedValue;
+            }
         }
     }
 
@@ -51,21 +49,19 @@ internal sealed class OpenGLGraphicsFence : OpenGLNativeDeviceObject, IGraphicsF
     public void Signal(ulong value)
     {
         ThrowIfDisposed();
-        _device.WithContext(gl =>
+        using OpenGLContextScope context = _device.AcquireContext();
+        lock (_gate)
         {
-            lock (_gate)
-            {
-                EnsureMonotonic(value);
-                PollCompleted(gl, 0);
-                GraphicsCommandValidation.ValidateCpuFenceSignalDoesNotOvertakeGpu(
-                    value,
-                    _syncs.TryPeek(out SyncPoint pending) ? pending.Value : null);
-                _lastSignaledValue = value;
-                _completedValue = value;
-                DeleteCompletedSyncs(gl, value);
-                Monitor.PulseAll(_gate);
-            }
-        });
+            EnsureMonotonic(value);
+            PollCompleted(context.Gl, 0);
+            GraphicsCommandValidation.ValidateCpuFenceSignalDoesNotOvertakeGpu(
+                value,
+                _syncs.TryPeek(out SyncPoint pending) ? pending.Value : null);
+            _lastSignaledValue = value;
+            _completedValue = value;
+            DeleteCompletedSyncs(context.Gl, value);
+            Monitor.PulseAll(_gate);
+        }
     }
 
     internal void SignalFromGpu(GL gl, ulong value)
@@ -139,16 +135,15 @@ internal sealed class OpenGLGraphicsFence : OpenGLNativeDeviceObject, IGraphicsF
                 ? 1_000_000UL
                 : (ulong)Math.Max(0, remainingTicks * 1_000_000_000L / Stopwatch.Frequency);
 
-            if (!_device.TryWithContext(
-                    gl =>
-                    {
-                        lock (_gate)
-                            return PollCompleted(gl, waitNanoseconds) >= value;
-                    },
-                    remaining,
-                    cancellationToken,
-                    out bool completed))
+            if (!_device.TryAcquireContext(remaining, cancellationToken, out OpenGLContextScope context))
                 return false;
+
+            bool completed;
+            using (context)
+            {
+                lock (_gate)
+                    completed = PollCompleted(context.Gl, waitNanoseconds) >= value;
+            }
 
             cancellationToken.ThrowIfCancellationRequested();
             if (completed)

@@ -27,32 +27,28 @@ internal sealed class OpenGLESGraphicsFence : OpenGLESNativeDeviceObject, IGraph
         get
         {
             ThrowIfDisposed();
-            return _device.WithContext(gl =>
-            {
-                lock (_gate)
-                    return Poll(gl, 0);
-            });
+            using OpenGLESContextScope context = _device.AcquireContext();
+            lock (_gate)
+                return Poll(context.Gl, 0);
         }
     }
 
     public void Signal(ulong value)
     {
         ThrowIfDisposed();
-        _device.WithContext(gl =>
+        using OpenGLESContextScope context = _device.AcquireContext();
+        lock (_gate)
         {
-            lock (_gate)
-            {
-                EnsureMonotonic(value);
-                Poll(gl, 0);
-                GraphicsCommandValidation.ValidateCpuFenceSignalDoesNotOvertakeGpu(
-                    value,
-                    _syncs.TryPeek(out SyncPoint pending) ? pending.Value : null);
-                _lastSignaledValue = value;
-                _completedValue = value;
-                DeleteCompleted(gl, value);
-                Monitor.PulseAll(_gate);
-            }
-        });
+            EnsureMonotonic(value);
+            Poll(context.Gl, 0);
+            GraphicsCommandValidation.ValidateCpuFenceSignalDoesNotOvertakeGpu(
+                value,
+                _syncs.TryPeek(out SyncPoint pending) ? pending.Value : null);
+            _lastSignaledValue = value;
+            _completedValue = value;
+            DeleteCompleted(context.Gl, value);
+            Monitor.PulseAll(_gate);
+        }
     }
 
     internal void SignalFromGpu(GL gl, ulong value)
@@ -122,16 +118,15 @@ internal sealed class OpenGLESGraphicsFence : OpenGLESNativeDeviceObject, IGraph
                 ? 1_000_000UL
                 : (ulong)Math.Max(0, remainingTicks * 1_000_000_000L / Stopwatch.Frequency);
 
-            if (!_device.TryWithContext(
-                    gl =>
-                    {
-                        lock (_gate)
-                            return Poll(gl, waitNanoseconds) >= value;
-                    },
-                    remaining,
-                    cancellationToken,
-                    out bool completed))
+            if (!_device.TryAcquireContext(remaining, cancellationToken, out OpenGLESContextScope context))
                 return false;
+
+            bool completed;
+            using (context)
+            {
+                lock (_gate)
+                    completed = Poll(context.Gl, waitNanoseconds) >= value;
+            }
 
             cancellationToken.ThrowIfCancellationRequested();
             if (completed)
