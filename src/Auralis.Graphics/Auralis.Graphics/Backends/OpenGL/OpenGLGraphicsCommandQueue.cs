@@ -90,7 +90,8 @@ internal sealed class OpenGLGraphicsCommandQueue : IGraphicsCommandQueue
         bool submissionCounted = false;
         try
         {
-            _device.WithContext(gl =>
+            using OpenGLContextScope context = _device.AcquireContext();
+            GL gl = context.Gl;
             {
                 // Serialize the Executable -> Pending transition with command-list disposal.
                 // If disposal wins the context gate, it marks the list disposed and this
@@ -158,7 +159,7 @@ internal sealed class OpenGLGraphicsCommandQueue : IGraphicsCommandQueue
                     if (pushedDebugGroup)
                         _device.PopDebugGroup();
                 }
-            });
+            }
         }
         catch (Exception submissionException)
         {
@@ -181,12 +182,12 @@ internal sealed class OpenGLGraphicsCommandQueue : IGraphicsCommandQueue
                         }
                         else
                         {
-                            _device.WithContext(gl =>
+                            using (OpenGLContextScope context = _device.AcquireContext())
                             {
-                                gl.Finish();
+                                context.Gl.Finish();
                                 if (completionSync != 0)
                                     _device.SyncApi.DeleteSync(completionSync);
-                            });
+                            }
                         }
 
                         executionFinished = true;
@@ -200,7 +201,8 @@ internal sealed class OpenGLGraphicsCommandQueue : IGraphicsCommandQueue
                 {
                     try
                     {
-                        _device.WithContext(gl => _device.SyncApi.DeleteSync(completionSync));
+                        using OpenGLContextScope context = _device.AcquireContext();
+                        _device.SyncApi.DeleteSync(completionSync);
                     }
                     catch (Exception exception)
                     {
@@ -219,7 +221,8 @@ internal sealed class OpenGLGraphicsCommandQueue : IGraphicsCommandQueue
                             if (_device.IsDisposed)
                                 _device.OnSubmissionCompleted();
                             else
-                                _device.WithContext(_ => _device.OnSubmissionCompleted());
+                                using OpenGLContextScope context = _device.AcquireContext();
+                                _device.OnSubmissionCompleted();
                             submissionCounted = false;
                         }
                         catch (Exception exception)
@@ -269,7 +272,8 @@ internal sealed class OpenGLGraphicsCommandQueue : IGraphicsCommandQueue
             !ReferenceEquals(openGlFence.Device, _device))
             throw new GraphicsValidationException("The wait fence must be an OpenGL fence owned by this device.");
 
-        _device.WithContext(gl => openGlFence.EnqueueGpuWait(gl, value));
+        using OpenGLContextScope context = _device.AcquireContext();
+        openGlFence.EnqueueGpuWait(context.Gl, value);
     }
 
     internal void PollPending()
@@ -282,7 +286,8 @@ internal sealed class OpenGLGraphicsCommandQueue : IGraphicsCommandQueue
         Exception? pollFailure = null;
         try
         {
-            _device.WithContext(gl =>
+            using OpenGLContextScope context = _device.AcquireContext();
+            GL gl = context.Gl;
             {
                 lock (_gate)
                 {
@@ -315,7 +320,7 @@ internal sealed class OpenGLGraphicsCommandQueue : IGraphicsCommandQueue
                         completed[completedCount++] = submission;
                     }
                 }
-            });
+            }
         }
         catch (Exception exception)
         {
@@ -359,7 +364,9 @@ internal sealed class OpenGLGraphicsCommandQueue : IGraphicsCommandQueue
             bool hasCompletedSubmission = false;
             bool recoveredUnqueuedSubmission = false;
 
-            _device.WithContext(gl =>
+            using OpenGLContextScope context = _device.AcquireContext();
+            GL gl = context.Gl;
+            bool foundSubmission = false;
             {
                 lock (_gate)
                 {
@@ -371,6 +378,8 @@ internal sealed class OpenGLGraphicsCommandQueue : IGraphicsCommandQueue
                             contains |= ReferenceEquals(submission.CommandLists[j], commandList);
                         if (!contains)
                             continue;
+
+                        foundSubmission = true;
 
                         // Wait only for the submission that owns this command list. The bounded
                         // wait returns the context to other device callers between iterations.
@@ -391,11 +400,11 @@ internal sealed class OpenGLGraphicsCommandQueue : IGraphicsCommandQueue
                             completedSubmission = submission;
                             hasCompletedSubmission = true;
                         }
-                        return;
+
                     }
                 }
 
-                if (commandList.Lifecycle.State == GraphicsCommandListState.Pending)
+                if (!foundSubmission && commandList.Lifecycle.State == GraphicsCommandListState.Pending)
                 {
                     // The submission may have failed after marking Pending but before queueing its
                     // record. This exceptional path finishes the stream but leaves unrelated queue
@@ -405,7 +414,7 @@ internal sealed class OpenGLGraphicsCommandQueue : IGraphicsCommandQueue
                         commandList.MarkCompletedAfterGpu();
                     recoveredUnqueuedSubmission = true;
                 }
-            });
+            }
 
             if (hasCompletedSubmission)
                 CompleteSubmission(completedSubmission);

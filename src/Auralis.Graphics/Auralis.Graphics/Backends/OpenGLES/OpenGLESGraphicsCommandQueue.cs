@@ -88,7 +88,8 @@ internal sealed class OpenGLESGraphicsCommandQueue : IGraphicsCommandQueue
 
         try
         {
-            _device.WithContext(gl =>
+            using OpenGLESContextScope context = _device.AcquireContext();
+            GL gl = context.Gl;
             {
                 try
                 {
@@ -157,7 +158,7 @@ internal sealed class OpenGLESGraphicsCommandQueue : IGraphicsCommandQueue
                     ExceptionDispatchInfo.Capture(submissionError).Throw();
                     throw;
                 }
-            });
+            }
         }
         finally
         {
@@ -172,7 +173,8 @@ internal sealed class OpenGLESGraphicsCommandQueue : IGraphicsCommandQueue
         if (fence is not OpenGLESGraphicsFence glesFence ||
             !ReferenceEquals(glesFence.Device, _device))
             throw new GraphicsValidationException("The wait fence must belong to this GLES device.");
-        _device.WithContext(gl => glesFence.EnqueueGpuWait(gl, value));
+        using OpenGLESContextScope context = _device.AcquireContext();
+        glesFence.EnqueueGpuWait(context.Gl, value);
     }
 
     internal void PollPending()
@@ -185,7 +187,8 @@ internal sealed class OpenGLESGraphicsCommandQueue : IGraphicsCommandQueue
         Exception? pollingFailure = null;
         try
         {
-            _device.WithContext(gl =>
+            using OpenGLESContextScope context = _device.AcquireContext();
+            GL gl = context.Gl;
             {
                 lock (_gate)
                 {
@@ -214,7 +217,7 @@ internal sealed class OpenGLESGraphicsCommandQueue : IGraphicsCommandQueue
                         completed[completedCount++] = submission;
                     }
                 }
-            });
+            }
         }
         catch (Exception exception)
         {
@@ -255,7 +258,9 @@ internal sealed class OpenGLESGraphicsCommandQueue : IGraphicsCommandQueue
             bool hasCompletedSubmission = false;
             bool recoveredUnqueuedSubmission = false;
 
-            _device.WithContext(gl =>
+            using OpenGLESContextScope context = _device.AcquireContext();
+            GL gl = context.Gl;
+            bool foundSubmission = false;
             {
                 lock (_gate)
                 {
@@ -267,6 +272,8 @@ internal sealed class OpenGLESGraphicsCommandQueue : IGraphicsCommandQueue
                             contains |= ReferenceEquals(submission.CommandLists[j], commandList);
                         if (!contains)
                             continue;
+
+                        foundSubmission = true;
 
                         GLEnum status = gl.ClientWaitSync(
                             submission.Sync,
@@ -285,11 +292,11 @@ internal sealed class OpenGLESGraphicsCommandQueue : IGraphicsCommandQueue
                             completedSubmission = submission;
                             hasCompletedSubmission = true;
                         }
-                        return;
+
                     }
                 }
 
-                if (commandList.Lifecycle.State == GraphicsCommandListState.Pending)
+                if (!foundSubmission && commandList.Lifecycle.State == GraphicsCommandListState.Pending)
                 {
                     // This is the exceptional no-record recovery path after submission failure.
                     // Do not drain unrelated queue records.
@@ -298,7 +305,7 @@ internal sealed class OpenGLESGraphicsCommandQueue : IGraphicsCommandQueue
                         commandList.MarkCompletedAfterGpu();
                     recoveredUnqueuedSubmission = true;
                 }
-            });
+            }
 
             if (hasCompletedSubmission)
                 CompleteSubmission(completedSubmission);
