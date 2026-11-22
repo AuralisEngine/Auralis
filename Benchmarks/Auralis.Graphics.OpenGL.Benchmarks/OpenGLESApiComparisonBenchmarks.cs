@@ -154,7 +154,9 @@ public sealed unsafe class OpenGLESApiComparisonBenchmarks
         CopyQueue.Submit(_submitLists, AuralisFence, value);
         if (!AuralisFence.Wait(value, TimeSpan.FromSeconds(15)))
             throw new TimeoutException("Auralis OpenGL ES GPU fence did not complete within 15 seconds.");
-        return list.State == GraphicsCommandListState.Executable ? 1 : 0;
+
+        EnsureCommandListRetired(list);
+        return 1;
     }
 
     [GlobalCleanup]
@@ -233,6 +235,11 @@ public sealed unsafe class OpenGLESApiComparisonBenchmarks
         CopyQueue.Submit(_submitLists, AuralisFence, value);
         if (!AuralisFence.Wait(value, TimeSpan.FromSeconds(15)))
             throw new TimeoutException("Auralis OpenGL ES validation fence timed out.");
+
+        // Fence completion and queue command-list retirement are separate operations. Reading
+        // State polls the backend submission queue before Reset is allowed.
+        EnsureCommandListRetired(list);
+
         Memory<byte> result = AuralisDestination.Map(GraphicsMapMode.Read, 0, BufferSize);
         try
         {
@@ -241,6 +248,16 @@ public sealed unsafe class OpenGLESApiComparisonBenchmarks
         }
         finally { AuralisDestination.Unmap(); }
         list.Reset();
+    }
+
+    private static void EnsureCommandListRetired(IGraphicsCommandList commandList)
+    {
+        // Both GL backends retire pending submissions when State is observed; waiting only on
+        // the separate timeline fence does not mutate the command-list lifecycle.
+        GraphicsCommandListState state = commandList.State;
+        if (state != GraphicsCommandListState.Executable)
+            throw new InvalidOperationException(
+                $"The Auralis fence completed, but the OpenGL ES queue did not retire the command list. Current state: {state}.");
     }
 
     private static void DisposeSafely<T>(ref T? resource, List<Exception> errors) where T : class, IDisposable
