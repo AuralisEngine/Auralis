@@ -214,6 +214,8 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
     internal GL Api => _gl;
     internal MultiDrawArraysIndirectExtDelegate? MultiDrawArraysIndirectExt => _multiDrawArraysIndirectExt;
     internal MultiDrawElementsIndirectExtDelegate? MultiDrawElementsIndirectExt => _multiDrawElementsIndirectExt;
+    internal bool MultiDrawArraysIndirectEntryPointResolved { get; private set; }
+    internal bool MultiDrawElementsIndirectEntryPointResolved { get; private set; }
     internal ExtDrawBuffersIndexed? DrawBuffersIndexedApi => _drawBuffersIndexedApi;
     internal ExtCopyImage? CopyImageApi => _copyImageApi;
     internal CopyImageSubDataOesDelegate? CopyImageSubDataOes => _copyImageSubDataOes;
@@ -224,6 +226,7 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
     internal bool SupportsCubeMapArray =>
         Version.IsAtLeast(3, 2) || Profile.HasExtension("GL_OES_texture_cube_map_array");
     internal TextureViewExtDelegate? TextureViewExt => _textureViewExt;
+    internal string? TextureViewEntryPointName { get; private set; }
     internal ExtDrawElementsBaseVertex? DrawElementsBaseVertexApi => _drawElementsBaseVertexApi;
     internal ExtBaseInstance? BaseInstanceApi => _baseInstanceApi;
     internal DrawMeshTasksExtDelegate? DrawMeshTasksExt => _drawMeshTasksExt;
@@ -259,6 +262,9 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
         GL? gl = null;
         MultiDrawArraysIndirectExtDelegate? multiDrawArraysIndirectExt = null;
         MultiDrawElementsIndirectExtDelegate? multiDrawElementsIndirectExt = null;
+        bool multiDrawArraysIndirectEntryPointResolved = false;
+        bool multiDrawElementsIndirectEntryPointResolved = false;
+        string? textureViewEntryPointName = null;
         ExtDrawBuffersIndexed? drawBuffersIndexedApi = null;
         ExtCopyImage? copyImageApi = null;
         CopyImageSubDataOesDelegate? copyImageSubDataOes = null;
@@ -283,6 +289,8 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
             {
                 nint arraysAddress = contextProvider.GetProcAddress("glMultiDrawArraysIndirectEXT");
                 nint elementsAddress = contextProvider.GetProcAddress("glMultiDrawElementsIndirectEXT");
+                multiDrawArraysIndirectEntryPointResolved = arraysAddress != 0;
+                multiDrawElementsIndirectEntryPointResolved = elementsAddress != 0;
                 if (arraysAddress != 0 && elementsAddress != 0)
                 {
                     multiDrawArraysIndirectExt =
@@ -318,9 +326,17 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
             }
             nint textureViewAddress = 0;
             if (gl.IsExtensionPresent("GL_EXT_texture_view"))
+            {
                 textureViewAddress = contextProvider.GetProcAddress("glTextureViewEXT");
+                if (textureViewAddress != 0)
+                    textureViewEntryPointName = "glTextureViewEXT";
+            }
             if (textureViewAddress == 0 && gl.IsExtensionPresent("GL_OES_texture_view"))
+            {
                 textureViewAddress = contextProvider.GetProcAddress("glTextureViewOES");
+                if (textureViewAddress != 0)
+                    textureViewEntryPointName = "glTextureViewOES";
+            }
             if (textureViewAddress != 0)
                 textureViewExt = Marshal.GetDelegateForFunctionPointer<TextureViewExtDelegate>(textureViewAddress);
 
@@ -393,6 +409,9 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
                 drawElementsBaseVertexApi, baseInstanceApi,
                 drawMeshTasksExt, drawMeshTasksIndirectExt, multiDrawMeshTasksIndirectExt,
                 version, versionString, vendor, renderer, profile, capabilities, queriedLimits);
+            device.MultiDrawArraysIndirectEntryPointResolved = multiDrawArraysIndirectEntryPointResolved;
+            device.MultiDrawElementsIndirectEntryPointResolved = multiDrawElementsIndirectEntryPointResolved;
+            device.TextureViewEntryPointName = textureViewEntryPointName;
             gl = null;
             multiDrawArraysIndirectExt = null;
             multiDrawElementsIndirectExt = null;
