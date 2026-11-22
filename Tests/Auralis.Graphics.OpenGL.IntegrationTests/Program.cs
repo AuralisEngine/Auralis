@@ -97,10 +97,14 @@ public sealed partial class OpenGLIntegrationTests : IClassFixture<OpenGLHardwar
         bool extMultiDraw = device.ContextProvider.GetProcAddress("glMultiDrawMeshTasksIndirectEXT") != 0;
         bool nvDirect = device.ContextProvider.GetProcAddress("glDrawMeshTasksNV") != 0;
 
-        string advertisedExtensions = string.Join(
-            ", ",
-            indexedExtAdvertised ? "GL_EXT_mesh_shader" : null,
-            indexedNvAdvertised ? "GL_NV_mesh_shader" : null);
+        string advertisedExtensions =
+            indexedExtAdvertised && indexedNvAdvertised
+                ? "GL_EXT_mesh_shader, GL_NV_mesh_shader"
+                : indexedExtAdvertised
+                    ? "GL_EXT_mesh_shader"
+                    : indexedNvAdvertised
+                        ? "GL_NV_mesh_shader"
+                        : "none";
         return new MeshShaderContextDiagnostics(
             extensionCount,
             advertisedExtensions,
