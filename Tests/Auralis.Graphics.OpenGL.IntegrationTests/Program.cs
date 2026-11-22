@@ -59,13 +59,14 @@ public sealed partial class OpenGLIntegrationTests : IClassFixture<OpenGLHardwar
     {
         GlfwOpenGLContextProvider context = session.ContextProvider;
         OpenGLGraphicsDevice device = (OpenGLGraphicsDevice)session.Device;
-        device.WithContext(outer =>
+        using (OpenGLContextScope outer = device.AcquireContext())
         {
-            string? version = outer.GetStringS(Silk.NET.OpenGL.StringName.Version);
-            device.WithContext(inner => { _ = inner.GetError(); });
+            string? version = outer.Gl.GetStringS(Silk.NET.OpenGL.StringName.Version);
+            using (OpenGLContextScope inner = device.AcquireContext())
+                _ = inner.Gl.GetError();
             if (string.IsNullOrWhiteSpace(version))
-                throw new GraphicsException("Nested desktop device WithContext lost the current context.");
-        });
+                throw new GraphicsException("Nested desktop context scopes lost the current context.");
+        }
 
         context.MakeCurrent();
         try
@@ -97,11 +98,10 @@ public sealed partial class OpenGLIntegrationTests : IClassFixture<OpenGLHardwar
         {
             try
             {
-                device.WithContext(_ =>
-                {
-                    gateEntered.Set();
-                    releaseGate.Wait();
-                });
+                using OpenGLContextScope context = device.AcquireContext();
+                _ = context.Gl.GetError();
+                gateEntered.Set();
+                releaseGate.Wait();
             }
             catch (Exception exception)
             {

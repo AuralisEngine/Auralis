@@ -663,42 +663,6 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
         }
     }
 
-    internal T WithContext<T>(Func<GL, T> action)
-    {
-        ArgumentNullException.ThrowIfNull(action);
-        using OpenGLContextScope context = AcquireContext();
-        return action(context.Gl);
-    }
-
-    internal void WithContext(Action<GL> action)
-    {
-        ArgumentNullException.ThrowIfNull(action);
-        using OpenGLContextScope context = AcquireContext();
-        action(context.Gl);
-    }
-
-    /// <summary>
-    /// Executes a context operation only if the device gate can be acquired within the supplied
-    /// budget. Acquisition is checked in short slices so cancellation remains responsive.
-    /// </summary>
-    internal bool TryWithContext<T>(
-        Func<GL, T> action,
-        TimeSpan timeout,
-        CancellationToken cancellationToken,
-        out T result)
-    {
-        ArgumentNullException.ThrowIfNull(action);
-        if (!TryAcquireContext(timeout, cancellationToken, out OpenGLContextScope context))
-        {
-            result = default!;
-            return false;
-        }
-
-        using (context)
-            result = action(context.Gl);
-        return true;
-    }
-
     /// <summary>Registers a live native resource while the device context gate is held.</summary>
     internal void RegisterUnderContext(IOpenGLNativeResource resource)
     {

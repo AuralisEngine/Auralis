@@ -1167,39 +1167,6 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
         }
     }
 
-    internal T WithContext<T>(Func<GL, T> action)
-    {
-        ArgumentNullException.ThrowIfNull(action);
-        using OpenGLESContextScope context = AcquireContext();
-        return action(context.Gl);
-    }
-
-    internal void WithContext(Action<GL> action)
-    {
-        ArgumentNullException.ThrowIfNull(action);
-        using OpenGLESContextScope context = AcquireContext();
-        action(context.Gl);
-    }
-
-    /// <summary>Executes an operation with a deadline-bounded attempt to acquire the GLES context gate.</summary>
-    internal bool TryWithContext<T>(
-        Func<GL, T> action,
-        TimeSpan timeout,
-        CancellationToken cancellationToken,
-        out T result)
-    {
-        ArgumentNullException.ThrowIfNull(action);
-        if (!TryAcquireContext(timeout, cancellationToken, out OpenGLESContextScope context))
-        {
-            result = default!;
-            return false;
-        }
-
-        using (context)
-            result = action(context.Gl);
-        return true;
-    }
-
     internal void RegisterUnderContext(IOpenGLESNativeResource resource)
     {
         lock (_resourceGate)
