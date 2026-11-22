@@ -278,7 +278,9 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
         try
         {
             gl = GL.GetApi(contextProvider.GetProcAddress);
+            ThrowIfGlesErrors(gl, "GL.GetApi before device initialization");
             string versionString = gl.GetStringS(StringName.Version);
+            ThrowIfGlesErrors(gl, "glGetString(GL_VERSION)");
             if (!OpenGLESVersion.TryParse(versionString, out OpenGLESVersion version))
                 throw new GraphicsBackendUnavailableException(
                     GraphicsBackend.OpenGLES,
@@ -382,6 +384,7 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
                 }
             }
 
+            ThrowIfGlesErrors(gl, "OpenGL ES extension and native-entry-point discovery");
             OpenGLESCapabilityProfile profile = QueryProfile(
                 gl,
                 version,
@@ -396,6 +399,7 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
 
             string vendor = gl.GetStringS(StringName.Vendor);
             string renderer = gl.GetStringS(StringName.Renderer);
+            ThrowIfGlesErrors(gl, "glGetString(GL_VENDOR/GL_RENDERER)");
             OpenGLESQueriedLimits queriedLimits = QueryLimits(gl, profile);
             GraphicsDeviceCapabilities capabilities = QueryCapabilities(
                 profile, queriedLimits,
@@ -453,9 +457,13 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
         bool meshShaderEntryPointsAvailable)
     {
         int extensionCount = Math.Max(0, gl.GetInteger(GLEnum.NumExtensions));
+        ThrowIfGlesErrors(gl, "glGetIntegerv(GL_NUM_EXTENSIONS)");
         string[] extensions = new string[extensionCount];
         for (int i = 0; i < extensionCount; i++)
+        {
             extensions[i] = gl.GetStringS(StringName.Extensions, (uint)i);
+            ThrowIfGlesErrors(gl, $"glGetStringi(GL_EXTENSIONS, {i})");
+        }
 
         return OpenGLESCapabilityProfile.Create(
             version, extensions, supportsPresentation,
@@ -487,6 +495,7 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
         uint maxVertexAttributes = ToUInt(gl.GetInteger(GLEnum.MaxVertexAttribs));
         uint maxColorAttachments = ToUInt(gl.GetInteger(GLEnum.MaxColorAttachments));
         uint maxColorDrawBuffers = ToUInt(gl.GetInteger(GLEnum.MaxDrawBuffers));
+        ThrowIfGlesErrors(gl, "GLES core device-limit queries");
         GraphicsSampleCountFlags[] formatSampleCounts =
             new GraphicsSampleCountFlags[Enum.GetValues<GraphicsFormat>().Length];
         Array.Fill(formatSampleCounts, GraphicsSampleCountFlags.One);
@@ -495,8 +504,7 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
             for (int i = 0; i < s_multisampleFormats.Length; i++)
             {
                 GraphicsFormat format = s_multisampleFormats[i];
-                if ((format is GraphicsFormat.D32Float or GraphicsFormat.D32FloatS8UInt) &&
-                    !profile.Version.IsAtLeast(3, 2))
+                if (!IsMultisampleQueryFormatRenderable(profile, format))
                     continue;
 
                 formatSampleCounts[(int)format] = QueryTextureSampleCounts(gl, format);
@@ -543,6 +551,8 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
                     "The GLES 3.1+ context did not return valid compute work-group size and dispatch-count limits.");
             }
         }
+
+        ThrowIfGlesErrors(gl, "GLES compute and multisample capability queries");
 
         uint maxTessellationPatchSize = profile.Version.IsAtLeast(3, 2)
             ? ToUInt(gl.GetInteger(GLEnum.MaxPatchVertices))
@@ -591,6 +601,8 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
             gl.GetFloat((GLEnum)0x84FF, out maxAnisotropy);
             maxAnisotropy = Math.Max(1, maxAnisotropy);
         }
+
+        ThrowIfGlesErrors(gl, "GLES optional capability and work-group limit queries");
 
         return new OpenGLESQueriedLimits(
             maxTextureSize,
@@ -838,6 +850,47 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
             formats.ToArray());
     }
 
+    internal static bool IsMultisampleQueryFormatRenderable(
+        OpenGLESCapabilityProfile profile,
+        GraphicsFormat format)
+    {
+        ArgumentNullException.ThrowIfNull(profile);
+        return format switch
+        {
+            // GLES 3.1 required color-renderable formats (Table 8.13), including integer
+            // R/RG/RGBA formats. These are valid glGetInternalformativ query formats.
+            GraphicsFormat.R8UNorm or GraphicsFormat.RG8UNorm or GraphicsFormat.RGBA8UNorm or
+            GraphicsFormat.RGBA8UNormSrgb or
+            GraphicsFormat.R8UInt or GraphicsFormat.R8SInt or
+            GraphicsFormat.RG8UInt or GraphicsFormat.RG8SInt or
+            GraphicsFormat.RGBA8UInt or GraphicsFormat.RGBA8SInt or
+            GraphicsFormat.R16UInt or GraphicsFormat.R16SInt or
+            GraphicsFormat.RG16UInt or GraphicsFormat.RG16SInt or
+            GraphicsFormat.RGBA16UInt or GraphicsFormat.RGBA16SInt or
+            GraphicsFormat.R32UInt or GraphicsFormat.R32SInt or
+            GraphicsFormat.RG32UInt or GraphicsFormat.RG32SInt or
+            GraphicsFormat.RGBA32UInt or GraphicsFormat.RGBA32SInt or
+            GraphicsFormat.D16UNorm or GraphicsFormat.D24UNormS8UInt => true,
+
+            // Signed-normalized and RGB32F formats are not color-renderable in GLES 3.1.
+            GraphicsFormat.R8SNorm or GraphicsFormat.RG8SNorm or GraphicsFormat.RGBA8SNorm or
+            GraphicsFormat.RGB32Float => false,
+
+            // Half-float formats are renderable only with the corresponding color-buffer extension.
+            GraphicsFormat.R16Float or GraphicsFormat.RG16Float or GraphicsFormat.RGBA16Float =>
+                profile.HasExtension("GL_EXT_color_buffer_half_float") ||
+                profile.HasExtension("GL_EXT_color_buffer_float"),
+
+            // Full-float R/RG/RGBA formats require GL_EXT_color_buffer_float.
+            GraphicsFormat.R32Float or GraphicsFormat.RG32Float or GraphicsFormat.RGBA32Float =>
+                profile.HasExtension("GL_EXT_color_buffer_float"),
+
+            // GLES 3.2 adds the required 32-bit depth formats.
+            GraphicsFormat.D32Float or GraphicsFormat.D32FloatS8UInt => profile.Version.IsAtLeast(3, 2),
+            _ => false
+        };
+    }
+
     private static GraphicsSampleCountFlags QueryTextureSampleCounts(GL gl, GraphicsFormat format)
     {
         SizedInternalFormat internalFormat = OpenGLESGraphicsTexture.GetInternalFormat(format);
@@ -845,6 +898,8 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
             TextureTarget.Texture2DMultisample,
             (GLEnum)internalFormat,
             InternalFormatPName.NumSampleCounts);
+        ThrowIfGlesErrors(gl,
+            $"glGetInternalformativ(GL_TEXTURE_2D_MULTISAMPLE, {internalFormat}, GL_NUM_SAMPLE_COUNTS) for {format}");
         if (count <= 0)
             return GraphicsSampleCountFlags.One;
 
@@ -854,6 +909,8 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
             (GLEnum)internalFormat,
             InternalFormatPName.Samples,
             nativeCounts);
+        ThrowIfGlesErrors(gl,
+            $"glGetInternalformativ(GL_TEXTURE_2D_MULTISAMPLE, {internalFormat}, GL_SAMPLES) for {format}");
 
         GraphicsSampleCountFlags supported = GraphicsSampleCountFlags.One;
         for (int i = 0; i < nativeCounts.Length; i++)
@@ -871,6 +928,23 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
         }
 
         return supported;
+    }
+
+    internal static void ThrowIfGlesErrors(GL gl, string operation)
+    {
+        ArgumentNullException.ThrowIfNull(gl);
+        ArgumentException.ThrowIfNullOrWhiteSpace(operation);
+
+        List<GLEnum> errors = new(2);
+        GLEnum error;
+        while ((error = gl.GetError()) != GLEnum.NoError)
+            errors.Add(error);
+
+        if (errors.Count != 0)
+        {
+            throw new GraphicsException(
+                $"OpenGL ES reported {string.Join(", ", errors)} after {operation}.");
+        }
     }
 
     private static bool HasEntryPoints(IOpenGLESContextProvider contextProvider, params string[] entryPoints)
