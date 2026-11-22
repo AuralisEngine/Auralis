@@ -1,4 +1,5 @@
 using Auralis.Graphics.Abstractions;
+using Auralis.Graphics.Backends;
 using Auralis.Graphics.Commands;
 using Auralis.Graphics.Devices;
 using Auralis.Graphics.Pipelines;
@@ -11,6 +12,29 @@ namespace Auralis.Graphics.Tests;
 
 public sealed class GraphicsReviewRegressionTests
 {
+
+    [Fact]
+    public void ContextActivationOnlyMakesCurrentAtOutermostDepth()
+    {
+        int activations = 0;
+        int releases = 0;
+        bool current = false;
+        var activation = new GraphicsContextActivation(
+            () => { Assert.False(current); current = true; activations++; },
+            () => { Assert.True(current); current = false; releases++; });
+
+        activation.Enter();
+        Assert.True(current);
+        activation.Enter();
+        Assert.Equal(1, activations);
+        activation.Exit();
+        Assert.True(current);
+        Assert.Equal(0, releases);
+        activation.Exit();
+        Assert.False(current);
+        Assert.Equal(1, activations);
+        Assert.Equal(1, releases);
+    }
 
     [Fact]
     public void RenderTargetValidationChecksOwnershipExtentSamplesUsageAndFormats()

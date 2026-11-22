@@ -1,4 +1,6 @@
+using System.Diagnostics;
 using System.Runtime.InteropServices;
+using Auralis.Graphics.Backends;
 using Auralis.Graphics.Abstractions;
 using Auralis.Graphics.Commands;
 using Auralis.Graphics.Devices;
@@ -101,6 +103,7 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
     private readonly DrawMeshTasksIndirectExtDelegate? _drawMeshTasksIndirectExt;
     private readonly MultiDrawMeshTasksIndirectExtDelegate? _multiDrawMeshTasksIndirectExt;
     private readonly object _contextGate = new();
+    private readonly GraphicsContextActivation _contextActivation;
     private readonly object _resourceGate = new();
     private readonly HashSet<IOpenGLESNativeResource> _resources = new(ReferenceEqualityComparer.Instance);
     private readonly object _queueGate = new();
@@ -131,6 +134,7 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
         in OpenGLESQueriedLimits limits)
     {
         _contextProvider = contextProvider;
+        _contextActivation = new GraphicsContextActivation(contextProvider.MakeCurrent, contextProvider.ReleaseCurrent);
         _gl = gl;
         _multiDrawArraysIndirectExt = multiDrawArraysIndirectExt;
         _multiDrawElementsIndirectExt = multiDrawElementsIndirectExt;
@@ -1017,14 +1021,14 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
         lock (_contextGate)
         {
             ObjectDisposedException.ThrowIf(IsDisposed, this);
-            _contextProvider.MakeCurrent();
+            _contextActivation.Enter();
             try
             {
                 return action(_gl);
             }
             finally
             {
-                _contextProvider.ReleaseCurrent();
+                _contextActivation.Exit();
             }
         }
     }
@@ -1035,14 +1039,77 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
         lock (_contextGate)
         {
             ObjectDisposedException.ThrowIf(IsDisposed, this);
-            _contextProvider.MakeCurrent();
+            _contextActivation.Enter();
             try
             {
                 action(_gl);
             }
             finally
             {
-                _contextProvider.ReleaseCurrent();
+                _contextActivation.Exit();
+            }
+        }
+    }
+
+    /// <summary>Executes an operation with a deadline-bounded attempt to acquire the GLES context gate.</summary>
+    internal bool TryWithContext<T>(
+        Func<GL, T> action,
+        TimeSpan timeout,
+        CancellationToken cancellationToken,
+        out T result)
+    {
+        ArgumentNullException.ThrowIfNull(action);
+        if (timeout < TimeSpan.Zero && timeout != Timeout.InfiniteTimeSpan)
+            throw new ArgumentOutOfRangeException(nameof(timeout));
+
+        long start = Stopwatch.GetTimestamp();
+        long timeoutTicks = timeout == Timeout.InfiniteTimeSpan
+            ? long.MaxValue
+            : (long)(timeout.TotalSeconds * Stopwatch.Frequency);
+
+        while (true)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            int waitMilliseconds = timeoutTicks == long.MaxValue ||
+                timeoutTicks - (Stopwatch.GetTimestamp() - start) >= Stopwatch.Frequency / 1000
+                ? 1
+                : 0;
+
+            if (!Monitor.TryEnter(_contextGate, waitMilliseconds))
+            {
+                if (timeoutTicks != long.MaxValue &&
+                    Stopwatch.GetTimestamp() - start >= timeoutTicks)
+                {
+                    result = default!;
+                    return false;
+                }
+                continue;
+            }
+
+            try
+            {
+                if (timeoutTicks != long.MaxValue &&
+                    Stopwatch.GetTimestamp() - start >= timeoutTicks)
+                {
+                    result = default!;
+                    return false;
+                }
+
+                ObjectDisposedException.ThrowIf(IsDisposed, this);
+                _contextActivation.Enter();
+                try
+                {
+                    result = action(_gl);
+                    return true;
+                }
+                finally
+                {
+                    _contextActivation.Exit();
+                }
+            }
+            finally
+            {
+                Monitor.Exit(_contextGate);
             }
         }
     }
@@ -1063,7 +1130,7 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
             if (IsDisposed)
                 return;
 
-            _contextProvider.MakeCurrent();
+            _contextActivation.Enter();
             try
             {
                 resource.ReleaseNative(_gl);
@@ -1072,7 +1139,7 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
             }
             finally
             {
-                _contextProvider.ReleaseCurrent();
+                _contextActivation.Exit();
             }
         }
     }
@@ -1097,7 +1164,7 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
             bool gpuIdle = false;
             try
             {
-                _contextProvider.MakeCurrent();
+                _contextActivation.Enter();
                 contextCurrent = true;
 
                 try
@@ -1196,7 +1263,7 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
                 {
                     try
                     {
-                        _contextProvider.ReleaseCurrent();
+                        _contextActivation.Exit();
                     }
                     catch (Exception exception)
                     {

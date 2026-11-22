@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Text;
+using Auralis.Graphics.Backends;
 using System.Runtime.InteropServices;
 using System.Runtime.ExceptionServices;
 using Auralis.Graphics.Abstractions;
@@ -25,6 +26,7 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
 {
     private readonly IOpenGLContextProvider _contextProvider;
     private readonly object _contextGate = new();
+    private readonly GraphicsContextActivation _contextActivation;
     private readonly HashSet<IOpenGLNativeResource> _resources = new(ReferenceEqualityComparer.Instance);
     private readonly object _queueGate = new();
     private readonly OpenGLGraphicsCommandQueue?[] _queues = new OpenGLGraphicsCommandQueue?[3];
@@ -135,6 +137,7 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
         GraphicsDeviceCapabilities capabilities)
     {
         _contextProvider = contextProvider;
+        _contextActivation = new GraphicsContextActivation(contextProvider.MakeCurrent, contextProvider.ReleaseCurrent);
         _gl = gl;
         _directStateAccess = directStateAccess;
         _textureViewApi = textureViewApi;
@@ -612,16 +615,14 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
         lock (_contextGate)
         {
             ObjectDisposedException.ThrowIf(IsDisposed, this);
-            _contextProvider.MakeCurrent();
+            _contextActivation.Enter();
             try
             {
                 return action(_gl);
             }
             finally
             {
-                // Inline scope: activation succeeded before the try, so release runs exactly once
-                // without allocating a per-operation OpenGLContextLease object.
-                _contextProvider.ReleaseCurrent();
+                _contextActivation.Exit();
             }
         }
     }
@@ -632,14 +633,80 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
         lock (_contextGate)
         {
             ObjectDisposedException.ThrowIf(IsDisposed, this);
-            _contextProvider.MakeCurrent();
+            _contextActivation.Enter();
             try
             {
                 action(_gl);
             }
             finally
             {
-                _contextProvider.ReleaseCurrent();
+                _contextActivation.Exit();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Executes a context operation only if the device gate can be acquired within the supplied
+    /// budget. Acquisition is checked in short slices so cancellation remains responsive.
+    /// </summary>
+    internal bool TryWithContext<T>(
+        Func<GL, T> action,
+        TimeSpan timeout,
+        CancellationToken cancellationToken,
+        out T result)
+    {
+        ArgumentNullException.ThrowIfNull(action);
+        if (timeout < TimeSpan.Zero && timeout != Timeout.InfiniteTimeSpan)
+            throw new ArgumentOutOfRangeException(nameof(timeout));
+
+        long start = Stopwatch.GetTimestamp();
+        long timeoutTicks = timeout == Timeout.InfiniteTimeSpan
+            ? long.MaxValue
+            : (long)(timeout.TotalSeconds * Stopwatch.Frequency);
+
+        while (true)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            int waitMilliseconds = timeoutTicks == long.MaxValue ||
+                timeoutTicks - (Stopwatch.GetTimestamp() - start) >= Stopwatch.Frequency / 1000
+                ? 1
+                : 0;
+
+            if (!Monitor.TryEnter(_contextGate, waitMilliseconds))
+            {
+                if (timeoutTicks != long.MaxValue &&
+                    Stopwatch.GetTimestamp() - start >= timeoutTicks)
+                {
+                    result = default!;
+                    return false;
+                }
+                continue;
+            }
+
+            try
+            {
+                if (timeoutTicks != long.MaxValue &&
+                    Stopwatch.GetTimestamp() - start >= timeoutTicks)
+                {
+                    result = default!;
+                    return false;
+                }
+
+                ObjectDisposedException.ThrowIf(IsDisposed, this);
+                _contextActivation.Enter();
+                try
+                {
+                    result = action(_gl);
+                    return true;
+                }
+                finally
+                {
+                    _contextActivation.Exit();
+                }
+            }
+            finally
+            {
+                Monitor.Exit(_contextGate);
             }
         }
     }
@@ -670,14 +737,14 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
             if (IsDisposed)
                 return;
 
-            _contextProvider.MakeCurrent();
+            _contextActivation.Enter();
             try
             {
                 resource.ReleaseNative(_gl);
             }
             finally
             {
-                _contextProvider.ReleaseCurrent();
+                _contextActivation.Exit();
             }
 
             // Keep failed/uncompleted releases registered so device shutdown can retry them.
@@ -1041,9 +1108,11 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
         Exception? cleanupFailure = null;
         lock (_contextGate)
         {
+            bool contextCurrent = false;
             try
             {
-                using OpenGLContextLease contextLease = OpenGLContextLease.Acquire(_contextProvider);
+                _contextActivation.Enter();
+                contextCurrent = true;
                 _gl.Finish();
 
                 foreach (OpenGLGraphicsCommandQueue? queue in _queues)
@@ -1112,6 +1181,12 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
             }
             finally
             {
+                if (contextCurrent)
+                {
+                    try { _contextActivation.Exit(); }
+                    catch (Exception exception) { cleanupFailure ??= exception; }
+                }
+
                 if (_contextProvider.Ownership == OpenGLContextOwnership.Owned)
                 {
                     try

@@ -123,27 +123,48 @@ internal sealed class OpenGLGraphicsFence : OpenGLNativeDeviceObject, IGraphicsF
         while (true)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            bool completed = _device.WithContext(gl =>
-            {
-                lock (_gate)
-                    return PollCompleted(gl, 1_000_000) >= value;
-            });
+            lock (_gate)
+                if (_completedValue >= value)
+                    return true;
 
+            long elapsedTicks = Stopwatch.GetTimestamp() - start;
+            long remainingTicks = timeoutTicks == long.MaxValue ? long.MaxValue : timeoutTicks - elapsedTicks;
+            if (remainingTicks <= 0)
+                return false;
+
+            TimeSpan remaining = remainingTicks == long.MaxValue
+                ? Timeout.InfiniteTimeSpan
+                : TimeSpan.FromSeconds((double)remainingTicks / Stopwatch.Frequency);
+            ulong waitNanoseconds = remainingTicks == long.MaxValue || remainingTicks >= Stopwatch.Frequency / 1000
+                ? 1_000_000UL
+                : (ulong)Math.Max(0, remainingTicks * 1_000_000_000L / Stopwatch.Frequency);
+
+            if (!_device.TryWithContext(
+                    gl =>
+                    {
+                        lock (_gate)
+                            return PollCompleted(gl, waitNanoseconds) >= value;
+                    },
+                    remaining,
+                    cancellationToken,
+                    out bool completed))
+                return false;
+
+            cancellationToken.ThrowIfCancellationRequested();
             if (completed)
-                return true;
+                return timeoutTicks == long.MaxValue ||
+                    Stopwatch.GetTimestamp() - start <= timeoutTicks;
 
             if (timeoutTicks != long.MaxValue && Stopwatch.GetTimestamp() - start >= timeoutTicks)
                 return false;
 
             lock (_gate)
             {
-                cancellationToken.ThrowIfCancellationRequested();
                 if (_completedValue < value && _syncs.Count == 0)
                     Monitor.Wait(_gate, TimeSpan.FromMilliseconds(1));
             }
         }
     }
-
     private ulong PollCompleted(GL gl, ulong waitNanoseconds)
     {
         if (_syncs.Count == 0)
