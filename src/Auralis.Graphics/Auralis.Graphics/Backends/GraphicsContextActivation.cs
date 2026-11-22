@@ -53,30 +53,47 @@ internal sealed class GraphicsContextActivation
 /// <summary>Deadline-bounded acquisition for the device-wide context monitor.</summary>
 internal static class GraphicsContextGate
 {
+    // Short timed waits keep cancellation responsive without spinning while the context is busy.
+    private const int CancellationPollingIntervalMilliseconds = 1;
+
     internal static bool TryEnter(object gate, TimeSpan timeout, CancellationToken cancellationToken)
     {
         if (gate is null)
             throw new ArgumentNullException(nameof(gate));
-        if (timeout < TimeSpan.Zero && timeout != Timeout.InfiniteTimeSpan)
-            throw new ArgumentOutOfRangeException(nameof(timeout));
+        ValidateTimeout(timeout);
 
+        cancellationToken.ThrowIfCancellationRequested();
+
+        if (timeout == TimeSpan.Zero)
+        {
+            if (!Monitor.TryEnter(gate, millisecondsTimeout: 0))
+                return false;
+
+            try
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+            }
+            catch
+            {
+                Monitor.Exit(gate);
+                throw;
+            }
+
+            return true;
+        }
+
+        bool infinite = timeout == Timeout.InfiniteTimeSpan;
+        long timeoutTicks = infinite ? 0 : GetStopwatchTimeoutTicks(timeout);
         long start = Stopwatch.GetTimestamp();
-        long timeoutTicks = timeout == Timeout.InfiniteTimeSpan
-            ? long.MaxValue
-            : (long)(timeout.TotalSeconds * Stopwatch.Frequency);
 
         while (true)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            long elapsed = Stopwatch.GetTimestamp() - start;
-            long remaining = timeoutTicks == long.MaxValue ? long.MaxValue : timeoutTicks - elapsed;
-            if (remaining <= 0)
+
+            if (!infinite && Stopwatch.GetTimestamp() - start >= timeoutTicks)
                 return false;
 
-            int waitMilliseconds = remaining == long.MaxValue || remaining >= Stopwatch.Frequency / 1000
-                ? 1
-                : 0;
-            if (!Monitor.TryEnter(gate, waitMilliseconds))
+            if (!Monitor.TryEnter(gate, CancellationPollingIntervalMilliseconds))
                 continue;
 
             try
@@ -89,8 +106,7 @@ internal static class GraphicsContextGate
                 throw;
             }
 
-            if (timeoutTicks != long.MaxValue &&
-                Stopwatch.GetTimestamp() - start > timeoutTicks)
+            if (!infinite && Stopwatch.GetTimestamp() - start >= timeoutTicks)
             {
                 Monitor.Exit(gate);
                 return false;
@@ -104,26 +120,40 @@ internal static class GraphicsContextGate
     {
         if (gate is null)
             throw new ArgumentNullException(nameof(gate));
-        if (timeout < TimeSpan.Zero && timeout != Timeout.InfiniteTimeSpan)
-            throw new ArgumentOutOfRangeException(nameof(timeout));
+        ValidateTimeout(timeout);
 
+        cancellationToken.ThrowIfCancellationRequested();
+
+        if (timeout == TimeSpan.Zero)
+        {
+            if (!gate.TryEnter(millisecondsTimeout: 0))
+                return false;
+
+            try
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+            }
+            catch
+            {
+                gate.Exit();
+                throw;
+            }
+
+            return true;
+        }
+
+        bool infinite = timeout == Timeout.InfiniteTimeSpan;
+        long timeoutTicks = infinite ? 0 : GetStopwatchTimeoutTicks(timeout);
         long start = Stopwatch.GetTimestamp();
-        long timeoutTicks = timeout == Timeout.InfiniteTimeSpan
-            ? long.MaxValue
-            : (long)(timeout.TotalSeconds * Stopwatch.Frequency);
 
         while (true)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            long elapsed = Stopwatch.GetTimestamp() - start;
-            long remaining = timeoutTicks == long.MaxValue ? long.MaxValue : timeoutTicks - elapsed;
-            if (remaining <= 0)
+
+            if (!infinite && Stopwatch.GetTimestamp() - start >= timeoutTicks)
                 return false;
 
-            int waitMilliseconds = remaining == long.MaxValue || remaining >= Stopwatch.Frequency / 1000
-                ? 1
-                : 0;
-            if (!gate.TryEnter(waitMilliseconds))
+            if (!gate.TryEnter(CancellationPollingIntervalMilliseconds))
                 continue;
 
             try
@@ -136,8 +166,7 @@ internal static class GraphicsContextGate
                 throw;
             }
 
-            if (timeoutTicks != long.MaxValue &&
-                Stopwatch.GetTimestamp() - start > timeoutTicks)
+            if (!infinite && Stopwatch.GetTimestamp() - start >= timeoutTicks)
             {
                 gate.Exit();
                 return false;
@@ -145,5 +174,25 @@ internal static class GraphicsContextGate
 
             return true;
         }
+    }
+
+    private static void ValidateTimeout(TimeSpan timeout)
+    {
+        if (timeout < TimeSpan.Zero && timeout != Timeout.InfiniteTimeSpan)
+            throw new ArgumentOutOfRangeException(nameof(timeout));
+    }
+
+    private static long GetStopwatchTimeoutTicks(TimeSpan timeout)
+    {
+        // Use integer arithmetic with a ceiling so tiny positive timeouts do not round to zero.
+        // UInt128 prevents overflow when TimeSpan's large finite range is scaled by the
+        // platform-specific Stopwatch frequency.
+        UInt128 scaledTicks = (UInt128)(ulong)timeout.Ticks * (ulong)Stopwatch.Frequency;
+        UInt128 stopwatchTicks =
+            (scaledTicks + (ulong)TimeSpan.TicksPerSecond - 1) / (ulong)TimeSpan.TicksPerSecond;
+
+        return stopwatchTicks >= (UInt128)long.MaxValue
+            ? long.MaxValue
+            : (long)stopwatchTicks;
     }
 }
