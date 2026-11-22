@@ -22,9 +22,15 @@ internal readonly record struct OpenGLMeshShaderEntryPoints(
             getProcAddress("glDrawMeshTasksNV") != 0);
     }
 
-    /// <summary>EXT API availability needed by the backend's direct and single-indirect paths.</summary>
+    /// <summary>Whether any implemented EXT mesh-task draw path can execute.</summary>
     internal bool SupportsExtMeshShader(bool extensionPresent) =>
-        extensionPresent && ExtDirect && ExtIndirect;
+        extensionPresent && (ExtDirect || ExtIndirect || ExtMultiDrawIndirect);
+
+    internal bool SupportsExtDirectMeshTasks(bool extensionPresent) =>
+        extensionPresent && ExtDirect;
+
+    internal bool SupportsExtIndirectMeshTasks(bool extensionPresent) =>
+        extensionPresent && ExtIndirect;
 
     /// <summary>Availability of the optional EXT multi-draw-indirect path.</summary>
     internal bool SupportsExtMultiDrawMeshTasksIndirect(bool extensionPresent) =>
