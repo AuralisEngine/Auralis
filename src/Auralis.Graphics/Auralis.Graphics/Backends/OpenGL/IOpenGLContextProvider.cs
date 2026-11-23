@@ -57,7 +57,6 @@ public interface IOpenGLContextProvider : IDisposable
     /// </summary>
     bool IsPresentationTargetCompatible(in GraphicsPresentationTargetSnapshot target);
 
-    /// <summary>Whether the provider can honor a requested swap interval/presentation policy.</summary>
     /// <summary>Gets whether the associated drawable can honor the specified presentation mode.</summary>
     /// <param name="presentMode">Requested swap interval or presentation policy.</param>
     bool SupportsPresentMode(GraphicsPresentMode presentMode);
@@ -68,12 +67,10 @@ public interface IOpenGLContextProvider : IDisposable
     /// </summary>
     void SetPresentMode(GraphicsPresentMode presentMode);
 
-    /// <summary>Makes this context current on the calling thread, throwing if activation fails.</summary>
     /// <summary>Makes the exact provided desktop OpenGL context current on the calling thread.</summary>
     /// <exception cref="InvalidOperationException">The context cannot be made current on this thread.</exception>
     void MakeCurrent();
 
-    /// <summary>Releases this context from the calling thread without destroying it.</summary>
     /// <summary>Releases the provided context from the calling thread without destroying its native objects.</summary>
     void ReleaseCurrent();
 
