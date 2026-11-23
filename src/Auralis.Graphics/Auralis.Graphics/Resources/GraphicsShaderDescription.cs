@@ -49,6 +49,9 @@ public sealed record GraphicsShaderDescription
     /// </summary>
     public ReadOnlyMemory<GraphicsShaderSpecializationConstant> SpecializationConstants { get; init; }
 
+    /// <summary>Validates shader stage, code format, entry point, and format-specific specialization data.</summary>
+    /// <exception cref="ArgumentOutOfRangeException">The shader stage is undefined.</exception>
+    /// <exception cref="ArgumentException">The format or entry point is invalid, code is empty, or non-SPIR-V code supplies specialization constants.</exception>
     public void Validate()
     {
         if (!Enum.IsDefined(Stage))
