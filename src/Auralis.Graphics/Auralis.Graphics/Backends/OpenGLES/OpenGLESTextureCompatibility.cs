@@ -7,6 +7,12 @@ namespace Auralis.Graphics.Backends.OpenGLES;
 /// <summary>Pure GLES texture compatibility validation, independent of a live driver/context.</summary>
 internal static class OpenGLESTextureCompatibility
 {
+    /// <summary>Validates the common GLES texture constraints and returns the native texture target.</summary>
+    /// <param name="description">Texture shape, format, usage, and sample-count description.</param>
+    /// <param name="version">Active GLES version used for multisample and cube-array requirements.</param>
+    /// <param name="supportsCubeMapArray">Whether the required cube-map-array extension is advertised.</param>
+    /// <returns>The GLES target corresponding to the validated texture dimension.</returns>
+    /// <exception cref="GraphicsValidationException">The description uses an unsupported target, aliasing option, sample shape, or extension-gated dimension.</exception>
     internal static TextureTarget ValidateAndGetTarget(
         in GraphicsTextureDescription description,
         OpenGLESVersion version = default,
@@ -46,6 +52,16 @@ internal static class OpenGLESTextureCompatibility
         return OpenGLESGraphicsTexture.GetTextureTarget(description);
     }
 
+    /// <summary>Validates a full-resource texture copy and the selected native or framebuffer-blit path.</summary>
+    /// <param name="source">Source texture description.</param>
+    /// <param name="destination">Destination texture description.</param>
+    /// <param name="supportsImageCopy">Whether a native EXT/OES image-copy entry point is available.</param>
+    /// <remarks>
+    /// Native image copy accepts matching texture subresource shapes without requiring framebuffer
+    /// attachment usage. The fallback is deliberately narrower: both textures must be color
+    /// attachments and single-sample, single-mip, single-layer 2D RGBA8 UNorm or sRGB resources.
+    /// </remarks>
+    /// <exception cref="GraphicsValidationException">Usage, format, dimensions, mip/layer/sample shape, or fallback-path requirements are incompatible.</exception>
     internal static void ValidateCopy(
         in GraphicsTextureDescription source,
         in GraphicsTextureDescription destination,
