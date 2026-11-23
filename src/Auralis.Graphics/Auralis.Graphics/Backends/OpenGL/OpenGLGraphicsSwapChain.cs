@@ -429,7 +429,7 @@ internal sealed class OpenGLGraphicsSwapChain : OpenGLNativeDeviceObject, IGraph
             OpenGLSwapChainImage[] previousImages = _images;
             GraphicsPresentMode previousMode = _description.PresentMode;
 
-            using OpenGLContextScope context = _device.AcquireContext();
+            using OpenGLContextScope context = AcquireResizeContext(replacement);
             List<Exception> failures = new(4);
 
             try
@@ -457,7 +457,7 @@ internal sealed class OpenGLGraphicsSwapChain : OpenGLNativeDeviceObject, IGraph
             {
                 // No previous sync or framebuffer is released until the driver confirms all work is idle.
                 _device.SwapChainTestHooks?.BeforeGpuFinish?.Invoke();
-            context.Gl.Finish();
+                context.Gl.Finish();
             }
             catch (Exception waitFailure)
             {
