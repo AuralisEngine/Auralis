@@ -7,6 +7,7 @@ using Silk.NET.OpenGL.Extensions.ARB;
 
 namespace Auralis.Graphics.Backends.OpenGL;
 
+/// <summary>Independent desktop GL binding-point namespaces used by descriptor allocation.</summary>
 internal enum OpenGLDescriptorNamespace : byte
 {
     UniformBuffer,
@@ -15,15 +16,19 @@ internal enum OpenGLDescriptorNamespace : byte
     ImageUnit
 }
 
+/// <summary>One descriptor-layout entry and its offset in the binding set's flattened value array.</summary>
 internal readonly record struct OpenGLDescriptorEntry(
     GraphicsBindingLayoutEntry Description,
     int ValueOffset);
 
+/// <summary>Maps one pipeline set/binding declaration to a contiguous range of native GL slots.</summary>
 internal readonly record struct OpenGLDescriptorMapping(
     uint SetIndex,
     GraphicsBindingLayoutEntry Description,
     uint BaseSlot);
 
+/// <summary>Validated desktop GL binding layout with flattened descriptor-array storage offsets.</summary>
+/// <remarks>Only partially-bound flags are supported; other descriptor binding flags are rejected during construction.</remarks>
 internal sealed class OpenGLGraphicsBindingLayout : GraphicsDeviceObject, IGraphicsBindingLayout
 {
     private readonly OpenGLDescriptorEntry[] _entries;
@@ -78,6 +83,8 @@ internal sealed class OpenGLGraphicsBindingLayout : GraphicsDeviceObject, IGraph
     protected override void DisposeCore() { }
 }
 
+/// <summary>Combines device-owned binding layouts and resolves each descriptor to a deterministic GL binding-point range.</summary>
+/// <remarks>Uniform buffers, storage buffers, sampled textures/samplers, and storage images use separate native slot namespaces, each checked against queried context limits.</remarks>
 internal sealed class OpenGLGraphicsPipelineLayout : GraphicsDeviceObject, IGraphicsPipelineLayout
 {
     private readonly IGraphicsBindingLayout[] _bindingLayouts;
@@ -138,6 +145,7 @@ internal sealed class OpenGLGraphicsPipelineLayout : GraphicsDeviceObject, IGrap
     protected override void DisposeCore() { }
 }
 
+/// <summary>Mutable descriptor value stored until a command list captures a binding-set snapshot.</summary>
 internal struct OpenGLBindingValue
 {
     internal IGraphicsBuffer? Buffer;
@@ -147,9 +155,19 @@ internal struct OpenGLBindingValue
     internal IGraphicsSampler? Sampler;
 }
 
+/// <summary>Applies a recorded descriptor snapshot to the active GL program using the pipeline layout's assigned slots.</summary>
+/// <remarks>Native binding is replayed during command execution, not when the public binding set is edited or snapshotted.</remarks>
 internal static class OpenGLBindingSetBinder
 {
-    internal static void Bind(
+    /// <summary>Binds each populated or partially-bound descriptor element to its allocated native GL slot.</summary>
+    /// <param name="gl">Current desktop OpenGL dispatch object.</param>
+    /// <param name="dsa">Direct-state-access wrapper for buffer and texture binding operations.</param>
+    /// <param name="imageLoadStoreApi">Image load/store wrapper for storage-texture bindings.</param>
+    /// <param name="layout">Binding layout describing descriptor kinds and array counts.</param>
+    /// <param name="values">Immutable values captured by the command list.</param>
+    /// <param name="pipelineLayout">Pipeline layout that allocated native slots.</param>
+    /// <param name="setIndex">Pipeline set index being applied.</param>
+    /// <exception cref="GraphicsValidationException">A mapping is missing or a required descriptor is incomplete.</exception>
         GL gl,
         ArbDirectStateAccess dsa,
         ArbShaderImageLoadStore imageLoadStoreApi,
@@ -302,6 +320,8 @@ internal static class OpenGLBindingSetBinder
     }
 }
 
+/// <summary>Thread-safe mutable desktop GL descriptor set whose values are copied into command-list snapshots.</summary>
+/// <remarks>The set stores managed references; recording captures its current values and the command list acquires native references needed through submission.</remarks>
 internal sealed class OpenGLGraphicsBindingSet : GraphicsDeviceObject, IGraphicsBindingSet
 {
     private readonly OpenGLGraphicsBindingLayout _layout;
@@ -317,7 +337,14 @@ internal sealed class OpenGLGraphicsBindingSet : GraphicsDeviceObject, IGraphics
 
     public IGraphicsBindingLayout Layout { get; }
 
-    public void SetBuffer(
+    /// <summary>Sets a uniform- or storage-buffer descriptor element.</summary>
+    /// <param name="binding">Layout binding number.</param>
+    /// <param name="arrayElement">Zero-based element within the binding array.</param>
+    /// <param name="buffer">Same-device buffer with Constant or Storage usage as required by the descriptor kind.</param>
+    /// <param name="offset">Byte offset aligned to the applicable uniform/storage buffer limit.</param>
+    /// <param name="range">Byte range, or <see cref="ulong.MaxValue" /> to use the remaining bytes.</param>
+    /// <exception cref="GraphicsValidationException">The binding kind, device ownership, usage, or offset alignment is invalid.</exception>
+    /// <exception cref="ArgumentOutOfRangeException">The array element, offset, or range is outside the declared binding or buffer.</exception>
         uint binding,
         uint arrayElement,
         IGraphicsBuffer buffer,
@@ -364,7 +391,12 @@ internal sealed class OpenGLGraphicsBindingSet : GraphicsDeviceObject, IGraphics
             _values[entry.ValueOffset + checked((int)arrayElement)] = value;
     }
 
-    public void SetTexture(uint binding, uint arrayElement, IGraphicsTextureView textureView)
+    /// <summary>Sets a sampled, storage, or combined-texture descriptor element.</summary>
+    /// <param name="binding">Layout binding number.</param>
+    /// <param name="arrayElement">Zero-based element within the binding array.</param>
+    /// <param name="textureView">Same-device view whose parent texture usage is compatible with the descriptor kind.</param>
+    /// <exception cref="GraphicsValidationException">The binding kind, device ownership, or parent texture usage is incompatible.</exception>
+    /// <exception cref="ArgumentOutOfRangeException">The array element is outside the declared binding.</exception>
     {
         ThrowIfDisposed();
         ArgumentNullException.ThrowIfNull(textureView);
@@ -394,7 +426,12 @@ internal sealed class OpenGLGraphicsBindingSet : GraphicsDeviceObject, IGraphics
         }
     }
 
-    public void SetSampler(uint binding, uint arrayElement, IGraphicsSampler sampler)
+    /// <summary>Sets a sampler or combined-texture-sampler descriptor element.</summary>
+    /// <param name="binding">Layout binding number.</param>
+    /// <param name="arrayElement">Zero-based element within the binding array.</param>
+    /// <param name="sampler">Live sampler created by the same device.</param>
+    /// <exception cref="GraphicsValidationException">The binding kind or sampler device ownership is incompatible.</exception>
+    /// <exception cref="ArgumentOutOfRangeException">The array element is outside the declared binding.</exception>
     {
         ThrowIfDisposed();
         ArgumentNullException.ThrowIfNull(sampler);
@@ -424,7 +461,10 @@ internal sealed class OpenGLGraphicsBindingSet : GraphicsDeviceObject, IGraphics
     /// Copies a validated immutable snapshot into command-list-owned reusable storage. This avoids
     /// allocating a snapshot object and cloned array for every descriptor-set recording operation.
     /// </summary>
-    internal int SnapshotTo(List<OpenGLBindingValue> destination)
+    /// <summary>Validates descriptor completeness and appends a stable value snapshot to command-list-owned storage.</summary>
+    /// <param name="destination">Reusable destination list owned by the command recorder.</param>
+    /// <returns>Starting element offset of the appended snapshot.</returns>
+    /// <exception cref="GraphicsValidationException">A required descriptor is missing or a partially-bound descriptor is only partly populated.</exception>
     {
         ThrowIfDisposed();
         ArgumentNullException.ThrowIfNull(destination);
