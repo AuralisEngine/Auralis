@@ -24,6 +24,9 @@ internal sealed class OpenGLSwapChainTestHooks
     /// <summary>Runs immediately before a replacement texture allocation.</summary>
     internal Action? BeforeTextureCreation { get; set; }
 
+    /// <summary>Runs after a swap-chain texture is created and transferred to its image slot.</summary>
+    internal Action<OpenGLGraphicsTexture>? AfterTextureCreated { get; set; }
+
     /// <summary>Runs after the replacement texture is registered and owned by its image slot.</summary>
     internal Action<OpenGLGraphicsTexture>? AfterTextureCreation { get; set; }
 
