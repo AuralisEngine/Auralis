@@ -9,10 +9,20 @@ namespace Auralis.Graphics.Backends.OpenGL;
 /// <summary>Links backend-owned shader objects into a single OpenGL program.</summary>
 internal static class OpenGLProgramLinker
 {
-    internal static uint Link(GL gl, IGraphicsShader shader) =>
+    /// <summary>Links one live backend-owned shader into a new native GL program.</summary>
+    /// <param name="gl">Current desktop OpenGL dispatch object.</param>
+    /// <param name="shader">Shader created by this backend.</param>
+    /// <returns>The linked program name, owned by the caller.</returns>
+    /// <exception cref="GraphicsValidationException">The shader is not a live OpenGL shader object.</exception>
+    /// <exception cref="GraphicsException">Program creation or linking fails; the temporary program is deleted.</exception>
         Link(gl, MemoryMarshal.CreateReadOnlySpan(ref shader, 1));
 
-    internal static uint Link(GL gl, ReadOnlySpan<IGraphicsShader> shaders)
+    /// <summary>Links an ordered collection of live backend-owned shader stages into one native GL program.</summary>
+    /// <param name="gl">Current desktop OpenGL dispatch object.</param>
+    /// <param name="shaders">Shaders to attach before linking.</param>
+    /// <returns>The linked program name, owned by the caller.</returns>
+    /// <exception cref="GraphicsValidationException">A shader is not a live OpenGL shader object.</exception>
+    /// <exception cref="GraphicsException">Program creation or linking fails; the temporary program is deleted.</exception>
     {
         uint program = gl.CreateProgram();
         if (program == 0)
