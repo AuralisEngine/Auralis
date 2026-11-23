@@ -15,12 +15,17 @@ using Xunit.Sdk;
 
 namespace Auralis.Graphics.OpenGLES.IntegrationTests;
 
+/// <summary>Runs OpenGL ES hardware integration tests against one shared host-provided GLES 3.1-or-newer context.</summary>
+/// <remarks>The test boundary checks GL errors before and after each test and attributes failures to the test that generated them. Optional feature-specific coverage is skipped only when the active hardware genuinely lacks the needed extension, entry point, or limit.</remarks>
 public sealed partial class OpenGLESIntegrationTests : IClassFixture<OpenGLESHardwareFixture>
 {
 
     private readonly OpenGLESHardwareFixture _fixture;
     public OpenGLESIntegrationTests(OpenGLESHardwareFixture fixture) => _fixture = fixture;
 
+    /// <summary>Runs a test against the shared GLES device and checks the GL error boundary for the named test.</summary>
+    /// <param name="test">Test action receiving the initialized device.</param>
+    /// <param name="testName">Automatically supplied caller name used to attribute GL errors.</param>
     private void RunHardwareTest(
         Action<IGraphicsDevice> test,
         [CallerMemberName] string testName = "")
@@ -29,6 +34,9 @@ public sealed partial class OpenGLESIntegrationTests : IClassFixture<OpenGLESHar
         RunHardwareTestBoundary(testName, device, () => test(device));
     }
 
+    /// <summary>Runs a test against the shared GLES device and checks the GL error boundary for the named test.</summary>
+    /// <param name="test">Test action receiving the initialized device.</param>
+    /// <param name="testName">Automatically supplied caller name used to attribute GL errors.</param>
     private void RunHardwareTest(
         Action<IGraphicsDevice, GlfwOpenGLESContextProvider> test,
         [CallerMemberName] string testName = "")
@@ -38,6 +46,10 @@ public sealed partial class OpenGLESIntegrationTests : IClassFixture<OpenGLESHar
         RunHardwareTestBoundary(testName, device, () => test(device, context));
     }
 
+    /// <summary>Executes a GLES hardware test while collecting errors before and after its command sequence.</summary>
+    /// <param name="testName">Test identifier included in error diagnostics.</param>
+    /// <param name="device">Device whose native context is used by the test.</param>
+    /// <param name="test">Test body to execute between the error checks.</param>
     private static void RunHardwareTestBoundary(string testName, IGraphicsDevice device, Action test)
     {
         string displayName = string.IsNullOrWhiteSpace(testName) ? "unnamed GLES integration test" : testName;
@@ -72,6 +84,9 @@ public sealed partial class OpenGLESIntegrationTests : IClassFixture<OpenGLESHar
             ExceptionDispatchInfo.Capture(testFailure).Throw();
     }
 
+    /// <summary>Drains pending GLES errors and reports them with the phase that produced them.</summary>
+    /// <param name="device">Device whose context should be current while checking errors.</param>
+    /// <param name="phase">Description of initialization, setup, execution, or cleanup phase.</param>
     private static void CheckGlesErrors(IGraphicsDevice device, string operation)
     {
         OpenGLESGraphicsDevice gles = (OpenGLESGraphicsDevice)device;
