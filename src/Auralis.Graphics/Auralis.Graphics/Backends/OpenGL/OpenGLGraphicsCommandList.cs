@@ -1516,6 +1516,8 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
     private static NotSupportedException Unsupported(string operation) =>
         new($"{operation} is not implemented by the current OpenGL command execution increment.");
 
+    /// <summary>Waits for in-flight use when possible, then releases this list's recorded native references.</summary>
+    /// <remarks>During device shutdown the list waits for the device's finish/drain barrier before completing any exceptional pending transition.</remarks>
     protected override void DisposeCore()
     {
         try
