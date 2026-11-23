@@ -511,11 +511,14 @@ internal sealed class OpenGLESGraphicsSwapChain : OpenGLESNativeDeviceObject, IG
                 throw new GraphicsValidationException("The replacement swapchain extent must match a non-suspended host drawable.");
 
             ulong nextGeneration = checked(_generation + 1);
+
+            // Hold the device context gate across staging, retirement, and commit. CreateImages
+            // uses reentrant context scopes; this prevents device shutdown from overtaking a staged
+            // framebuffer ring that has not yet been published to the swap-chain owner.
+            using OpenGLESContextScope context = _device.AcquireContext();
             OpenGLESSwapChainImage[] replacement = CreateImages(copy);
             OpenGLESSwapChainImage[] previousImages = _images;
             GraphicsPresentMode previousMode = _description.PresentMode;
-
-            using OpenGLESContextScope context = AcquireResizeContext(replacement);
             List<Exception> failures = new(4);
 
             try
@@ -620,25 +623,6 @@ internal sealed class OpenGLESGraphicsSwapChain : OpenGLESNativeDeviceObject, IG
                 _nextImage = 0;
                 Volatile.Write(ref _generation, nextGeneration);
             }
-        }
-    }
-
-    /// <summary>
-    /// Acquires the context required to retire the active GLES ring. If activation fails, the
-    /// staged ring remains referenced so device shutdown can retry native cleanup.
-    /// </summary>
-    private OpenGLESContextScope AcquireResizeContext(OpenGLESSwapChainImage[] replacement)
-    {
-        try
-        {
-            return _device.AcquireContext();
-        }
-        catch (Exception contextFailure)
-        {
-            RetainImageSetForCleanup(replacement);
-            throw new GraphicsException(
-                "The replacement GLES image ring was retained because the context could not be acquired for resize retirement.",
-                contextFailure);
         }
     }
 

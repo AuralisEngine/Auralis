@@ -448,12 +448,14 @@ internal sealed class OpenGLGraphicsSwapChain : OpenGLNativeDeviceObject, IGraph
             // occur after the previous ring has already been destroyed.
             ulong nextGeneration = checked(_generation + 1);
 
-            // Stage the complete replacement before changing provider state or touching the active ring.
+            // Hold the device context gate across staging, retirement, and commit. CreateImages
+            // uses reentrant context scopes; this prevents device shutdown from overtaking a staged
+            // framebuffer ring that has not yet been published to the swap-chain owner.
+            using OpenGLContextScope context = _device.AcquireContext();
             OpenGLSwapChainImage[] replacement = CreateImages(copy);
             OpenGLSwapChainImage[] previousImages = _images;
             GraphicsPresentMode previousMode = _description.PresentMode;
 
-            using OpenGLContextScope context = AcquireResizeContext(replacement);
             List<Exception> failures = new(4);
 
             try
@@ -560,25 +562,6 @@ internal sealed class OpenGLGraphicsSwapChain : OpenGLNativeDeviceObject, IGraph
                 Volatile.Write(ref _generation, nextGeneration);
             }
 
-        }
-    }
-
-    /// <summary>
-    /// Acquires the context required to retire the active ring. If activation fails, the complete
-    /// staged ring remains referenced so device shutdown can retry its native cleanup.
-    /// </summary>
-    private OpenGLContextScope AcquireResizeContext(OpenGLSwapChainImage[] replacement)
-    {
-        try
-        {
-            return _device.AcquireContext();
-        }
-        catch (Exception contextFailure)
-        {
-            RetainImageSetForCleanup(replacement);
-            throw new GraphicsException(
-                "The replacement OpenGL image ring was retained because the context could not be acquired for resize retirement.",
-                contextFailure);
         }
     }
 
