@@ -9,6 +9,7 @@ using Silk.NET.OpenGL.Extensions.ARB;
 
 namespace Auralis.Graphics.Backends.OpenGL;
 
+/// <summary>Tracks one swap-chain image's color texture, framebuffer, presentation sync, and acquisition state.</summary>
 internal sealed class OpenGLSwapChainImage
 {
     internal required OpenGLGraphicsTexture Texture;
@@ -70,7 +71,11 @@ internal sealed class OpenGLGraphicsSwapChain : OpenGLNativeDeviceObject, IGraph
         }
     }
 
-    public GraphicsAcquireResult AcquireNextImage(TimeSpan timeout)
+    /// <summary>Acquires the next reusable offscreen image, waiting for its previous presentation blit when necessary.</summary>
+    /// <param name="timeout">Maximum CPU wait for an image to become reusable, or <see cref="Timeout.InfiniteTimeSpan" />.</param>
+    /// <returns>An acquired image on success, or a timeout, suspended, or out-of-date status without an image.</returns>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="timeout" /> is negative and is not infinite.</exception>
+    /// <exception cref="GraphicsException">The driver fails while waiting on a presentation sync object.</exception>
     {
         ThrowIfDisposed();
         if (timeout < TimeSpan.Zero && timeout != Timeout.InfiniteTimeSpan)
@@ -155,7 +160,14 @@ internal sealed class OpenGLGraphicsSwapChain : OpenGLNativeDeviceObject, IGraph
 
     }
 
-    public GraphicsPresentStatus Present(
+    /// <summary>Blits an acquired image to the host drawable, inserts a reuse sync, and requests a host buffer swap.</summary>
+    /// <param name="image">Image previously acquired from this swap chain and not yet presented.</param>
+    /// <param name="waitFence">Optional same-device timeline fence whose submitted GPU work must precede the blit.</param>
+    /// <param name="waitValue">Timeline value to wait for when <paramref name="waitFence" /> is supplied.</param>
+    /// <returns><see cref="GraphicsPresentStatus.Presented" />, or a suspended/out-of-date status when the host target changed.</returns>
+    /// <exception cref="ArgumentException">A non-zero wait value is supplied without a fence.</exception>
+    /// <exception cref="GraphicsValidationException">The image is stale/foreign or the wait fence belongs to another device.</exception>
+    /// <exception cref="GraphicsException">The driver cannot create the presentation completion sync.</exception>
         in GraphicsAcquiredImage image,
         IGraphicsFence? waitFence = null,
         ulong waitValue = 0)
@@ -248,7 +260,11 @@ internal sealed class OpenGLGraphicsSwapChain : OpenGLNativeDeviceObject, IGraph
         return GraphicsPresentStatus.Presented;
     }
 
-    public void Resize(in GraphicsSwapChainDescription description)
+    /// <summary>Recreates the offscreen image ring for a new description and invalidates all previously acquired image handles.</summary>
+    /// <param name="description">New image count, extent, format, and present mode.</param>
+    /// <remarks>The device waits for pending GL work before deleting old framebuffers/textures. A successful resize increments <see cref="Generation" /> so stale acquired-image values can be rejected.</remarks>
+    /// <exception cref="GraphicsValidationException">The description is invalid, the host target is suspended, or the queue/target is no longer compatible.</exception>
+    /// <exception cref="NotSupportedException">The provider cannot honor the requested present mode.</exception>
     {
         ThrowIfDisposed();
         GraphicsSwapChainDescription copy = description;
@@ -408,6 +424,7 @@ internal sealed class OpenGLGraphicsSwapChain : OpenGLNativeDeviceObject, IGraph
         return nanoseconds >= ulong.MaxValue ? ulong.MaxValue : (ulong)nanoseconds;
     }
 
+    /// <summary>Releases owner references; actual framebuffer and texture teardown is performed under the current GL context.</summary>
     protected override void DisposeCore()
     {
         // Enqueue the framebuffer/sync objects before textures so FIFO deferred deletion drops
@@ -417,6 +434,8 @@ internal sealed class OpenGLGraphicsSwapChain : OpenGLNativeDeviceObject, IGraph
             _images[i].Texture.Dispose();
     }
 
+    /// <summary>Deletes per-image framebuffers and presentation syncs while the owning context is current.</summary>
+    /// <param name="gl">Current GL dispatch object used for native deletion.</param>
     public override void ReleaseNative(GL gl)
     {
         if (Interlocked.Exchange(ref _nativeReleased, 1) != 0)
