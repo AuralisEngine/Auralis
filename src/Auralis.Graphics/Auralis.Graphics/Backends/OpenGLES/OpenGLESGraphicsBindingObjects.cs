@@ -247,6 +247,7 @@ internal sealed class OpenGLESGraphicsBindingSet : GraphicsDeviceObject, IGraphi
     /// <param name="range">Byte range, or <see cref="ulong.MaxValue" /> to use the remaining buffer bytes.</param>
     /// <exception cref="GraphicsValidationException">The binding kind, buffer usage, ownership, or alignment is invalid.</exception>
     /// <exception cref="ArgumentOutOfRangeException">The element, offset, or range is outside the declared binding or buffer.</exception>
+    public void SetBuffer(
         uint binding,
         uint arrayElement,
         IGraphicsBuffer buffer,
@@ -293,6 +294,7 @@ internal sealed class OpenGLESGraphicsBindingSet : GraphicsDeviceObject, IGraphi
     /// <param name="textureView">Same-device texture view with usage compatible with the descriptor.</param>
     /// <exception cref="GraphicsValidationException">The view is incompatible, including a framebuffer-only alias that cannot be sampled or bound as an image.</exception>
     /// <exception cref="ArgumentOutOfRangeException">The array element is outside the declared binding.</exception>
+    public void SetTexture(uint binding, uint arrayElement, IGraphicsTextureView textureView)
     {
         ThrowIfDisposed();
         ArgumentNullException.ThrowIfNull(textureView);
@@ -332,6 +334,7 @@ internal sealed class OpenGLESGraphicsBindingSet : GraphicsDeviceObject, IGraphi
     /// <param name="sampler">Live sampler created by the same device.</param>
     /// <exception cref="GraphicsValidationException">The binding kind or sampler device ownership is incompatible.</exception>
     /// <exception cref="ArgumentOutOfRangeException">The array element is outside the declared binding.</exception>
+    public void SetSampler(uint binding, uint arrayElement, IGraphicsSampler sampler)
     {
         ThrowIfDisposed();
         ArgumentNullException.ThrowIfNull(sampler);
@@ -356,6 +359,7 @@ internal sealed class OpenGLESGraphicsBindingSet : GraphicsDeviceObject, IGraphi
     /// <param name="destination">Reusable destination list owned by the command recorder.</param>
     /// <returns>Starting element offset of the appended snapshot.</returns>
     /// <exception cref="ObjectDisposedException">A resource in the binding set has been disposed.</exception>
+    internal int SnapshotTo(List<OpenGLESBindingValue> destination)
     {
         ThrowIfDisposed();
         lock (_gate)
