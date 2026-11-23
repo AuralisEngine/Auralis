@@ -222,5 +222,6 @@ internal sealed class OpenGLESGraphicsFence : OpenGLESNativeDeviceObject, IGraph
         }
     }
 
+    /// <summary>Associates a timeline value with the GLES sync object that signals its completion.</summary>
     private readonly record struct SyncPoint(ulong Value, nint Handle);
 }
