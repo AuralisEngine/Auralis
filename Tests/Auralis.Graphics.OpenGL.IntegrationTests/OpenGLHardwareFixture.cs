@@ -15,6 +15,7 @@ public sealed class OpenGLHardwareFixture : IDisposable
     private readonly GlfwOpenGLHardwareSession? _session;
     private readonly string? _unavailableReason;
 
+    /// <summary>Creates the shared hidden GLFW desktop OpenGL session, recording only expected hardware-unavailable conditions for later test skips.</summary>
     public OpenGLHardwareFixture()
     {
         try
