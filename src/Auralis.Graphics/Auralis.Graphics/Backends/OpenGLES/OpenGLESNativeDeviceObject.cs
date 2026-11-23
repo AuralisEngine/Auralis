@@ -3,11 +3,16 @@ using Silk.NET.OpenGLES;
 
 namespace Auralis.Graphics.Backends.OpenGLES;
 
+/// <summary>Internal lifetime contract shared by native GLES objects retained by commands and dependent views.</summary>
 internal interface IOpenGLESNativeResource
 {
+    /// <summary>Attempts a new public/command retain while the owner reference remains open.</summary>
     bool TryRetain();
+    /// <summary>Attempts a dependent retain while an existing reference keeps the native object alive.</summary>
     bool TryRetainDependency();
+    /// <summary>Releases one acquired reference and schedules native deletion when the count reaches zero.</summary>
     void ReleaseReference();
+    /// <summary>Releases the native handle while the owning GLES context is current.</summary>
     void ReleaseNative(GL gl);
 }
 
@@ -23,10 +28,13 @@ internal abstract class OpenGLESNativeDeviceObject : GraphicsDeviceObject, IOpen
     protected OpenGLESNativeDeviceObject(OpenGLESGraphicsDevice device) : base(device) =>
         _device = device;
 
+    /// <inheritdoc />
     public bool TryRetain() => _references.TryRetain();
 
+    /// <inheritdoc />
     public bool TryRetainDependency() => _references.TryRetainDependency();
 
+    /// <inheritdoc />
     public void ReleaseReference()
     {
         if (_references.ReleaseReference())
@@ -39,5 +47,6 @@ internal abstract class OpenGLESNativeDeviceObject : GraphicsDeviceObject, IOpen
             _device.ReleaseResource(this);
     }
 
+    /// <inheritdoc />
     public abstract void ReleaseNative(GL gl);
 }
