@@ -176,9 +176,9 @@ internal sealed class OpenGLGraphicsSwapChain : OpenGLNativeDeviceObject, IGraph
 
                     if (pollStatus is ARB.AlreadySignaled or ARB.ConditionSatisfied)
                     {
-                        if (!allowImmediatePoll && deadline.IsExpired)
-                            return new GraphicsAcquireResult(GraphicsAcquireStatus.Timeout, default);
-
+                        // A successful zero-timeout poll proves the dependency is complete. Always
+                        // retire the sync first, even when the overall deadline expired during the
+                        // poll; the image remains reusable by the next acquisition.
                         _device.SyncApi.DeleteSync(image.PresentSync);
                         image.PresentSync = 0;
                         if (!allowImmediatePoll && deadline.IsExpired)
