@@ -695,6 +695,12 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
     }
 
     /// <inheritdoc />
+    /// <remarks>
+    /// The active shader's GLSL extension selects the native contract. EXT dispatch accepts three
+    /// group-count dimensions and is checked against the task- or mesh-stage per-axis and total
+    /// limits. NV dispatch is one-dimensional: only X may be non-zero, is checked against
+    /// <c>MAX_DRAW_MESH_TASKS_COUNT_NV</c>, and is issued as <c>DrawMeshTasksNV(0, groupCountX)</c>.
+    /// </remarks>
     public void DrawMeshTasks(uint groupCountX, uint groupCountY = 1, uint groupCountZ = 1)
     {
         EnsureRecording();
@@ -740,6 +746,13 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
     }
 
     /// <inheritdoc />
+    /// <remarks>
+    /// The argument buffer uses the active dialect's native record layout: EXT records contain
+    /// three 32-bit group counts (<c>x</c>, <c>y</c>, <c>z</c>), whereas NV records contain two
+    /// 32-bit values (<c>count</c>, <c>first</c>). These layouts are not interchangeable. A zero
+    /// stride selects tightly packed records; a non-zero stride is the byte distance between
+    /// records. Multiple records require the matching dialect's native multi-draw entry point.
+    /// </remarks>
     public void DrawMeshTasksIndirect(
         IGraphicsBuffer arguments,
         ulong offset,
