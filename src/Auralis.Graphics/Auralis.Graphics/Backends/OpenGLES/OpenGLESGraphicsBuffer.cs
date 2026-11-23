@@ -199,10 +199,8 @@ internal sealed unsafe class OpenGLESGraphicsBuffer : OpenGLESNativeDeviceObject
 
     /// <summary>
     /// Ends the staging map and invalidates previously returned memory views. Write and ReadWrite
-    /// mappings upload the complete mapped range, including any bytes the caller did not modify.
+    /// mappings upload the complete mapped range, including bytes the caller did not modify.
     /// </summary>
-    /// <param name="mode">(No parameter documentation required; this member closes the mapping established by <see cref="Map" />.)</param>
-    /// <summary>Uploads writable staging data when required, then invalidates the mapped memory view.</summary>
     /// <remarks>Write and ReadWrite modes upload the complete mapped range, not only modified bytes. Read mode performs no upload.</remarks>
     /// <exception cref="InvalidOperationException">The buffer is not mapped.</exception>
     /// <exception cref="GraphicsException">GLES reports a mapping or buffer update failure.</exception>
