@@ -134,8 +134,10 @@ internal sealed class OpenGLGraphicsSwapChain : OpenGLNativeDeviceObject, IGraph
         if (snapshot.IsSuspended)
             return new GraphicsAcquireResult(GraphicsAcquireStatus.Suspended, default);
 
+        ulong observedGeneration;
         lock (_stateGate)
         {
+            observedGeneration = _generation;
             if (snapshot.Revision != _surfaceRevision ||
                 snapshot.Extent.Width != _description.Width ||
                 snapshot.Extent.Height != _description.Height)
@@ -156,7 +158,8 @@ internal sealed class OpenGLGraphicsSwapChain : OpenGLNativeDeviceObject, IGraph
         {
             // Resize commits while holding this same device gate, so this recheck prevents a scan
             // against a newly published ring using an older presentation-target snapshot.
-            if (snapshot.Revision != _surfaceRevision ||
+            if (observedGeneration != _generation ||
+                snapshot.Revision != _surfaceRevision ||
                 snapshot.Extent.Width != _description.Width ||
                 snapshot.Extent.Height != _description.Height)
             {
@@ -811,6 +814,8 @@ internal sealed class OpenGLGraphicsSwapChain : OpenGLNativeDeviceObject, IGraph
     /// <summary>Releases owner references; actual framebuffer, sync, and texture teardown is performed under the current GL context.</summary>
     protected override void DisposeCore()
     {
+        lock (_resizeGate)
+        {
         List<Exception>? failures = null;
         try
         {
@@ -831,6 +836,7 @@ internal sealed class OpenGLGraphicsSwapChain : OpenGLNativeDeviceObject, IGraph
 
         if (failures is { Count: > 0 })
             throw new AggregateException("OpenGL swap-chain disposal encountered one or more cleanup failures.", failures);
+        }
     }
 
     private static void DisposeImageTextures(

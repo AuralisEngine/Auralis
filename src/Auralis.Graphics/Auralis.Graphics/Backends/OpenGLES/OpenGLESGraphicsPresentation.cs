@@ -220,8 +220,10 @@ internal sealed class OpenGLESGraphicsSwapChain : OpenGLESNativeDeviceObject, IG
         GraphicsPresentationTargetSnapshot snapshot = _surface.RefreshSnapshot();
         if (snapshot.IsSuspended)
             return new GraphicsAcquireResult(GraphicsAcquireStatus.Suspended, default);
+        ulong observedGeneration;
         lock (_stateGate)
         {
+            observedGeneration = _generation;
             if (snapshot.Revision != _surfaceRevision ||
                 snapshot.Extent.Width != _description.Width ||
                 snapshot.Extent.Height != _description.Height)
@@ -246,7 +248,8 @@ internal sealed class OpenGLESGraphicsSwapChain : OpenGLESNativeDeviceObject, IG
         using (context)
         {
             // Resize commits while holding this same device gate; revalidate before observing slots.
-            if (snapshot.Revision != _surfaceRevision ||
+            if (observedGeneration != _generation ||
+                snapshot.Revision != _surfaceRevision ||
                 snapshot.Extent.Width != _description.Width ||
                 snapshot.Extent.Height != _description.Height)
             {
@@ -870,6 +873,8 @@ internal sealed class OpenGLESGraphicsSwapChain : OpenGLESNativeDeviceObject, IG
     /// <summary>Closes the public swap-chain owner; native image resources are released under the GLES context.</summary>
     protected override void DisposeCore()
     {
+        lock (_resizeGate)
+        {
         List<Exception>? failures = null;
         try
         {
@@ -889,6 +894,7 @@ internal sealed class OpenGLESGraphicsSwapChain : OpenGLESNativeDeviceObject, IG
 
         if (failures is { Count: > 0 })
             throw new AggregateException("GLES swap-chain disposal encountered one or more cleanup failures.", failures);
+        }
     }
 
     private static void DisposeImageTextures(
