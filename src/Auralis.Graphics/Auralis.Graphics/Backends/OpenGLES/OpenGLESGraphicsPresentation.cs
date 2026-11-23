@@ -108,6 +108,7 @@ internal sealed class OpenGLESGraphicsPresentationSurface : GraphicsDeviceObject
         return new OpenGLESGraphicsSwapChain(this, (OpenGLESGraphicsCommandQueue)presentationQueue, copy, snapshot);
     }
 
+    /// <summary>Disposes only the surface adapter; its host drawable and context provider remain externally owned.</summary>
     protected override void DisposeCore() { }
 }
 
