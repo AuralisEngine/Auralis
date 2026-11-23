@@ -12,6 +12,7 @@ using Silk.NET.OpenGL.Extensions.NV;
 
 namespace Auralis.Graphics.Backends.OpenGL;
 
+/// <summary>Compact opcode identifying a recorded desktop OpenGL command.</summary>
 internal enum OpenGLCommandKind : byte
 {
     MemoryBarrier,
@@ -39,6 +40,7 @@ internal enum OpenGLCommandKind : byte
     DispatchIndirect
 }
 
+/// <summary>Managed payload for one deferred command; referenced resources are retained by the list.</summary>
 internal struct OpenGLRecordedCommand
 {
     internal OpenGLCommandKind Kind;
@@ -88,16 +90,20 @@ internal struct OpenGLRecordedCommand
     internal uint GroupCountZ;
 }
 
+/// <summary>Captured vertex-buffer binding used when replaying a recorded draw.</summary>
 internal readonly record struct OpenGLVertexBufferBinding(
     IGraphicsBuffer Buffer,
     ulong Offset,
     uint Stride,
     GraphicsVertexInputRate InputRate);
 
-/// <summary>
-/// CPU-side deferred command recorder. Recording does not make the GL context current and never calls GL.
-/// Commands retain their referenced resources until the list is reset or disposed.
-/// </summary>
+/// <summary>Records desktop OpenGL commands on the CPU for later execution by its owning queue.</summary>
+/// <remarks>
+/// Recording is performed without making the native context current. The list owns snapshots of
+/// mutable binding state and retains referenced native resources until reset, completion-driven
+/// cleanup, or disposal. A list may be recorded independently of other lists, but its own recording
+/// lifecycle must not be concurrently mutated by multiple callers.
+/// </remarks>
 internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphicsCommandList
 {
     private readonly OpenGLGraphicsCommandQueue _queue;
@@ -147,18 +153,21 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
     internal ReadOnlySpan<OpenGLRecordedCommand> Commands => CollectionsMarshal.AsSpan(_commands);
     internal GraphicsCommandListLifecycle Lifecycle => _lifecycle;
 
+    /// <inheritdoc />
     public void Begin()
     {
         ThrowIfDisposed();
         _lifecycle.Begin();
     }
 
+    /// <inheritdoc />
     public void End()
     {
         ThrowIfDisposed();
         _lifecycle.End();
     }
 
+    /// <inheritdoc />
     public void Reset()
     {
         ThrowIfDisposed();
@@ -189,6 +198,7 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
         _resourceRetention.ReleaseAll();
     }
 
+    /// <inheritdoc />
     public void MemoryBarrier(ReadOnlySpan<GraphicsResourceBarrier> barriers)
     {
         EnsureRecording();
@@ -217,6 +227,7 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
         }
     }
 
+    /// <inheritdoc />
     public void CopyBuffer(
         IGraphicsBuffer source,
         ulong sourceOffset,
@@ -252,6 +263,7 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
         });
     }
 
+    /// <inheritdoc />
     public void CopyTexture(IGraphicsTexture source, IGraphicsTexture destination)
     {
         EnsureRecording();
@@ -287,6 +299,7 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
         });
     }
 
+    /// <inheritdoc />
     public void SetRenderTargets(ReadOnlySpan<IGraphicsTextureView> colorTargets, IGraphicsTextureView? depthStencilTarget = null)
     {
         EnsureRecording();
@@ -322,6 +335,7 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
                 : depthStencilTarget.Description.Format;
     }
 
+    /// <inheritdoc />
     public void SetViewport(in GraphicsViewport viewport)
     {
         EnsureRecording();
@@ -332,6 +346,7 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
         _commands.Add(new OpenGLRecordedCommand { Kind = OpenGLCommandKind.SetViewport, Viewport = value });
     }
 
+    /// <inheritdoc />
     public void SetScissor(in GraphicsScissorRect scissor)
     {
         EnsureRecording();
@@ -341,6 +356,7 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
         _commands.Add(new OpenGLRecordedCommand { Kind = OpenGLCommandKind.SetScissor, Scissor = value });
     }
 
+    /// <inheritdoc />
     public void ClearColor(uint attachmentIndex, in GraphicsClearColor color)
     {
         EnsureRecording();
@@ -358,6 +374,7 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
         });
     }
 
+    /// <inheritdoc />
     public void ClearColorUInt(uint attachmentIndex, in GraphicsClearColorUInt color)
     {
         EnsureRecording();
@@ -373,6 +390,7 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
         });
     }
 
+    /// <inheritdoc />
     public void ClearColorSInt(uint attachmentIndex, in GraphicsClearColorSInt color)
     {
         EnsureRecording();
@@ -388,6 +406,7 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
         });
     }
 
+    /// <inheritdoc />
     public void ClearDepthStencil(float depth, uint stencil, bool clearDepth = true, bool clearStencil = false)
     {
         EnsureRecording();
@@ -413,6 +432,7 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
             ClearStencilEnabled = clearStencil
         });
     }
+    /// <inheritdoc />
     public void SetRenderPipeline(IGraphicsRenderPipeline pipeline)
     {
         EnsureRecording();
@@ -435,6 +455,7 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
         });
     }
 
+    /// <inheritdoc />
     public void SetComputePipeline(IGraphicsComputePipeline pipeline)
     {
         EnsureRecording();
@@ -455,6 +476,7 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
         });
     }
 
+    /// <inheritdoc />
     public void SetBindingSet(uint setIndex, IGraphicsBindingSet bindingSet)
     {
         EnsureRecording();
@@ -493,6 +515,7 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
         _recordedBoundSets.Add(setIndex);
     }
 
+    /// <inheritdoc />
     public void SetVertexBuffer(uint binding, IGraphicsBuffer buffer, ulong offset = 0)
     {
         EnsureRecording();
@@ -534,6 +557,7 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
         });
     }
 
+    /// <inheritdoc />
     public void SetIndexBuffer(IGraphicsBuffer buffer, GraphicsIndexFormat format, ulong offset = 0)
     {
         EnsureRecording();
@@ -564,6 +588,7 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
         });
     }
 
+    /// <inheritdoc />
     public void Draw(uint vertexCount, uint instanceCount = 1, uint firstVertex = 0, uint firstInstance = 0)
     {
         EnsureRecording();
@@ -583,6 +608,7 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
         });
     }
 
+    /// <inheritdoc />
     public void DrawIndexed(
         uint indexCount,
         uint instanceCount = 1,
@@ -617,6 +643,7 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
         });
     }
 
+    /// <inheritdoc />
     public void DrawIndirect(IGraphicsBuffer arguments, ulong offset, uint drawCount = 1, uint stride = 0)
     {
         EnsureRecording();
@@ -639,6 +666,7 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
         });
     }
 
+    /// <inheritdoc />
     public void DrawIndexedIndirect(IGraphicsBuffer arguments, ulong offset, uint drawCount = 1, uint stride = 0)
     {
         EnsureRecording();
@@ -666,6 +694,7 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
         });
     }
 
+    /// <inheritdoc />
     public void DrawMeshTasks(uint groupCountX, uint groupCountY = 1, uint groupCountZ = 1)
     {
         EnsureRecording();
@@ -710,6 +739,7 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
         });
     }
 
+    /// <inheritdoc />
     public void DrawMeshTasksIndirect(
         IGraphicsBuffer arguments,
         ulong offset,
@@ -904,6 +934,7 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
         return true;
     }
 
+    /// <inheritdoc />
     public void Dispatch(uint groupCountX, uint groupCountY = 1, uint groupCountZ = 1)
     {
         EnsureRecording();
@@ -922,6 +953,7 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
         }
     }
 
+    /// <inheritdoc />
     public void DispatchIndirect(IGraphicsBuffer arguments, ulong offset)
     {
         EnsureRecording();
