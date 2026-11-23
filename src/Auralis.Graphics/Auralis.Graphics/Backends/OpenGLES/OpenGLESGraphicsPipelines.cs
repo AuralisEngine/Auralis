@@ -8,6 +8,8 @@ using Silk.NET.OpenGLES.Extensions.EXT;
 
 namespace Auralis.Graphics.Backends.OpenGLES;
 
+/// <summary>Shared native-program owner for OpenGL ES render and compute pipelines.</summary>
+/// <remarks>The program is released only after the public owner and retained command references are gone; render pipelines may own additional native vertex-array state.</remarks>
 internal abstract class OpenGLESGraphicsPipeline : OpenGLESNativeDeviceObject, IGraphicsPipeline
 {
     private uint _program;
@@ -44,12 +46,26 @@ internal abstract class OpenGLESGraphicsPipeline : OpenGLESNativeDeviceObject, I
 
     protected override void DisposeCore() => ReleaseOwnerReference();
 
+    /// <summary>Links one shader belonging to the specified GLES device into a native program.</summary>
+    /// <param name="device">Device that owns the current context and shader.</param>
+    /// <param name="gl">Current GLES dispatch object.</param>
+    /// <param name="shader">Live shader to attach and link.</param>
+    /// <returns>The linked program name.</returns>
+    /// <exception cref="GraphicsValidationException">The shader is not a live shader created by <paramref name="device" />.</exception>
+    /// <exception cref="GraphicsException">Program creation or linking fails.</exception>
     protected static uint LinkProgram(
         OpenGLESGraphicsDevice device,
         GL gl,
         IGraphicsShader shader) =>
         LinkProgram(device, gl, MemoryMarshal.CreateReadOnlySpan(ref shader, 1));
 
+    /// <summary>Links an ordered set of same-device GLES shaders into one native program.</summary>
+    /// <param name="device">Device that owns the current context and shaders.</param>
+    /// <param name="gl">Current GLES dispatch object.</param>
+    /// <param name="shaders">Live shader stages to attach before linking.</param>
+    /// <returns>The linked program name.</returns>
+    /// <exception cref="GraphicsValidationException">A shader is foreign, disposed, or not owned by the specified device.</exception>
+    /// <exception cref="GraphicsException">Program creation or linking fails; the temporary program is deleted.</exception>
     protected static uint LinkProgram(
         OpenGLESGraphicsDevice device,
         GL gl,
@@ -88,6 +104,8 @@ internal abstract class OpenGLESGraphicsPipeline : OpenGLESNativeDeviceObject, I
     }
 }
 
+/// <summary>OpenGL ES render pipeline owning a linked program and vertex-array object.</summary>
+/// <remarks>Creation validates shader stages, vertex input, MRT limits, format usages, and optional extension-backed state before linking.</remarks>
 internal sealed unsafe class OpenGLESGraphicsRenderPipeline : OpenGLESGraphicsPipeline, IGraphicsRenderPipeline
 {
     private uint _vertexArray;
@@ -128,7 +146,13 @@ internal sealed unsafe class OpenGLESGraphicsRenderPipeline : OpenGLESGraphicsPi
         }
     }
 
-    internal static OpenGLESGraphicsRenderPipeline Create(
+    /// <summary>Validates a GLES render-pipeline description and creates its native program and vertex-array state.</summary>
+    /// <param name="device">Owning OpenGL ES device and context.</param>
+    /// <param name="description">Shader stages, layout, vertex input, attachment formats, and render state.</param>
+    /// <returns>A device-registered render pipeline.</returns>
+    /// <exception cref="GraphicsFeatureNotSupportedException">A required stage or optional feature is unavailable.</exception>
+    /// <exception cref="GraphicsValidationException">Shader/layout ownership, stage combinations, formats, limits, or state are unsupported by the context.</exception>
+    /// <exception cref="GraphicsException">Native program linking or vertex-array creation fails.</exception>
         OpenGLESGraphicsDevice device,
         GraphicsRenderPipelineDescription description)
     {
@@ -512,6 +536,8 @@ internal sealed unsafe class OpenGLESGraphicsRenderPipeline : OpenGLESGraphicsPi
     }
 }
 
+/// <summary>OpenGL ES compute pipeline backed by a linked compute-stage program.</summary>
+/// <remarks>Compute shader support requires GLES 3.1 or newer; creation verifies that the shader and layout belong to this device.</remarks>
 internal sealed class OpenGLESGraphicsComputePipeline : OpenGLESGraphicsPipeline, IGraphicsComputePipeline
 {
     private OpenGLESGraphicsComputePipeline(
@@ -522,7 +548,13 @@ internal sealed class OpenGLESGraphicsComputePipeline : OpenGLESGraphicsPipeline
 
     public GraphicsComputePipelineDescription Description { get; }
 
-    internal static OpenGLESGraphicsComputePipeline Create(
+    /// <summary>Validates and links a GLES compute shader into a device-owned native program.</summary>
+    /// <param name="device">Owning GLES device and context.</param>
+    /// <param name="description">Compute shader and pipeline-layout description.</param>
+    /// <returns>A registered compute pipeline.</returns>
+    /// <exception cref="GraphicsFeatureNotSupportedException">The GLES context does not expose compute shaders.</exception>
+    /// <exception cref="GraphicsValidationException">The shader, stage, or layout is incompatible with this device.</exception>
+    /// <exception cref="GraphicsException">Native program creation or linking fails.</exception>
         OpenGLESGraphicsDevice device,
         GraphicsComputePipelineDescription description)
     {
