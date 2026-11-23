@@ -99,20 +99,25 @@ internal abstract class OpenGLNativeDeviceObject : GraphicsDeviceObject, IOpenGL
     protected OpenGLNativeDeviceObject(OpenGLGraphicsDevice device) : base(device) =>
         _device = device;
 
+    /// <inheritdoc />
     public bool TryRetain() => _referenceState.TryRetain();
 
+    /// <inheritdoc />
     public void ReleaseReference()
     {
         if (_referenceState.ReleaseReference())
             _device.ReleaseResource(this);
     }
 
+    /// <summary>Closes future retains and releases the resource's initial public-owner reference.</summary>
+    /// <remarks>Native deletion is scheduled only when this was also the final retained reference.</remarks>
     protected void ReleaseOwnerReference()
     {
         if (_referenceState.ReleaseOwnerReference())
             _device.ReleaseResource(this);
     }
 
+    /// <inheritdoc />
     public abstract void ReleaseNative(GL gl);
 }
 
@@ -248,6 +253,8 @@ internal sealed unsafe class OpenGLGraphicsBuffer : OpenGLNativeDeviceObject, IG
         ReleaseOwnerReference();
     }
 
+    /// <summary>Invalidates new mapping access and waits for every outstanding memory pin before native unmapping.</summary>
+    /// <remarks>This preparation runs before device shutdown takes the shared context gate, avoiding a deadlock with user-held mapping pins.</remarks>
     public void PrepareForNativeRelease()
     {
         OpenGLMappedMemoryManager? mapped;
@@ -261,6 +268,7 @@ internal sealed unsafe class OpenGLGraphicsBuffer : OpenGLNativeDeviceObject, IG
         mapped?.WaitForPins();
     }
 
+    /// <inheritdoc />
     public override void ReleaseNative(GL gl)
     {
         lock (_mappingGate)
