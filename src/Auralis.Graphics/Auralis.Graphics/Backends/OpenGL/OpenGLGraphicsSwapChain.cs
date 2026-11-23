@@ -28,7 +28,10 @@ internal sealed class OpenGLGraphicsSwapChain : OpenGLNativeDeviceObject, IGraph
     private readonly OpenGLGraphicsPresentationSurface _surface;
     private readonly OpenGLGraphicsCommandQueue _queue;
     private readonly OpenGLGraphicsDevice _device;
+    private readonly object _stateGate = new();
     private OpenGLSwapChainImage[] _images;
+    private List<OpenGLSwapChainImage[]>? _retainedImageSets;
+    private Exception? _faulted;
     private GraphicsSwapChainDescription _description;
     private ulong _generation = 1;
     private ulong _surfaceRevision;
@@ -56,7 +59,9 @@ internal sealed class OpenGLGraphicsSwapChain : OpenGLNativeDeviceObject, IGraph
         get
         {
             ThrowIfDisposed();
-            return _description;
+            ThrowIfFaulted();
+            lock (_stateGate)
+                return _description;
         }
     }
 
@@ -67,6 +72,7 @@ internal sealed class OpenGLGraphicsSwapChain : OpenGLNativeDeviceObject, IGraph
         get
         {
             ThrowIfDisposed();
+            ThrowIfFaulted();
             return Volatile.Read(ref _generation);
         }
     }
@@ -79,6 +85,7 @@ internal sealed class OpenGLGraphicsSwapChain : OpenGLNativeDeviceObject, IGraph
     public GraphicsAcquireResult AcquireNextImage(TimeSpan timeout)
     {
         ThrowIfDisposed();
+        ThrowIfFaulted();
         if (timeout < TimeSpan.Zero && timeout != Timeout.InfiniteTimeSpan)
             throw new ArgumentOutOfRangeException(nameof(timeout));
 
@@ -211,6 +218,15 @@ internal sealed class OpenGLGraphicsSwapChain : OpenGLNativeDeviceObject, IGraph
         }
     }
 
+    private void ThrowIfFaulted()
+    {
+        Exception? failure = Volatile.Read(ref _faulted);
+        if (failure is not null)
+            throw new GraphicsException(
+                "The OpenGL swap chain is unusable because a previous resize could not retire its resources.",
+                failure);
+    }
+
     private GraphicsAcquireResult AcquireImage(uint index, OpenGLSwapChainImage image)
     {
         image.Acquired = true;
@@ -234,6 +250,7 @@ internal sealed class OpenGLGraphicsSwapChain : OpenGLNativeDeviceObject, IGraph
         ulong waitValue = 0)
     {
         ThrowIfDisposed();
+        ThrowIfFaulted();
 
         if (waitFence is null && waitValue != 0)
             throw new ArgumentException("A non-zero wait value requires a fence.", nameof(waitValue));
@@ -329,6 +346,8 @@ internal sealed class OpenGLGraphicsSwapChain : OpenGLNativeDeviceObject, IGraph
     public void Resize(in GraphicsSwapChainDescription description)
     {
         ThrowIfDisposed();
+        ThrowIfFaulted();
+
         GraphicsSwapChainDescription copy = description;
         copy.Validate();
 
@@ -336,28 +355,174 @@ internal sealed class OpenGLGraphicsSwapChain : OpenGLNativeDeviceObject, IGraph
             throw new GraphicsValidationException("The swapchain's queue is no longer compatible with its surface.");
 
         OpenGLPresentationTargetValidation.ValidatePresentMode(_device.ContextProvider, copy.PresentMode);
-        _device.ContextProvider.SetPresentMode(copy.PresentMode);
         GraphicsPresentationTargetSnapshot snapshot = _surface.RefreshSnapshot();
         if (snapshot.IsSuspended)
             throw new GraphicsValidationException("A swapchain cannot be resized to a suspended presentation target.");
 
-        // Resize invalidates every acquired image and waits for all previous presentation blits
-        // before releasing their backing textures/framebuffers.
-        OpenGLSwapChainImage[] oldImages = _images;
-        using (OpenGLContextScope context = _device.AcquireContext())
+        // Calculate this before creating or retiring anything so generation overflow cannot
+        // occur after the previous ring has already been destroyed.
+        ulong nextGeneration = checked(_generation + 1);
+
+        // Stage the complete replacement before changing provider state or touching the active ring.
+        OpenGLSwapChainImage[] replacement = CreateImages(copy);
+        OpenGLSwapChainImage[] previousImages = _images;
+        GraphicsPresentMode previousMode = _description.PresentMode;
+
+        using OpenGLContextScope context = _device.AcquireContext();
+        List<Exception> failures = new(4);
+
+        try
         {
-            context.Gl.Finish();
-            ReleaseImageNative(context.Gl, oldImages);
+            _device.ContextProvider.SetPresentMode(copy.PresentMode);
+        }
+        catch (Exception modeFailure)
+        {
+            failures.Add(modeFailure);
+            bool restored = TryRestorePresentMode(previousMode, failures);
+            CleanupImageSetUnderContext(context.Gl, replacement, failures);
+            if (!restored)
+            {
+                Volatile.Write(
+                    ref _faulted,
+                    new AggregateException("The provider could not restore the previous present mode after a failed resize.", failures));
+            }
+
+            throw new AggregateException(
+                "The swap-chain present mode could not be changed; the original image ring was preserved.",
+                failures);
         }
 
-        for (int i = 0; i < oldImages.Length; i++)
-            oldImages[i].Texture.Dispose();
+        try
+        {
+            // No previous sync or framebuffer is released until the driver confirms all work is idle.
+            context.Gl.Finish();
+        }
+        catch (Exception waitFailure)
+        {
+            failures.Clear();
+            failures.Add(waitFailure);
+            bool restored = TryRestorePresentMode(previousMode, failures);
+            CleanupImageSetUnderContext(context.Gl, replacement, failures);
+            if (!restored)
+            {
+                Volatile.Write(
+                    ref _faulted,
+                    new AggregateException("The provider could not restore the previous present mode after a failed GPU wait.", failures));
+            }
 
-        _description = copy;
-        _surfaceRevision = snapshot.Revision;
-        _nextImage = 0;
-        _generation = checked(_generation + 1);
-        _images = CreateImages(copy);
+            throw new AggregateException(
+                "The previous swap-chain resources were not retired because waiting for GPU completion failed.",
+                failures);
+        }
+
+        // From this point onward retirement has begun. Every release is attempted. If any release
+        // fails, the previous ring may be partially destroyed and this swap chain is permanently
+        // faulted rather than continuing to return potentially disposed images.
+        failures.Clear();
+        try
+        {
+            ReleaseImageNative(context.Gl, previousImages);
+        }
+        catch (Exception retirementFailure)
+        {
+            failures.Add(retirementFailure);
+        }
+
+        for (int i = 0; i < previousImages.Length; i++)
+        {
+            try
+            {
+                previousImages[i].Texture.Dispose();
+            }
+            catch (Exception retirementFailure)
+            {
+                failures.Add(retirementFailure);
+            }
+        }
+
+        if (failures.Count != 0)
+        {
+            TryRestorePresentMode(previousMode, failures);
+            AggregateException retirementError = new(
+                "The previous swap-chain image ring could not be retired completely.",
+                failures);
+            Volatile.Write(ref _faulted, retirementError);
+
+            List<Exception> allFailures = new(failures);
+            CleanupImageSetUnderContext(context.Gl, replacement, allFailures);
+            throw new AggregateException(
+                "Swap-chain resize failed during resource retirement. The swap chain is faulted and cannot be used again.",
+                allFailures);
+        }
+
+        // Publish the replacement as one state transition while holding the device context gate.
+        // Public description/generation readers take _stateGate so they cannot observe half a commit.
+        lock (_stateGate)
+        {
+            _images = replacement;
+            _description = copy;
+            _surfaceRevision = snapshot.Revision;
+            _nextImage = 0;
+            Volatile.Write(ref _generation, nextGeneration);
+        }
+    }
+
+    private bool TryRestorePresentMode(GraphicsPresentMode previousMode, List<Exception> failures)
+    {
+        try
+        {
+            _device.ContextProvider.SetPresentMode(previousMode);
+            return true;
+        }
+        catch (Exception restoreFailure)
+        {
+            failures.Add(restoreFailure);
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Attempts to release every native and managed resource in a staged image set. Failed cleanup
+    /// sets remain referenced by the swap chain so device shutdown can retry their native releases.
+    /// </summary>
+    private void CleanupImageSetUnderContext(
+        GL gl,
+        OpenGLSwapChainImage[] images,
+        List<Exception> failures)
+    {
+        int failureCount = failures.Count;
+        try
+        {
+            ReleaseImageNative(gl, images);
+        }
+        catch (Exception cleanupFailure)
+        {
+            failures.Add(cleanupFailure);
+        }
+
+        for (int i = 0; i < images.Length; i++)
+        {
+            OpenGLSwapChainImage? image = images[i];
+            if (image is null)
+                continue;
+
+            try
+            {
+                image.Texture.Dispose();
+            }
+            catch (Exception cleanupFailure)
+            {
+                failures.Add(cleanupFailure);
+            }
+        }
+
+        if (failures.Count != failureCount)
+            RetainImageSetForCleanup(images);
+    }
+
+    private void RetainImageSetForCleanup(OpenGLSwapChainImage[] images)
+    {
+        (_retainedImageSets ??= new List<OpenGLSwapChainImage[]>(1)).Add(images);
     }
 
     private OpenGLSwapChainImage[] CreateImages(in GraphicsSwapChainDescription description)
@@ -388,68 +553,86 @@ internal sealed class OpenGLGraphicsSwapChain : OpenGLNativeDeviceObject, IGraph
                     throw new GraphicsException("The OpenGL swapchain texture was created by an incompatible backend.");
                 }
 
-                uint framebuffer = 0;
-                try
+                OpenGLSwapChainImage image = new() { Texture = texture };
+                images[i] = image;
+
+                using (OpenGLContextScope context = _device.AcquireContext())
                 {
-                    using (OpenGLContextScope context = _device.AcquireContext())
-                    {
-                        GL gl = context.Gl;
-                        _device.DirectStateAccess.CreateFramebuffers(1, out uint handle);
-                        if (handle == 0)
-                            throw new GraphicsException("OpenGL failed to create a swapchain framebuffer.");
+                    GL gl = context.Gl;
+                    _device.DirectStateAccess.CreateFramebuffers(1, out uint framebuffer);
+                    if (framebuffer == 0)
+                        throw new GraphicsException("OpenGL failed to create a swapchain framebuffer.");
 
-                        try
-                        {
-                            _device.DirectStateAccess.NamedFramebufferTexture(
-                                handle,
-                                FramebufferAttachment.ColorAttachment0,
-                                texture.Handle,
-                                0);
-                            _device.DirectStateAccess.NamedFramebufferDrawBuffer(handle, ColorBuffer.ColorAttachment0);
-                            _device.DirectStateAccess.NamedFramebufferReadBuffer(handle, ColorBuffer.ColorAttachment0);
+                    // Store the handle before initialization so the outer rollback path owns it
+                    // even when attachment setup or completeness validation fails.
+                    image.Framebuffer = framebuffer;
+                    _device.DirectStateAccess.NamedFramebufferTexture(
+                        framebuffer,
+                        FramebufferAttachment.ColorAttachment0,
+                        texture.Handle,
+                        0);
+                    _device.DirectStateAccess.NamedFramebufferDrawBuffer(
+                        framebuffer,
+                        ColorBuffer.ColorAttachment0);
+                    _device.DirectStateAccess.NamedFramebufferReadBuffer(
+                        framebuffer,
+                        ColorBuffer.ColorAttachment0);
 
-                            ARB status = _device.DirectStateAccess.CheckNamedFramebufferStatus(
-                                handle,
-                                FramebufferTarget.Framebuffer);
-                            if (status != ARB.FramebufferComplete)
-                                throw new GraphicsException($"Swapchain framebuffer is incomplete: {status}.");
-
-                            framebuffer = handle;
-                        }
-                        catch
-                        {
-                            gl.DeleteFramebuffer(handle);
-                            throw;
-                        }
-                    }
-
-                    images[i] = new OpenGLSwapChainImage
-                    {
-                        Texture = texture,
-                        Framebuffer = framebuffer
-                    };
-                }
-                catch
-                {
-                    texture.Dispose();
-                    throw;
+                    ARB status = _device.DirectStateAccess.CheckNamedFramebufferStatus(
+                        framebuffer,
+                        FramebufferTarget.Framebuffer);
+                    if (status != ARB.FramebufferComplete)
+                        throw new GraphicsException($"Swapchain framebuffer is incomplete: {status}.");
                 }
             }
 
             return images;
         }
-        catch
+        catch (Exception creationFailure)
         {
-            using OpenGLContextScope context = _device.AcquireContext();
-            ReleaseImageNative(context.Gl, images);
-            for (int i = 0; i < images.Length; i++)
-                images[i]?.Texture.Dispose();
+            List<Exception> cleanupFailures = new(2);
+            try
+            {
+                using OpenGLContextScope context = _device.AcquireContext();
+                ReleaseImageNative(context.Gl, images);
+                for (int i = 0; i < images.Length; i++)
+                {
+                    OpenGLSwapChainImage? image = images[i];
+                    if (image is null)
+                        continue;
+
+                    try
+                    {
+                        image.Texture.Dispose();
+                    }
+                    catch (Exception cleanupFailure)
+                    {
+                        cleanupFailures.Add(cleanupFailure);
+                    }
+                }
+            }
+            catch (Exception cleanupFailure)
+            {
+                cleanupFailures.Add(cleanupFailure);
+            }
+
+            if (cleanupFailures.Count != 0)
+            {
+                cleanupFailures.Insert(0, creationFailure);
+                if (_images is not null && _images.Length != 0)
+                    RetainImageSetForCleanup(images);
+                throw new AggregateException(
+                    "OpenGL swap-chain image creation failed and partial replacement cleanup was incomplete.",
+                    cleanupFailures);
+            }
+
             throw;
         }
     }
 
     private void ReleaseImageNative(GL gl, OpenGLSwapChainImage[] images)
     {
+        List<Exception>? failures = null;
         for (int i = 0; i < images.Length; i++)
         {
             OpenGLSwapChainImage? image = images[i];
@@ -458,36 +641,119 @@ internal sealed class OpenGLGraphicsSwapChain : OpenGLNativeDeviceObject, IGraph
 
             if (image.PresentSync != 0)
             {
-                _device.SyncApi.DeleteSync(image.PresentSync);
-                image.PresentSync = 0;
+                try
+                {
+                    _device.SyncApi.DeleteSync(image.PresentSync);
+                    image.PresentSync = 0;
+                }
+                catch (Exception exception)
+                {
+                    (failures ??= new List<Exception>(2)).Add(exception);
+                }
             }
 
             if (image.Framebuffer != 0)
             {
-                gl.DeleteFramebuffer(image.Framebuffer);
-                image.Framebuffer = 0;
+                try
+                {
+                    gl.DeleteFramebuffer(image.Framebuffer);
+                    image.Framebuffer = 0;
+                }
+                catch (Exception exception)
+                {
+                    (failures ??= new List<Exception>(2)).Add(exception);
+                }
             }
 
             image.Acquired = false;
         }
+
+        if (failures is { Count: > 0 })
+            throw new AggregateException("One or more OpenGL swap-chain image resources could not be released.", failures);
     }
 
-    /// <summary>Releases owner references; actual framebuffer and texture teardown is performed under the current GL context.</summary>
+    /// <summary>Releases owner references; actual framebuffer, sync, and texture teardown is performed under the current GL context.</summary>
     protected override void DisposeCore()
     {
-        // Enqueue the framebuffer/sync objects before textures so FIFO deferred deletion drops
-        // framebuffer references before releasing the attached texture names.
-        ReleaseOwnerReference();
-        for (int i = 0; i < _images.Length; i++)
-            _images[i].Texture.Dispose();
+        List<Exception>? failures = null;
+        try
+        {
+            // Enqueue framebuffer/sync deletion before dropping texture owner references.
+            ReleaseOwnerReference();
+        }
+        catch (Exception exception)
+        {
+            (failures ??= new List<Exception>(4)).Add(exception);
+        }
+
+        DisposeImageTextures(_images, ref failures);
+        if (_retainedImageSets is not null)
+        {
+            for (int i = 0; i < _retainedImageSets.Count; i++)
+                DisposeImageTextures(_retainedImageSets[i], ref failures);
+        }
+
+        if (failures is { Count: > 0 })
+            throw new AggregateException("OpenGL swap-chain disposal encountered one or more cleanup failures.", failures);
+    }
+
+    private static void DisposeImageTextures(
+        OpenGLSwapChainImage[] images,
+        ref List<Exception>? failures)
+    {
+        for (int i = 0; i < images.Length; i++)
+        {
+            OpenGLSwapChainImage? image = images[i];
+            if (image is null)
+                continue;
+
+            try
+            {
+                image.Texture.Dispose();
+            }
+            catch (Exception exception)
+            {
+                (failures ??= new List<Exception>(4)).Add(exception);
+            }
+        }
     }
 
     /// <summary>Deletes per-image framebuffers and presentation syncs while the owning context is current.</summary>
     /// <param name="gl">Current GL dispatch object used for native deletion.</param>
     public override void ReleaseNative(GL gl)
     {
-        if (Interlocked.Exchange(ref _nativeReleased, 1) != 0)
+        if (Volatile.Read(ref _nativeReleased) != 0)
             return;
-        ReleaseImageNative(gl, _images);
+
+        List<Exception>? failures = null;
+        try
+        {
+            ReleaseImageNative(gl, _images);
+        }
+        catch (Exception exception)
+        {
+            (failures ??= new List<Exception>(4)).Add(exception);
+        }
+
+        if (_retainedImageSets is not null)
+        {
+            for (int i = 0; i < _retainedImageSets.Count; i++)
+            {
+                try
+                {
+                    ReleaseImageNative(gl, _retainedImageSets[i]);
+                }
+                catch (Exception exception)
+                {
+                    (failures ??= new List<Exception>(4)).Add(exception);
+                }
+            }
+        }
+
+        if (failures is { Count: > 0 })
+            throw new AggregateException("OpenGL swap-chain native cleanup was incomplete and may be retried.", failures);
+
+        Volatile.Write(ref _nativeReleased, 1);
     }
+
 }
