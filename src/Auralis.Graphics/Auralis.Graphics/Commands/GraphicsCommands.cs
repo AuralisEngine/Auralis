@@ -273,6 +273,8 @@ public interface IGraphicsCommandList : IGraphicsDeviceObject
     /// The backend retains references to these views until the recording is reset or completed.
     /// An empty color span is valid when a depth/stencil-only target is supplied.
     /// </summary>
+    /// <param name="colorTargets">Color attachment views in fragment-output location order.</param>
+    /// <param name="depthStencilTarget">Optional depth/stencil attachment view.</param>
     void SetRenderTargets(
         ReadOnlySpan<IGraphicsTextureView> colorTargets,
         IGraphicsTextureView? depthStencilTarget = null);
@@ -372,9 +374,17 @@ public interface IGraphicsCommandList : IGraphicsDeviceObject
     void DrawIndexedIndirect(IGraphicsBuffer arguments, ulong offset, uint drawCount = 1, uint stride = 0);
 
     /// <summary>Records a mesh-shader work-group dispatch. Requires a mesh pipeline.</summary>
+    /// <param name="groupCountX">Number of mesh/task work groups along X.</param>
+    /// <param name="groupCountY">Number of work groups along Y; NV mesh shaders require this to be one.</param>
+    /// <param name="groupCountZ">Number of work groups along Z; NV mesh shaders require this to be one.</param>
+    /// <remarks>EXT mesh shaders use three-dimensional counts; NV mesh shaders expose one-dimensional dispatch semantics.</remarks>
     void DrawMeshTasks(uint groupCountX, uint groupCountY = 1, uint groupCountZ = 1);
 
     /// <summary>Records one or more mesh-task commands from a GPU indirect-argument buffer.</summary>
+    /// <param name="arguments">Indirect-argument buffer using the active backend/dialect's native command-record layout.</param>
+    /// <param name="offset">Byte offset of the first command record.</param>
+    /// <param name="drawCount">Number of records to execute; zero is a validated no-op.</param>
+    /// <param name="stride">Byte distance between records; zero selects the native packed record size.</param>
     /// <remarks>
     /// Indirect argument layout follows the active mesh-shader dialect. OpenGL EXT uses three
     /// uint values ({ groupCountX, groupCountY, groupCountZ }); OpenGL NV uses its native two
@@ -398,6 +408,7 @@ public interface IGraphicsCommandList : IGraphicsDeviceObject
     /// <param name="destination">Destination buffer with copy-destination usage.</param>
     /// <param name="destinationOffset">Byte offset into the destination.</param>
     /// <param name="sizeInBytes">Number of bytes to copy.</param>
+    void CopyBuffer(
         IGraphicsBuffer source,
         ulong sourceOffset,
         IGraphicsBuffer destination,
