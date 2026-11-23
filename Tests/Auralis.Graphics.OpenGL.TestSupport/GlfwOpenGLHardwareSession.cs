@@ -15,9 +15,17 @@ public sealed class GlfwOpenGLHardwareSession : IDisposable
         Device = device;
     }
 
+    /// <summary>Gets the GLFW provider for the native desktop OpenGL context owned by the device.</summary>
     public GlfwOpenGLContextProvider ContextProvider { get; }
+    /// <summary>Gets the Auralis graphics device created from <see cref="ContextProvider" />.</summary>
     public IGraphicsDevice Device { get; }
 
+    /// <summary>Creates a hidden GLFW OpenGL context and initializes an Auralis device over it.</summary>
+    /// <param name="cancellationToken">Token passed to graphics-device creation.</param>
+    /// <returns>A session that owns the device and its transferred context-provider lifetime.</returns>
+    /// <exception cref="HardwareContextUnavailableException">GLFW or a suitable OpenGL 4.5 Core context is unavailable.</exception>
+    /// <exception cref="GraphicsBackendUnavailableException">The injected context cannot satisfy the backend requirements.</exception>
+    /// <exception cref="OperationCanceledException">Device creation was canceled.</exception>
     public static async ValueTask<GlfwOpenGLHardwareSession> CreateAsync(
         CancellationToken cancellationToken = default)
     {
@@ -48,6 +56,7 @@ public sealed class GlfwOpenGLHardwareSession : IDisposable
         }
     }
 
+    /// <summary>Disposes the graphics device, which releases Auralis resources before destroying the owned GLFW context.</summary>
     public void Dispose()
     {
         // The provider transfers context ownership to the device. Device disposal releases all
