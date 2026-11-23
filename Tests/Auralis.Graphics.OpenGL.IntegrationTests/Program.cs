@@ -16,11 +16,16 @@ using Xunit.Sdk;
 
 namespace Auralis.Graphics.OpenGL.IntegrationTests;
 
+/// <summary>Runs desktop OpenGL hardware integration tests against one shared host-created 4.5 Core context.</summary>
+/// <remarks>Each test verifies the required feature against the active device before issuing commands. Context vendor, renderer, extension advertisement, and native entry-point diagnostics are logged to make hardware-dependent failures attributable. The fixture skips only when a usable context cannot be obtained or a test explicitly identifies a missing optional capability.</remarks>
 public sealed partial class OpenGLIntegrationTests : IClassFixture<OpenGLHardwareFixture>
 {
 
     private readonly OpenGLHardwareFixture _fixture;
     public OpenGLIntegrationTests(OpenGLHardwareFixture fixture) => _fixture = fixture;
+    /// <summary>Runs an action against the shared desktop OpenGL session, logging capability diagnostics and checking for GL errors after the action.</summary>
+    /// <param name="test">Test body that receives the initialized session.</param>
+    /// <remarks>Only explicitly identified missing hardware capabilities are translated into an xUnit skip; unexpected test failures propagate.</remarks>
     private void RunHardwareTest(Action<GlfwOpenGLHardwareSession> test)
     {
         GlfwOpenGLHardwareSession session = _fixture.GetSessionOrSkip();
@@ -53,6 +58,9 @@ public sealed partial class OpenGLIntegrationTests : IClassFixture<OpenGLHardwar
         }
     }
 
+    /// <summary>Queries the active context's extension count, advertised EXT/NV names, and native dispatch entry-point availability.</summary>
+    /// <param name="device">Initialized device whose native context is current for the query.</param>
+    /// <returns>Diagnostic facts used to distinguish extension advertisement from callable functionality.</returns>
     private static MeshShaderContextDiagnostics QueryMeshShaderContextDiagnostics(
         OpenGLGraphicsDevice device)
     {
@@ -1450,5 +1458,6 @@ public sealed partial class OpenGLIntegrationTests : IClassFixture<OpenGLHardwar
             throw new InvalidOperationException("The command list remained Pending after its completion fence signaled.");
     }
 
+    /// <summary>Signals that a specific hardware test cannot run because its required optional capability is unavailable on the active context.</summary>
     private sealed class HardwareTestSkippedException(string message) : Exception(message) { }
 }
