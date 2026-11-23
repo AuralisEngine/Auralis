@@ -156,6 +156,9 @@ internal sealed class OpenGLGraphicsSwapChain : OpenGLNativeDeviceObject, IGraph
 
         using (context)
         {
+            ThrowIfDisposed();
+            ThrowIfFaulted();
+
             // Resize commits while holding this same device gate, so this recheck prevents a scan
             // against a newly published ring using an older presentation-target snapshot.
             if (observedGeneration != _generation ||
@@ -353,6 +356,9 @@ internal sealed class OpenGLGraphicsSwapChain : OpenGLNativeDeviceObject, IGraph
 
         using (OpenGLContextScope context = _device.AcquireContext())
         {
+            ThrowIfDisposed();
+            ThrowIfFaulted();
+
             // Revalidate under the device gate: Resize may have committed while this Present call
             // was preparing its target/fence state, and another thread may have presented the same lease.
             if (image.Generation != _generation ||

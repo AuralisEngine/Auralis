@@ -250,6 +250,9 @@ internal sealed class OpenGLESGraphicsSwapChain : OpenGLESNativeDeviceObject, IG
 
         using (context)
         {
+            ThrowIfDisposed();
+            ThrowIfFaulted();
+
             // Resize commits while holding this same device gate; revalidate before observing slots.
             if (observedGeneration != _generation ||
                 snapshot.Revision != _surfaceRevision ||
@@ -428,6 +431,9 @@ internal sealed class OpenGLESGraphicsSwapChain : OpenGLESNativeDeviceObject, IG
 
         using (OpenGLESContextScope context = _device.AcquireContext())
         {
+            ThrowIfDisposed();
+            ThrowIfFaulted();
+
             if (image.Generation != _generation ||
                 image.ImageIndex >= (uint)_images.Length ||
                 !ReferenceEquals(_images[image.ImageIndex], slot))
