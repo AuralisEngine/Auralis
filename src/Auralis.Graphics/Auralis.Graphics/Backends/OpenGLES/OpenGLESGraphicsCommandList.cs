@@ -599,6 +599,7 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
     }
 
     /// <inheritdoc />
+    /// <remarks>Uses the GLES EXT three-dimensional group-count contract and validates the request against the separately queried task- or mesh-stage axis and total limits.</remarks>
     public void DrawMeshTasks(uint groupCountX, uint groupCountY = 1, uint groupCountZ = 1)
     {
         EnsureRecording();
@@ -625,6 +626,12 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
     }
 
     /// <inheritdoc />
+    /// <remarks>
+    /// Each GLES EXT indirect record contains three 32-bit group counts (<c>x</c>, <c>y</c>,
+    /// <c>z</c>). A zero stride selects the 12-byte tightly packed record. When the native
+    /// multi-draw entry point is unavailable, the backend replays the requested records as
+    /// individual indirect calls using the same stride and shared command stream.
+    /// </remarks>
     public void DrawMeshTasksIndirect(IGraphicsBuffer arguments, ulong offset, uint drawCount = 1, uint stride = 0)
     {
         EnsureRecording();
