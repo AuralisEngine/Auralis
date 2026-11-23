@@ -633,6 +633,7 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
 
     private static uint ToUInt(int value) => value > 0 ? (uint)value : 0;
 
+    internal OpenGLSwapChainTestHooks? SwapChainTestHooks { get; set; }
     internal IOpenGLContextProvider ContextProvider => _contextProvider;
     internal ArbDirectStateAccess DirectStateAccess => _directStateAccess;
     internal ArbTextureView TextureViewApi => _textureViewApi;

@@ -1264,6 +1264,7 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
         }
     }
 
+    internal OpenGLESSwapChainTestHooks? SwapChainTestHooks { get; set; }
     internal IOpenGLESContextProvider ContextProvider => _contextProvider;
 
     /// <summary>Synchronously shuts down the GLES device and attempts to drain queues and release native resources.</summary>
