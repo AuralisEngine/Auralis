@@ -121,7 +121,10 @@ internal sealed class OpenGLESGraphicsTexture : OpenGLESNativeDeviceObject, IGra
     {
         uint handle = Interlocked.Exchange(ref _handle, 0);
         if (handle != 0)
+        {
             gl.DeleteTexture(handle);
+            _device.SwapChainTestHooks?.AfterTextureDeleted?.Invoke(handle);
+        }
     }
 
     internal static SizedInternalFormat GetInternalFormat(GraphicsFormat format) => format switch
