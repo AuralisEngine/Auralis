@@ -7,6 +7,7 @@ using Silk.NET.OpenGLES;
 
 namespace Auralis.Graphics.Backends.OpenGLES;
 
+/// <summary>One managed descriptor value captured into a command-list snapshot for later GLES binding.</summary>
 internal readonly record struct OpenGLESBindingValue(
     IGraphicsBuffer? Buffer,
     ulong Offset,
@@ -14,12 +15,15 @@ internal readonly record struct OpenGLESBindingValue(
     IGraphicsTextureView? Texture,
     IGraphicsSampler? Sampler);
 
+/// <summary>Maps a descriptor set and binding to a native GLES slot.</summary>
 internal readonly record struct OpenGLESDescriptorMapping(
     uint SetIndex,
     uint Binding,
     GraphicsDescriptorType Type,
     uint BaseSlot);
 
+/// <summary>Validated GLES binding layout with precomputed offsets into flattened descriptor-value storage.</summary>
+/// <remarks>Only partially-bound descriptor flags are implemented; other binding flags are rejected.</remarks>
 internal sealed class OpenGLESGraphicsBindingLayout : GraphicsDeviceObject, IGraphicsBindingLayout
 {
     private readonly int[] _offsets;
@@ -76,6 +80,8 @@ internal sealed class OpenGLESGraphicsBindingLayout : GraphicsDeviceObject, IGra
     protected override void DisposeCore() { }
 }
 
+/// <summary>Combines GLES binding layouts and assigns deterministic native slots to descriptor elements.</summary>
+/// <remarks>Uniform buffers, storage buffers, sampled textures/samplers, and storage images use independent slot ranges validated against queried GLES limits.</remarks>
 internal sealed class OpenGLESGraphicsPipelineLayout : GraphicsDeviceObject, IGraphicsPipelineLayout
 {
     private readonly IGraphicsBindingLayout[] _bindingLayouts;
@@ -214,6 +220,8 @@ internal sealed class OpenGLESGraphicsPipelineLayout : GraphicsDeviceObject, IGr
     protected override void DisposeCore() { }
 }
 
+/// <summary>Thread-safe mutable GLES descriptor set whose values are copied into command-list snapshots.</summary>
+/// <remarks>The set stores managed resource references. Recording checks that they remain live and retains them for recorded and submitted command execution.</remarks>
 internal sealed class OpenGLESGraphicsBindingSet : GraphicsDeviceObject, IGraphicsBindingSet
 {
     private readonly OpenGLESGraphicsBindingLayout _layout;
@@ -231,7 +239,14 @@ internal sealed class OpenGLESGraphicsBindingSet : GraphicsDeviceObject, IGraphi
 
     internal int ValueCount => _values.Length;
 
-    public void SetBuffer(
+    /// <summary>Sets a uniform- or storage-buffer descriptor element.</summary>
+    /// <param name="binding">Layout binding number.</param>
+    /// <param name="arrayElement">Zero-based element within the binding array.</param>
+    /// <param name="buffer">Same-device buffer with the usage required by the descriptor kind.</param>
+    /// <param name="offset">Byte offset aligned to the queried uniform/storage buffer offset alignment.</param>
+    /// <param name="range">Byte range, or <see cref="ulong.MaxValue" /> to use the remaining buffer bytes.</param>
+    /// <exception cref="GraphicsValidationException">The binding kind, buffer usage, ownership, or alignment is invalid.</exception>
+    /// <exception cref="ArgumentOutOfRangeException">The element, offset, or range is outside the declared binding or buffer.</exception>
         uint binding,
         uint arrayElement,
         IGraphicsBuffer buffer,
@@ -272,7 +287,12 @@ internal sealed class OpenGLESGraphicsBindingSet : GraphicsDeviceObject, IGraphi
             _values[offsetIndex + checked((int)arrayElement)] = new OpenGLESBindingValue(buffer, offset, range, null, null);
     }
 
-    public void SetTexture(uint binding, uint arrayElement, IGraphicsTextureView textureView)
+    /// <summary>Sets a sampled, storage, or combined-texture descriptor element.</summary>
+    /// <param name="binding">Layout binding number.</param>
+    /// <param name="arrayElement">Zero-based element within the binding array.</param>
+    /// <param name="textureView">Same-device texture view with usage compatible with the descriptor.</param>
+    /// <exception cref="GraphicsValidationException">The view is incompatible, including a framebuffer-only alias that cannot be sampled or bound as an image.</exception>
+    /// <exception cref="ArgumentOutOfRangeException">The array element is outside the declared binding.</exception>
     {
         ThrowIfDisposed();
         ArgumentNullException.ThrowIfNull(textureView);
@@ -306,7 +326,12 @@ internal sealed class OpenGLESGraphicsBindingSet : GraphicsDeviceObject, IGraphi
         }
     }
 
-    public void SetSampler(uint binding, uint arrayElement, IGraphicsSampler sampler)
+    /// <summary>Sets a sampler or combined-texture-sampler descriptor element.</summary>
+    /// <param name="binding">Layout binding number.</param>
+    /// <param name="arrayElement">Zero-based element within the binding array.</param>
+    /// <param name="sampler">Live sampler created by the same device.</param>
+    /// <exception cref="GraphicsValidationException">The binding kind or sampler device ownership is incompatible.</exception>
+    /// <exception cref="ArgumentOutOfRangeException">The array element is outside the declared binding.</exception>
     {
         ThrowIfDisposed();
         ArgumentNullException.ThrowIfNull(sampler);
@@ -327,7 +352,10 @@ internal sealed class OpenGLESGraphicsBindingSet : GraphicsDeviceObject, IGraphi
         }
     }
 
-    internal int SnapshotTo(List<OpenGLESBindingValue> destination)
+    /// <summary>Validates that captured resource references are live and appends values to command-list-owned storage.</summary>
+    /// <param name="destination">Reusable destination list owned by the command recorder.</param>
+    /// <returns>Starting element offset of the appended snapshot.</returns>
+    /// <exception cref="ObjectDisposedException">A resource in the binding set has been disposed.</exception>
     {
         ThrowIfDisposed();
         lock (_gate)
