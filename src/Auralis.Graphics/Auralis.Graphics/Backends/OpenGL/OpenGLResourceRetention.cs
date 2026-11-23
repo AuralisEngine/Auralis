@@ -19,6 +19,7 @@ internal sealed class OpenGLResourceRetention
     /// <param name="resource">Native GL object referenced by a recorded command.</param>
     /// <exception cref="ArgumentNullException"><paramref name="resource" /> is <see langword="null" />.</exception>
     /// <exception cref="ObjectDisposedException">The resource owner has closed and can no longer be retained.</exception>
+    internal void Retain(IOpenGLNativeResource resource)
     {
         ArgumentNullException.ThrowIfNull(resource);
         if (!_uniqueResources.Add(resource))
