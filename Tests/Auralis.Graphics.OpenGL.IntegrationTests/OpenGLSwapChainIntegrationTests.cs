@@ -186,7 +186,7 @@ public sealed partial class OpenGLIntegrationTests
             Assert.Throws<InvalidOperationException>(() => swapChain.Resize(replacement));
             Assert.Equal(1UL, swapChain.Generation);
             Assert.Equal(original, swapChain.Description);
-            Assert.Equal(original.PresentMode, provider.CurrentPresentMode);
+            Assert.Equal(original.PresentMode, session.ContextProvider.CurrentPresentMode);
             AcquireAndPresent(swapChain);
 
             hooks.AfterFramebufferCreated = _ =>
