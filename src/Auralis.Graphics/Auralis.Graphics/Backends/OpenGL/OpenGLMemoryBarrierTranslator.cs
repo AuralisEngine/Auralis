@@ -18,6 +18,7 @@ internal static class OpenGLMemoryBarrierTranslator
     /// validation hints because desktop GL has no explicit image-layout transition. CPU buffer maps
     /// use staging/explicit buffer-update calls, so they do not require the client-mapped-buffer bit.
     /// </remarks>
+    internal static MemoryBarrierMask ToMask(in GraphicsResourceBarrier barrier)
     {
         GraphicsResourceAccess access = barrier.DestinationAccess;
         if (access == GraphicsResourceAccess.None)
