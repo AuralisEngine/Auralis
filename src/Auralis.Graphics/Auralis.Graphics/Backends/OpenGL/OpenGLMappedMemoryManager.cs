@@ -117,6 +117,8 @@ internal sealed unsafe class OpenGLMappedMemoryManager : MemoryManager<byte>
         }
     }
 
+    /// <summary>Invalidates the mapped pointer so subsequent span and pin requests fail.</summary>
+    /// <remarks>Existing pins are not forcibly revoked; the buffer/device lifetime protocol verifies or waits for them before unmapping the native storage.</remarks>
     protected override void Dispose(bool disposing)
     {
         lock (_gate)
