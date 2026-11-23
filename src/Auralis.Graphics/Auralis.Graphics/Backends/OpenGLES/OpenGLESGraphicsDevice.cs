@@ -1257,6 +1257,15 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
 
     internal IOpenGLESContextProvider ContextProvider => _contextProvider;
 
+    /// <summary>Synchronously shuts down the GLES device and attempts to drain queues and release native resources.</summary>
+    /// <remarks>
+    /// The device first prevents new operations, acquires the host context, and calls Finish before
+    /// deleting registered resources. If GPU idleness cannot be established, native objects are
+    /// deliberately left for host-context destruction rather than deleted while the GPU may still
+    /// reference them. The provider is disposed only when ownership was transferred to the device.
+    /// Cleanup failures are collected so remaining teardown steps can still be attempted.
+    /// </remarks>
+    /// <exception cref="AggregateException">One or more queue, resource, context-release, or provider-disposal operations fail during teardown.</exception>
     public void Dispose()
     {
         if (Interlocked.Exchange(ref _disposed, 1) != 0)
