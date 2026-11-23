@@ -35,6 +35,11 @@ public class OpenGLESBackendBenchmarks
     private byte[] _expectedContents = [];
     private ulong _fenceValue;
 
+    private IGraphicsCommandQueue? _graphicsQueue;
+    private readonly List<IDisposable> _framebufferResources = new(12);
+    private readonly List<IGraphicsCommandList> _framebufferLists = new(5);
+    private readonly List<IGraphicsCommandList[]> _framebufferSubmissions = new(5);
+
     /// Creates the hidden hardware context and device, allocates and initializes the 4 KiB source/destination buffers, creates a reusable command list and fence, validates a real copy, and prepares the pre-recorded list. These operations are outside benchmark measurements. Results are specific to the OpenGL ES driver and test system.
     [GlobalSetup]
     public void Setup()
@@ -76,6 +81,8 @@ public class OpenGLESBackendBenchmarks
             // Keep a pre-recorded reusable list available for submission-only measurements.
             CommandList.Begin();
             CommandList.End();
+
+            SetupFramebufferBenchmarks();
         }
         catch (Exception setupError)
         {
@@ -188,7 +195,31 @@ public class OpenGLESBackendBenchmarks
             GraphicsTextureUsage.Sampled | GraphicsTextureUsage.CopySource | GraphicsTextureUsage.CopyDestination));
     }
 
-    /// Waits for pending work when possible, falls back to device shutdown to drain the command stream when bounded waiting cannot establish completion, then disposes the command list, fence, buffers, and hardware session. Results are specific to the OpenGL ES driver and test system.
+    /// <summary>Measures execution-time framebuffer creation/destruction for repeated identical render-target bindings.</summary>
+    [Benchmark(Description = "Framebuffer lifecycle: repeated identical color target bindings")]
+    public int RepeatedIdenticalRenderTargetBindings() => SubmitFramebufferWorkload(0);
+
+    /// <summary>Measures framebuffer lifecycle while switching between two color target configurations.</summary>
+    [Benchmark(Description = "Framebuffer lifecycle: switch between two color targets")]
+    public int SwitchingRenderTargetConfigurations() => SubmitFramebufferWorkload(1);
+
+    /// <summary>Measures framebuffer lifecycle for a multiple-color-attachment configuration.</summary>
+    [Benchmark(Description = "Framebuffer lifecycle: multiple color attachments")]
+    public int MultipleRenderTargetAttachments() => SubmitFramebufferWorkload(2);
+
+    /// <summary>Measures framebuffer lifecycle for a depth-only configuration.</summary>
+    [Benchmark(Description = "Framebuffer lifecycle: depth-only target")]
+    public int DepthOnlyRenderTarget() => SubmitFramebufferWorkload(3);
+
+    /// <summary>Measures framebuffer lifecycle for a color-plus-depth configuration.</summary>
+    [Benchmark(Description = "Framebuffer lifecycle: color plus depth target")]
+    public int ColorAndDepthRenderTarget() => SubmitFramebufferWorkload(4);
+
+    /// <summary>
+    /// Waits for pending command lists when possible, then disposes recorded lists and their target
+    /// views/textures before disposing the session. A timed-out submission falls back to device
+    /// shutdown to drain the shared command stream.
+    /// </summary>
     [GlobalCleanup]
     public void Cleanup()
     {
@@ -203,8 +234,23 @@ public class OpenGLESBackendBenchmarks
                     CommandList.State == GraphicsCommandListState.Pending)
                 {
                     failures.Add(new TimeoutException(
-                        "The GLES benchmark command list was still pending during cleanup; device shutdown will drain it."));
+                        "OpenGL ES benchmark copy command list was still pending during cleanup; device shutdown will drain it."));
                     disposeDeviceFirst = true;
+                }
+            }
+
+            foreach (IGraphicsCommandList list in _framebufferLists)
+            {
+                if (list.State != GraphicsCommandListState.Pending)
+                    continue;
+
+                if (_fence is null || !Fence.Wait(_fenceValue, GpuTimeout) ||
+                    list.State == GraphicsCommandListState.Pending)
+                {
+                    failures.Add(new TimeoutException(
+                        "OpenGL ES framebuffer benchmark command list was still pending during cleanup; device shutdown will drain it."));
+                    disposeDeviceFirst = true;
+                    break;
                 }
             }
         }
@@ -214,11 +260,10 @@ public class OpenGLESBackendBenchmarks
             disposeDeviceFirst = true;
         }
 
-        // If bounded waiting could not establish completion, let device shutdown finish the GLES
-        // stream and drain its submissions before disposing the list's managed references.
         if (disposeDeviceFirst)
             DisposeSafely(ref _session, failures);
 
+        DisposeFramebufferBenchmarks(failures);
         DisposeSafely(ref _commandList, failures);
         DisposeSafely(ref _fence, failures);
         DisposeSafely(ref _source, failures);
@@ -227,6 +272,151 @@ public class OpenGLESBackendBenchmarks
 
         if (failures.Count != 0)
             throw new AggregateException("OpenGL ES benchmark cleanup encountered one or more failures.", failures);
+    }
+
+    private void SetupFramebufferBenchmarks()
+    {
+        _graphicsQueue = _device.GetQueue(GraphicsQueueType.Graphics);
+
+        if (!_device.Capabilities.SupportsFormat(
+                GraphicsFormat.RGBA8UNorm,
+                GraphicsFormatSupport.ColorAttachment))
+            throw new NotSupportedException("OpenGL ES framebuffer benchmarks require RGBA8 color-attachment support.");
+        if (!_device.Capabilities.SupportsFormat(
+                GraphicsFormat.D16UNorm,
+                GraphicsFormatSupport.DepthStencilAttachment))
+            throw new NotSupportedException("OpenGL ES framebuffer benchmarks require D16 depth-attachment support.");
+
+        IGraphicsTexture colorTextureA = CreateFramebufferTexture(
+            GraphicsFormat.RGBA8UNorm, GraphicsTextureUsage.ColorAttachment);
+        IGraphicsTexture colorTextureB = CreateFramebufferTexture(
+            GraphicsFormat.RGBA8UNorm, GraphicsTextureUsage.ColorAttachment);
+        IGraphicsTextureView colorViewA = CreateFramebufferView(colorTextureA);
+        IGraphicsTextureView colorViewB = CreateFramebufferView(colorTextureB);
+
+        IGraphicsTexture depthTexture = CreateFramebufferTexture(
+            GraphicsFormat.D16UNorm, GraphicsTextureUsage.DepthStencilAttachment);
+        IGraphicsTextureView depthView = CreateFramebufferView(depthTexture);
+
+        AddFramebufferCommandList(list =>
+        {
+            list.SetRenderTargets([colorViewA]);
+            list.SetRenderTargets([colorViewA]);
+            list.SetRenderTargets([colorViewA]);
+        });
+
+        AddFramebufferCommandList(list =>
+        {
+            list.SetRenderTargets([colorViewA]);
+            list.SetRenderTargets([colorViewB]);
+            list.SetRenderTargets([colorViewA]);
+            list.SetRenderTargets([colorViewB]);
+        });
+
+        AddFramebufferCommandList(list =>
+        {
+            list.SetRenderTargets([colorViewA, colorViewB]);
+            list.SetRenderTargets([colorViewA, colorViewB]);
+            list.SetRenderTargets([colorViewA, colorViewB]);
+        });
+
+        AddFramebufferCommandList(list =>
+        {
+            list.SetRenderTargets(ReadOnlySpan<IGraphicsTextureView>.Empty, depthView);
+            list.SetRenderTargets(ReadOnlySpan<IGraphicsTextureView>.Empty, depthView);
+            list.SetRenderTargets(ReadOnlySpan<IGraphicsTextureView>.Empty, depthView);
+        });
+
+        AddFramebufferCommandList(list =>
+        {
+            list.SetRenderTargets([colorViewA], depthView);
+            list.SetRenderTargets([colorViewA], depthView);
+            list.SetRenderTargets([colorViewA], depthView);
+        });
+    }
+
+    private IGraphicsTexture CreateFramebufferTexture(
+        GraphicsFormat format,
+        GraphicsTextureUsage usage)
+    {
+        IGraphicsTexture texture = _device.CreateTexture(new GraphicsTextureDescription(
+            GraphicsTextureDimension.Texture2D,
+            format,
+            256, 256, 1, 1, 1, 1,
+            usage));
+        _framebufferResources.Add(texture);
+        return texture;
+    }
+
+    private IGraphicsTextureView CreateFramebufferView(IGraphicsTexture texture)
+    {
+        IGraphicsTextureView view = texture.CreateView(new GraphicsTextureViewDescription(
+            GraphicsFormat.Unknown,
+            GraphicsTextureViewType.Texture2D,
+            0, 1, 0, 1));
+        _framebufferResources.Add(view);
+        return view;
+    }
+
+    private void AddFramebufferCommandList(Action<IGraphicsCommandList> record)
+    {
+        IGraphicsCommandList list = _graphicsQueue!.CreateCommandList(GraphicsCommandListUsage.Reusable);
+        try
+        {
+            list.Begin();
+            record(list);
+            list.End();
+        }
+        catch
+        {
+            list.Dispose();
+            throw;
+        }
+
+        _framebufferLists.Add(list);
+        _framebufferSubmissions.Add([list]);
+    }
+
+    private int SubmitFramebufferWorkload(int workloadIndex)
+    {
+        IGraphicsCommandQueue queue = _graphicsQueue ??
+            throw new InvalidOperationException("The framebuffer benchmark queue is not initialized.");
+        ulong value = checked(++_fenceValue);
+        queue.Submit(_framebufferSubmissions[workloadIndex], Fence, value);
+        if (!Fence.Wait(value, GpuTimeout))
+            throw new TimeoutException($"OpenGL ES framebuffer workload {workloadIndex} did not complete within {GpuTimeout}.");
+
+        return _framebufferLists[workloadIndex].State == GraphicsCommandListState.Executable ? 1 : 0;
+    }
+
+    private void DisposeFramebufferBenchmarks(List<Exception> failures)
+    {
+        for (int i = _framebufferLists.Count - 1; i >= 0; i--)
+        {
+            try
+            {
+                _framebufferLists[i].Dispose();
+            }
+            catch (Exception exception)
+            {
+                failures.Add(exception);
+            }
+        }
+        _framebufferLists.Clear();
+        _framebufferSubmissions.Clear();
+
+        for (int i = _framebufferResources.Count - 1; i >= 0; i--)
+        {
+            try
+            {
+                _framebufferResources[i].Dispose();
+            }
+            catch (Exception exception)
+            {
+                failures.Add(exception);
+            }
+        }
+        _framebufferResources.Clear();
     }
 
     private IGraphicsCommandList CommandList => _commandList ?? throw new InvalidOperationException("The benchmark command list is not initialized.");
