@@ -539,6 +539,25 @@ internal sealed class OpenGLGraphicsSwapChain : OpenGLNativeDeviceObject, IGraph
         }
     }
 
+    /// <summary>
+    /// Acquires the context required to retire the active ring. If activation fails, the complete
+    /// staged ring remains referenced so device shutdown can retry its native cleanup.
+    /// </summary>
+    private OpenGLContextScope AcquireResizeContext(OpenGLSwapChainImage[] replacement)
+    {
+        try
+        {
+            return _device.AcquireContext();
+        }
+        catch (Exception contextFailure)
+        {
+            RetainImageSetForCleanup(replacement);
+            throw new GraphicsException(
+                "The replacement OpenGL image ring was retained because the context could not be acquired for resize retirement.",
+                contextFailure);
+        }
+    }
+
     private bool TryRestorePresentMode(GraphicsPresentMode previousMode, List<Exception> failures)
     {
         try

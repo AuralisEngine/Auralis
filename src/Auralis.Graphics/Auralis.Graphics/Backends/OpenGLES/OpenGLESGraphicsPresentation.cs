@@ -475,7 +475,7 @@ internal sealed class OpenGLESGraphicsSwapChain : OpenGLESNativeDeviceObject, IG
             OpenGLESSwapChainImage[] previousImages = _images;
             GraphicsPresentMode previousMode = _description.PresentMode;
 
-            using OpenGLESContextScope context = _device.AcquireContext();
+            using OpenGLESContextScope context = AcquireResizeContext(replacement);
             List<Exception> failures = new(4);
 
             try
@@ -580,6 +580,25 @@ internal sealed class OpenGLESGraphicsSwapChain : OpenGLESNativeDeviceObject, IG
                 _nextImage = 0;
                 Volatile.Write(ref _generation, nextGeneration);
             }
+        }
+    }
+
+    /// <summary>
+    /// Acquires the context required to retire the active GLES ring. If activation fails, the
+    /// staged ring remains referenced so device shutdown can retry native cleanup.
+    /// </summary>
+    private OpenGLESContextScope AcquireResizeContext(OpenGLESSwapChainImage[] replacement)
+    {
+        try
+        {
+            return _device.AcquireContext();
+        }
+        catch (Exception contextFailure)
+        {
+            RetainImageSetForCleanup(replacement);
+            throw new GraphicsException(
+                "The replacement GLES image ring was retained because the context could not be acquired for resize retirement.",
+                contextFailure);
         }
     }
 
