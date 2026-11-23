@@ -529,6 +529,7 @@ internal sealed class OpenGLGraphicsCommandQueue : IGraphicsCommandQueue
             ExceptionDispatchInfo.Capture(failure).Throw();
     }
 
+    /// <summary>Retains one submitted batch and its GL sync until the batch's command stream has completed.</summary>
     private readonly record struct PendingSubmission(
         OpenGLGraphicsCommandList[] CommandLists,
         int Count,
