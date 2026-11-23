@@ -11,6 +11,15 @@ namespace Auralis.Graphics.Backends.OpenGL;
 /// </summary>
 internal static class OpenGLDescriptorBindingAllocator
 {
+    /// <summary>Assigns deterministic GL binding points to the declared descriptor sets and bindings.</summary>
+    /// <param name="layouts">Layouts in pipeline set order; bindings within each layout are sorted by binding number.</param>
+    /// <param name="maxUniformBufferBindings">Maximum uniform-buffer binding points reported by the context.</param>
+    /// <param name="maxStorageBufferBindings">Maximum shader-storage-buffer binding points.</param>
+    /// <param name="maxTextureUnits">Maximum combined texture-unit slots available to sampled textures and samplers.</param>
+    /// <param name="maxImageUnits">Maximum image-unit slots available to storage textures.</param>
+    /// <returns>One mapping per binding entry, with a monotonically allocated slot range inside its GL namespace.</returns>
+    /// <exception cref="GraphicsValidationException">A descriptor set uses more slots in a namespace than the context exposes.</exception>
+    /// <exception cref="OverflowException">The number of mapping entries or slot arithmetic exceeds the supported integer range.</exception>
     internal static OpenGLDescriptorMapping[] Allocate(
         ReadOnlySpan<IGraphicsBindingLayout> layouts,
         uint maxUniformBufferBindings,
