@@ -11,12 +11,15 @@ internal readonly record struct OpenGLMeshShaderDialectCapabilities(
     bool NvMeshShaders,
     bool NvTaskShaders)
 {
+    /// <summary>Gets whether at least one dialect has usable mesh-shader support.</summary>
     internal bool SupportsMeshShaders =>
         ExtMeshShaders || NvMeshShaders;
 
+    /// <summary>Gets whether at least one dialect has usable task-shader support.</summary>
     internal bool SupportsTaskShaders =>
         ExtTaskShaders || NvTaskShaders;
 
+    /// <summary>Checks mesh-stage support for the exact GLSL dialect selected by the shader.</summary>
     internal bool SupportsMeshShader(OpenGLMeshShaderDialect dialect) => dialect switch
     {
         OpenGLMeshShaderDialect.Ext => ExtMeshShaders,
@@ -24,6 +27,7 @@ internal readonly record struct OpenGLMeshShaderDialectCapabilities(
         _ => false
     };
 
+    /// <summary>Checks task-stage support for the exact GLSL dialect selected by the shader.</summary>
     internal bool SupportsTaskShader(OpenGLMeshShaderDialect dialect) => dialect switch
     {
         OpenGLMeshShaderDialect.Ext => ExtTaskShaders,
@@ -31,6 +35,8 @@ internal readonly record struct OpenGLMeshShaderDialectCapabilities(
         _ => false
     };
 
+    /// <summary>Builds independent EXT and NV support flags from advertised APIs and their own queried limits.</summary>
+    /// <remarks>NV's one-dimensional maximum is never inferred from or substituted with EXT's three-dimensional limits.</remarks>
     internal static OpenGLMeshShaderDialectCapabilities Detect(
         bool extApiAvailable,
         bool nvApiAvailable,
