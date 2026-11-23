@@ -41,6 +41,8 @@ internal abstract class OpenGLESNativeDeviceObject : GraphicsDeviceObject, IOpen
             _device.ReleaseResource(this);
     }
 
+    /// <summary>Closes new owner-side retains and releases the native object's initial owner reference.</summary>
+    /// <remarks>Dependent views and recorded/submitted commands can keep native storage alive after this call.</remarks>
     protected void ReleaseOwnerReference()
     {
         if (_references.CloseOwner())
