@@ -456,7 +456,8 @@ internal sealed class OpenGLGraphicsSwapChain : OpenGLNativeDeviceObject, IGraph
             try
             {
                 // No previous sync or framebuffer is released until the driver confirms all work is idle.
-                context.Gl.Finish();
+                _device.SwapChainTestHooks?.BeforeGpuFinish?.Invoke();
+            context.Gl.Finish();
             }
             catch (Exception waitFailure)
             {
@@ -624,6 +625,8 @@ internal sealed class OpenGLGraphicsSwapChain : OpenGLNativeDeviceObject, IGraph
         {
             for (int i = 0; i < images.Length; i++)
             {
+                OpenGLSwapChainTestHooks? hooks = _device.SwapChainTestHooks;
+                hooks?.BeforeTextureCreation?.Invoke();
                 IGraphicsTexture created = _device.CreateTexture(textureDescription);
                 if (created is not OpenGLGraphicsTexture texture)
                 {
@@ -633,10 +636,12 @@ internal sealed class OpenGLGraphicsSwapChain : OpenGLNativeDeviceObject, IGraph
 
                 OpenGLSwapChainImage image = new() { Texture = texture };
                 images[i] = image;
+                hooks?.AfterTextureCreation?.Invoke(texture);
 
                 using (OpenGLContextScope context = _device.AcquireContext())
                 {
                     GL gl = context.Gl;
+                    hooks?.BeforeFramebufferCreation?.Invoke(gl);
                     _device.DirectStateAccess.CreateFramebuffers(1, out uint framebuffer);
                     if (framebuffer == 0)
                         throw new GraphicsException("OpenGL failed to create a swapchain framebuffer.");
@@ -644,6 +649,7 @@ internal sealed class OpenGLGraphicsSwapChain : OpenGLNativeDeviceObject, IGraph
                     // Store the handle before initialization so the outer rollback path owns it
                     // even when attachment setup or completeness validation fails.
                     image.Framebuffer = framebuffer;
+                    hooks?.AfterFramebufferCreated?.Invoke(framebuffer);
                     _device.DirectStateAccess.NamedFramebufferTexture(
                         framebuffer,
                         FramebufferAttachment.ColorAttachment0,
@@ -749,6 +755,7 @@ internal sealed class OpenGLGraphicsSwapChain : OpenGLNativeDeviceObject, IGraph
             {
                 try
                 {
+                    _device.SwapChainTestHooks?.BeforeFramebufferDeletion?.Invoke(image.Framebuffer);
                     gl.DeleteFramebuffer(image.Framebuffer);
                     image.Framebuffer = 0;
                 }

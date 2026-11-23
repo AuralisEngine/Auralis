@@ -504,6 +504,7 @@ internal sealed class OpenGLESGraphicsSwapChain : OpenGLESNativeDeviceObject, IG
 
             try
             {
+                _device.SwapChainTestHooks?.BeforeGpuFinish?.Invoke();
                 context.Gl.Finish();
             }
             catch (Exception waitFailure)
@@ -677,18 +678,23 @@ internal sealed class OpenGLESGraphicsSwapChain : OpenGLESNativeDeviceObject, IG
         {
             for (int i = 0; i < images.Length; i++)
             {
+                OpenGLESSwapChainTestHooks? hooks = _device.SwapChainTestHooks;
+                hooks?.BeforeTextureCreation?.Invoke();
                 OpenGLESGraphicsTexture texture = (OpenGLESGraphicsTexture)_device.CreateTexture(textureDescription);
                 OpenGLESSwapChainImage image = new() { Texture = texture };
                 images[i] = image;
+                hooks?.AfterTextureCreation?.Invoke(texture);
 
                 using (OpenGLESContextScope context = _device.AcquireContext())
                 {
                     GL gl = context.Gl;
+                    hooks?.BeforeFramebufferCreation?.Invoke(gl);
                     uint framebuffer = gl.GenFramebuffer();
                     if (framebuffer == 0)
                         throw new GraphicsException("OpenGL ES failed to create a swapchain framebuffer.");
 
                     image.Framebuffer = framebuffer;
+                    hooks?.AfterFramebufferCreated?.Invoke(framebuffer);
                     try
                     {
                         gl.BindFramebuffer(FramebufferTarget.Framebuffer, framebuffer);
@@ -793,6 +799,7 @@ internal sealed class OpenGLESGraphicsSwapChain : OpenGLESNativeDeviceObject, IG
             {
                 try
                 {
+                    _device.SwapChainTestHooks?.BeforeFramebufferDeletion?.Invoke(image.Framebuffer);
                     gl.DeleteFramebuffer(image.Framebuffer);
                     image.Framebuffer = 0;
                 }
