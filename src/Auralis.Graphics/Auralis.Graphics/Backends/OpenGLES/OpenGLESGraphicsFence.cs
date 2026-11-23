@@ -6,7 +6,14 @@ using Silk.NET.OpenGLES;
 
 namespace Auralis.Graphics.Backends.OpenGLES;
 
-/// <summary>Timeline-style fence implemented with an ordered queue of GLES Sync objects.</summary>
+/// <summary>Implements a monotonic timeline fence using ordered OpenGL ES sync objects.</summary>
+/// <remarks>
+/// GPU signals append GLES sync objects in command-stream order; a CPU signal advances the value
+/// immediately after checking that it cannot overtake an earlier pending GPU signal. Polling and
+/// CPU waiting require the device context and therefore acquire its context gate. A completed fence
+/// value does not by itself retire command lists or release their retained resources; the command
+/// queue performs that retirement when it observes submission completion.
+/// </remarks>
 internal sealed class OpenGLESGraphicsFence : OpenGLESNativeDeviceObject, IGraphicsFence
 {
     private readonly OpenGLESGraphicsDevice _device;
@@ -22,6 +29,9 @@ internal sealed class OpenGLESGraphicsFence : OpenGLESNativeDeviceObject, IGraph
         _lastSignaledValue = initialValue;
     }
 
+    /// <summary>Gets the greatest timeline value whose completion has been observed.</summary>
+    /// <remarks>Polling may wait for the device context gate before querying GLES sync objects.</remarks>
+    /// <exception cref="ObjectDisposedException">The fence or its device has been disposed.</exception>
     public ulong CompletedValue
     {
         get
@@ -33,6 +43,10 @@ internal sealed class OpenGLESGraphicsFence : OpenGLESNativeDeviceObject, IGraph
         }
     }
 
+    /// <summary>Signals a timeline value from the CPU without submitting additional GPU work.</summary>
+    /// <param name="value">A value greater than every value previously signaled on this fence.</param>
+    /// <exception cref="GraphicsValidationException">The value is not monotonic or would overtake an earlier pending GPU signal.</exception>
+    /// <exception cref="ObjectDisposedException">The fence or its device has been disposed.</exception>
     public void Signal(ulong value)
     {
         ThrowIfDisposed();
@@ -88,6 +102,15 @@ internal sealed class OpenGLESGraphicsFence : OpenGLESNativeDeviceObject, IGraph
             $"Fence value {value} has not been signaled; an unknown future GLES sync cannot be waited on.");
     }
 
+    /// <summary>Waits on the CPU until the fence reaches <paramref name="value" /> or the wait expires.</summary>
+    /// <param name="value">Timeline value to observe.</param>
+    /// <param name="timeout">Maximum elapsed wait, or <see cref="Timeout.InfiniteTimeSpan" /> for an unbounded wait.</param>
+    /// <param name="cancellationToken">Token that can interrupt context-gate acquisition or the wait loop.</param>
+    /// <returns><see langword="true" /> when the requested value is complete; otherwise <see langword="false" /> when the deadline expires or the context gate cannot be acquired in time.</returns>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="timeout" /> is negative and is not infinite.</exception>
+    /// <exception cref="OperationCanceledException">The wait is canceled.</exception>
+    /// <exception cref="ObjectDisposedException">The fence or its device has been disposed.</exception>
+    /// <exception cref="GraphicsException">GLES reports a failed or unexpected sync status.</exception>
     public bool Wait(ulong value, TimeSpan timeout, CancellationToken cancellationToken = default)
     {
         ThrowIfDisposed();
