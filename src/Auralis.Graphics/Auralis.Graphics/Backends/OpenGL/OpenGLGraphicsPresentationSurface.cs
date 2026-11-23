@@ -54,6 +54,9 @@ internal sealed class OpenGLGraphicsPresentationSurface : GraphicsDeviceObject, 
         }
     }
 
+    /// <summary>Checks whether the given graphics queue and current target snapshot can be presented by this surface.</summary>
+    /// <param name="queue">Candidate queue; only the graphics queue created by this device is accepted.</param>
+    /// <returns><see langword="true" /> when the provider exposes a compatible drawable and the queue belongs to this device.</returns>
     public bool SupportsPresentation(IGraphicsQueue queue)
     {
         if (IsDisposed || queue is not OpenGLGraphicsCommandQueue openGlQueue)
@@ -75,7 +78,13 @@ internal sealed class OpenGLGraphicsPresentationSurface : GraphicsDeviceObject, 
         }
     }
 
-    public IGraphicsSwapChain CreateSwapChain(
+    /// <summary>Creates a swap chain of Auralis-owned offscreen images for the provider's host drawable.</summary>
+    /// <param name="presentationQueue">Graphics queue associated with this surface and device.</param>
+    /// <param name="description">Image count, extent, format, and present mode.</param>
+    /// <returns>A swap chain that blits acquired images to the provider's default drawable on presentation.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="presentationQueue" /> is <see langword="null" />.</exception>
+    /// <exception cref="GraphicsValidationException">The queue cannot present, the present mode is unsupported, or the target is suspended.</exception>
+    /// <exception cref="GraphicsBackendUnavailableException">The host drawable is no longer compatible with the injected context.</exception>
         IGraphicsQueue presentationQueue,
         in GraphicsSwapChainDescription description)
     {
