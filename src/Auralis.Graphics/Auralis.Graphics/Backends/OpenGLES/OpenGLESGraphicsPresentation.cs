@@ -263,9 +263,10 @@ internal sealed class OpenGLESGraphicsSwapChain : OpenGLESNativeDeviceObject, IG
                     throw new GraphicsException(
                         $"OpenGL ES returned unexpected client-wait status {waitStatus} for a presentation sync.");
 
-                // Re-scan all images and recompute the remaining finite timeout before another wait.
-                if (deadline.IsExpired)
-                    return new GraphicsAcquireResult(GraphicsAcquireStatus.Timeout, default);
+                // Rescan all available images before reporting expiry; another slot may have
+                // completed while the native wait was blocked. The next scan checks the original
+                // deadline after probing every slot, so timeout accounting is not extended.
+
             }
         }
     }

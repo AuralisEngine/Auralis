@@ -1074,7 +1074,7 @@ public sealed class OpenGLBackendTests
 
     /// <summary>Verifies shutdown preparation waits for outstanding pins before native storage can be unmapped.</summary>
     [Fact]
-    public void MappedMemoryPreparationWaitsForOutstandingPins()
+    public async Task MappedMemoryPreparationWaitsForOutstandingPins()
     {
         nint pointer = Marshal.AllocHGlobal(4);
         try
@@ -1083,9 +1083,10 @@ public sealed class OpenGLBackendTests
             MemoryHandle pin = manager.Memory.Pin();
             Task preparation = Task.Run(manager.WaitForPins);
 
-            Assert.False(preparation.Wait(TimeSpan.FromMilliseconds(25)));
+            await Task.Delay(TimeSpan.FromMilliseconds(25));
+            Assert.False(preparation.IsCompleted);
             pin.Dispose();
-            Assert.True(preparation.Wait(TimeSpan.FromSeconds(1)));
+            await preparation.WaitAsync(TimeSpan.FromSeconds(1));
             manager.Invalidate();
             Assert.Throws<ObjectDisposedException>(() => _ = manager.Memory.Span[0]);
         }
