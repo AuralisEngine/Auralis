@@ -19,10 +19,16 @@ using OpenGLExtMeshShader = Silk.NET.OpenGL.Extensions.EXT.ExtMeshShader;
 
 namespace Auralis.Graphics.Backends.OpenGL;
 
-/// <summary>
-/// Initial desktop OpenGL device implementation. Native work is serialized because one current
-/// context cannot be concurrently driven by unrelated threads.
-/// </summary>
+/// <summary>Implements the Auralis graphics device on a host-supplied desktop OpenGL 4.5 Core Profile context.</summary>
+/// <remarks>
+/// Initialization makes the provider's context current, resolves the Silk.NET dispatch tables,
+/// validates the API profile, and snapshots core limits plus optional extension capabilities.
+/// Resource creation, command submission, fence polling, and native release are serialized by
+/// the device context gate; this does not make arbitrary host GL access thread-safe. The initial
+/// backend requires exclusive ownership of context state and does not create a window or native context.
+/// Device disposal finishes outstanding work, drains queues, releases registered native resources,
+/// and disposes the provider only when its ownership policy transfers that responsibility.
+/// </remarks>
 internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
 {
     private readonly IOpenGLContextProvider _contextProvider;
@@ -764,6 +770,8 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
         // Device shutdown owns all still-registered resources once IsDisposed is published.
     }
 
+    /// <inheritdoc />
+    /// <remarks>The backend exposes one logical queue for each supported role. All roles share the same serialized native GL command stream rather than independent hardware queues.</remarks>
     public IGraphicsCommandQueue GetQueue(GraphicsQueueType queueType, uint index = 0)
     {
         ObjectDisposedException.ThrowIf(IsDisposed, this);
@@ -783,6 +791,8 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
         }
     }
 
+    /// <inheritdoc />
+    /// <remarks>The queue is the graphics queue; presentation is available only when the injected provider exposes a compatible drawable.</remarks>
     public IGraphicsQueue GetPresentationQueue(uint index = 0)
     {
         if (index != 0)
@@ -793,6 +803,8 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
         return GetQueue(GraphicsQueueType.Graphics, 0);
     }
 
+    /// <inheritdoc />
+    /// <remarks>Creates immutable GL buffer storage. CPU mapping is implemented according to the requested memory-access flags; aliasable resource creation is not exposed by this backend.</remarks>
     public unsafe IGraphicsBuffer CreateBuffer(in GraphicsBufferDescription description)
     {
         ObjectDisposedException.ThrowIf(IsDisposed, this);
@@ -828,12 +840,15 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
         }
     }
 
+    /// <inheritdoc />
     public IGraphicsShader CreateShader(in GraphicsShaderDescription description)
     {
         ObjectDisposedException.ThrowIf(IsDisposed, this);
         return OpenGLGraphicsShader.Create(this, description);
     }
 
+    /// <inheritdoc />
+    /// <remarks>The description is checked against the capability snapshot before a native texture is allocated. Resource aliasing is not implemented.</remarks>
     public IGraphicsTexture CreateTexture(in GraphicsTextureDescription description)
     {
         ObjectDisposedException.ThrowIf(IsDisposed, this);
@@ -847,6 +862,7 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
             this, context.Gl, _directStateAccess, textureDescription);
     }
 
+    /// <inheritdoc />
     public IGraphicsSampler CreateSampler(in GraphicsSamplerDescription description)
     {
         ObjectDisposedException.ThrowIf(IsDisposed, this);
@@ -858,18 +874,21 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
             this, _directStateAccess, _samplerObjects, samplerDescription);
     }
 
+    /// <inheritdoc />
     public IGraphicsBindingLayout CreateBindingLayout(GraphicsBindingLayoutDescription description)
     {
         ObjectDisposedException.ThrowIf(IsDisposed, this);
         return new OpenGLGraphicsBindingLayout(this, description);
     }
 
+    /// <inheritdoc />
     public IGraphicsPipelineLayout CreatePipelineLayout(ReadOnlySpan<IGraphicsBindingLayout> bindingLayouts)
     {
         ObjectDisposedException.ThrowIf(IsDisposed, this);
         return new OpenGLGraphicsPipelineLayout(this, bindingLayouts);
     }
 
+    /// <inheritdoc />
     public IGraphicsBindingSet CreateBindingSet(IGraphicsBindingLayout bindingLayout)
     {
         ObjectDisposedException.ThrowIf(IsDisposed, this);
@@ -880,18 +899,24 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
         return new OpenGLGraphicsBindingSet(openGlLayout);
     }
 
+    /// <inheritdoc />
+    /// <remarks>Pipeline creation validates shader-stage combinations and optional features against the device's initialization-time capability snapshot.</remarks>
     public IGraphicsRenderPipeline CreateRenderPipeline(GraphicsRenderPipelineDescription description)
     {
         ObjectDisposedException.ThrowIf(IsDisposed, this);
         return OpenGLGraphicsRenderPipeline.Create(this, description);
     }
 
+    /// <inheritdoc />
+    /// <remarks>Compute pipeline creation is available only when the device reports the core compute-shader capability.</remarks>
     public IGraphicsComputePipeline CreateComputePipeline(GraphicsComputePipelineDescription description)
     {
         ObjectDisposedException.ThrowIf(IsDisposed, this);
         return OpenGLGraphicsComputePipeline.Create(this, description);
     }
 
+    /// <inheritdoc />
+    /// <remarks>The returned timeline fence starts at <paramref name="initialValue" /> and uses GL sync objects for GPU completion points.</remarks>
     public IGraphicsFence CreateFence(ulong initialValue = 0)
     {
         ObjectDisposedException.ThrowIf(IsDisposed, this);
@@ -901,6 +926,8 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
         return fence;
     }
 
+    /// <inheritdoc />
+    /// <remarks>The target snapshot must identify the exact drawable associated with the injected context; the backend cannot present to an unrelated native window or surface.</remarks>
     public IGraphicsPresentationSurface CreatePresentationSurface(IGraphicsPresentationTarget target)
     {
         ObjectDisposedException.ThrowIf(IsDisposed, this);
