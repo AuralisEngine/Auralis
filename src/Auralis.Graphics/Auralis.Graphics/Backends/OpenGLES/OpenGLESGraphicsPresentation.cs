@@ -446,6 +446,10 @@ internal sealed class OpenGLESGraphicsSwapChain : OpenGLESNativeDeviceObject, IG
                     "The acquired GLES image was already presented or invalidated before presentation.");
 
             GL gl = context.Gl;
+            if (slot.PresentSync != 0)
+                throw new GraphicsValidationException(
+                    "An acquired GLES swap-chain image unexpectedly still owns a presentation sync.");
+
             fence?.EnqueueGpuWait(gl, waitValue);
             gl.BindFramebuffer(FramebufferTarget.ReadFramebuffer, slot.Framebuffer);
             gl.BindFramebuffer(FramebufferTarget.DrawFramebuffer, 0);
@@ -463,10 +467,9 @@ internal sealed class OpenGLESGraphicsSwapChain : OpenGLESNativeDeviceObject, IG
             if (sync == 0)
                 throw new GraphicsException("OpenGL ES failed to create a presentation sync object.");
 
-            _device.SwapChainTestHooks?.AfterPresentationSyncCreated?.Invoke(sync);
-
             try
             {
+                _device.SwapChainTestHooks?.AfterPresentationSyncCreated?.Invoke(sync);
                 PublishPresentationSync(slot, sync);
             }
             catch

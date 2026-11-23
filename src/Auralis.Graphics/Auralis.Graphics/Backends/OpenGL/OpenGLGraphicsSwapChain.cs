@@ -373,6 +373,10 @@ internal sealed class OpenGLGraphicsSwapChain : OpenGLNativeDeviceObject, IGraph
                     "The acquired OpenGL image was already presented or invalidated before presentation.");
 
             GL gl = context.Gl;
+            if (slot.PresentSync != 0)
+                throw new GraphicsValidationException(
+                    "An acquired OpenGL swap-chain image unexpectedly still owns a presentation sync.");
+
             if (openGlFence is not null)
                 openGlFence.EnqueueGpuWait(gl, waitValue);
 
@@ -398,17 +402,32 @@ internal sealed class OpenGLGraphicsSwapChain : OpenGLNativeDeviceObject, IGraph
                 ClearBufferMask.ColorBufferBit,
                 BlitFramebufferFilter.Linear);
 
-            if (slot.PresentSync != 0)
-                throw new GraphicsValidationException(
-                    "An acquired OpenGL swap-chain image unexpectedly still owns a presentation sync.");
-
             nint sync = _device.SyncApi.FenceSync(
                 SyncCondition.SyncGpuCommandsComplete,
                 SyncBehaviorFlags.None);
             if (sync == 0)
                 throw new GraphicsException("OpenGL failed to create a presentation completion sync.");
 
-            _device.SwapChainTestHooks?.AfterPresentationSyncCreated?.Invoke(sync);
+            try
+            {
+                _device.SwapChainTestHooks?.AfterPresentationSyncCreated?.Invoke(sync);
+            }
+            catch (Exception publicationFailure)
+            {
+                try
+                {
+                    _device.SyncApi.DeleteSync(sync);
+                }
+                catch (Exception cleanupFailure)
+                {
+                    throw new AggregateException(
+                        "OpenGL presentation-sync publication failed and its unowned sync could not be deleted.",
+                        publicationFailure,
+                        cleanupFailure);
+                }
+
+                throw;
+            }
 
             // Publish the completion dependency before the host swap. SwapBuffers may throw after
             // the blit and fence have already been submitted; the image must retain sync ownership
