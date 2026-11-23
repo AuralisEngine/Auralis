@@ -32,6 +32,7 @@ public interface IOpenGLESContextProvider : IDisposable
     /// <summary>A stable identity token for this exact native context.</summary>
     object ContextIdentity { get; }
 
+    /// <summary>Specifies whether the device or host is responsible for disposing the provider and its context.</summary>
     OpenGLESContextOwnership Ownership { get; }
 
     /// <summary>
@@ -40,8 +41,10 @@ public interface IOpenGLESContextProvider : IDisposable
     /// </summary>
     OpenGLESContextStateOwnership StateOwnership { get; }
 
+    /// <summary>Gets whether the host-supplied GLES context can currently be activated and used.</summary>
     bool IsAvailable { get; }
 
+    /// <summary>Gets the unavailability reason, or <see langword="null" /> while the context is available.</summary>
     string? UnavailableReason { get; }
 
     /// <summary>True only when this context is associated with a host drawable that can be swapped.</summary>
@@ -50,15 +53,20 @@ public interface IOpenGLESContextProvider : IDisposable
     /// <summary>Verifies that a supplied target refers to the drawable associated with this context.</summary>
     bool IsPresentationTargetCompatible(in GraphicsPresentationTargetSnapshot target);
 
+    /// <summary>Gets whether the host drawable supports the requested swap policy.</summary>
+    /// <param name="presentMode">Requested presentation mode.</param>
     bool SupportsPresentMode(GraphicsPresentMode presentMode);
 
     /// <summary>Applies the requested swap policy through the host/platform integration.</summary>
     void SetPresentMode(GraphicsPresentMode presentMode);
 
     /// <summary>Makes this exact GLES context current on the calling thread.</summary>
+    /// <summary>Makes the exact supplied OpenGL ES context current on the calling thread.</summary>
+    /// <exception cref="InvalidOperationException">The host cannot activate the context on this thread.</exception>
     void MakeCurrent();
 
     /// <summary>Releases this context from the calling thread without destroying it.</summary>
+    /// <summary>Releases the current GLES context from this thread without destroying it.</summary>
     void ReleaseCurrent();
 
     /// <summary>Returns a GLES entry-point address, or zero when the host cannot resolve it.</summary>
