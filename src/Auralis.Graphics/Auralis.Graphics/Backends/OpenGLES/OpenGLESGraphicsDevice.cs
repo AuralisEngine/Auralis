@@ -14,10 +14,17 @@ using Silk.NET.OpenGLES.Extensions.EXT;
 
 namespace Auralis.Graphics.Backends.OpenGLES;
 
-/// <summary>
-/// Graphics device over one externally supplied OpenGL ES context. All driver work is serialized
-/// because the host context is made current on the calling thread for each operation.
-/// </summary>
+/// <summary>Implements the Auralis graphics device over a host-supplied OpenGL ES 3.1-or-newer context.</summary>
+/// <remarks>
+/// Creation makes the exact host context current, resolves GLES entry points, validates the API
+/// version, and queries core limits, extension advertisement, native entry-point availability,
+/// format renderability, and per-format sample counts. Capabilities are reported from the usable
+/// combination rather than inferred from token presence alone. Native calls are serialized through
+/// the device context gate; this does not preserve arbitrary host GLES state, so exclusive state
+/// ownership is required. The backend does not create EGL objects, windows, or native contexts.
+/// Disposal finishes outstanding work, retires queued submissions, releases native resources, and
+/// then disposes an owned provider.
+/// </remarks>
 internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
 {
     private static readonly GraphicsFormat[] s_allFormats = Enum.GetValues<GraphicsFormat>();
@@ -1022,6 +1029,8 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
         uint MaxTaskWorkGroupCountZ = 0,
         uint MaxTaskWorkGroupTotalCount = 0);
 
+    /// <inheritdoc />
+    /// <remarks>The backend exposes one logical queue per supported role; graphics, compute, and copy work use the same serialized GLES command stream.</remarks>
     public IGraphicsCommandQueue GetQueue(GraphicsQueueType queueType, uint index = 0)
     {
         ObjectDisposedException.ThrowIf(IsDisposed, this);
@@ -1038,6 +1047,8 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
             return _queues[(int)queueType] ??= new OpenGLESGraphicsCommandQueue(this, queueType);
     }
 
+    /// <inheritdoc />
+    /// <remarks>Returns the graphics queue only when the host provider supplies a presentable drawable.</remarks>
     public IGraphicsQueue GetPresentationQueue(uint index = 0)
     {
         ObjectDisposedException.ThrowIf(IsDisposed, this);
@@ -1049,6 +1060,8 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
         return GetQueue(GraphicsQueueType.Graphics);
     }
 
+    /// <inheritdoc />
+    /// <remarks>Creates native buffer storage after validating GLES usage and memory-access constraints. CPU-visible maps may use backend-managed staging memory rather than persistent native mapping.</remarks>
     public IGraphicsBuffer CreateBuffer(in GraphicsBufferDescription description)
     {
         ObjectDisposedException.ThrowIf(IsDisposed, this);
@@ -1058,6 +1071,8 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
         return OpenGLESGraphicsBuffer.CreateUnderContext(this, context.Gl, copy);
     }
 
+    /// <inheritdoc />
+    /// <remarks>Texture target, format, usage, mip, layer, and sample-count support are validated against the GLES capability profile before allocation.</remarks>
     public IGraphicsTexture CreateTexture(in GraphicsTextureDescription description)
     {
         ObjectDisposedException.ThrowIf(IsDisposed, this);
@@ -1067,6 +1082,7 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
         return OpenGLESGraphicsTexture.CreateUnderContext(this, context.Gl, copy);
     }
 
+    /// <inheritdoc />
     public IGraphicsSampler CreateSampler(in GraphicsSamplerDescription description)
     {
         ObjectDisposedException.ThrowIf(IsDisposed, this);
@@ -1076,6 +1092,8 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
         return OpenGLESGraphicsSampler.CreateUnderContext(this, context.Gl, copy);
     }
 
+    /// <inheritdoc />
+    /// <remarks>Shader source is validated for the GLSL ES language and version supported by the supplied context; desktop GLSL source is not accepted.</remarks>
     public IGraphicsShader CreateShader(in GraphicsShaderDescription description)
     {
         ObjectDisposedException.ThrowIf(IsDisposed, this);
@@ -1084,18 +1102,21 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
         return OpenGLESGraphicsShader.CreateUnderContext(this, context.Gl, copy);
     }
 
+    /// <inheritdoc />
     public IGraphicsBindingLayout CreateBindingLayout(GraphicsBindingLayoutDescription description)
     {
         ObjectDisposedException.ThrowIf(IsDisposed, this);
         return new OpenGLESGraphicsBindingLayout(this, description);
     }
 
+    /// <inheritdoc />
     public IGraphicsPipelineLayout CreatePipelineLayout(ReadOnlySpan<IGraphicsBindingLayout> bindingLayouts)
     {
         ObjectDisposedException.ThrowIf(IsDisposed, this);
         return new OpenGLESGraphicsPipelineLayout(this, bindingLayouts);
     }
 
+    /// <inheritdoc />
     public IGraphicsBindingSet CreateBindingSet(IGraphicsBindingLayout bindingLayout)
     {
         ObjectDisposedException.ThrowIf(IsDisposed, this);
@@ -1106,18 +1127,24 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
         return new OpenGLESGraphicsBindingSet(glesLayout);
     }
 
+    /// <inheritdoc />
+    /// <remarks>Pipeline creation rejects unsupported shader stages and optional state, and checks format features against the GLES capability profile.</remarks>
     public IGraphicsRenderPipeline CreateRenderPipeline(GraphicsRenderPipelineDescription description)
     {
         ObjectDisposedException.ThrowIf(IsDisposed, this);
         return OpenGLESGraphicsRenderPipeline.Create(this, description);
     }
 
+    /// <inheritdoc />
+    /// <remarks>Compute dispatch support is exposed only for a context meeting the GLES 3.1 baseline and queried work-group limits.</remarks>
     public IGraphicsComputePipeline CreateComputePipeline(GraphicsComputePipelineDescription description)
     {
         ObjectDisposedException.ThrowIf(IsDisposed, this);
         return OpenGLESGraphicsComputePipeline.Create(this, description);
     }
 
+    /// <inheritdoc />
+    /// <remarks>The timeline is backed by GLES sync objects inserted into the shared context command stream.</remarks>
     public IGraphicsFence CreateFence(ulong initialValue = 0)
     {
         ObjectDisposedException.ThrowIf(IsDisposed, this);
@@ -1127,6 +1154,8 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
         return fence;
     }
 
+    /// <inheritdoc />
+    /// <remarks>The presentation target must be compatible with the exact drawable supplied by the host provider.</remarks>
     public IGraphicsPresentationSurface CreatePresentationSurface(IGraphicsPresentationTarget target)
     {
         ObjectDisposedException.ThrowIf(IsDisposed, this);
