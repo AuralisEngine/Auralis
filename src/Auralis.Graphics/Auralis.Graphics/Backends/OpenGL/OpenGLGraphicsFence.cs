@@ -9,7 +9,7 @@ namespace Auralis.Graphics.Backends.OpenGL;
 
 /// <summary>Implements a monotonic timeline fence using ordered desktop OpenGL sync objects.</summary>
 /// <remarks>
-/// GPU signals insert <see cref="GLsync" />-backed completion points in command-stream order;
+/// GPU signals insert GL sync-object completion points in command-stream order;
 /// CPU signals advance the value immediately after validating that they do not overtake pending
 /// GPU signals. Polling and CPU waits acquire the device context gate because GL sync queries
 /// require this device's context to be current. Fence completion does not itself retire a submitted
