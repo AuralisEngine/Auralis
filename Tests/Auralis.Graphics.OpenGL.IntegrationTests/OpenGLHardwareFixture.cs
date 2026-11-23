@@ -4,6 +4,12 @@ using Xunit.Sdk;
 
 namespace Auralis.Graphics.OpenGL.IntegrationTests;
 
+/// <summary>Creates one shared desktop OpenGL hardware session for the integration-test class.</summary>
+/// <remarks>
+/// Native-library, platform, and context-availability failures are captured so each hardware test
+/// can be reported as skipped. Exceptions raised after a usable context has been created are not
+/// converted into skips.
+/// </remarks>
 public sealed class OpenGLHardwareFixture : IDisposable
 {
     private readonly GlfwOpenGLHardwareSession? _session;
@@ -21,6 +27,9 @@ public sealed class OpenGLHardwareFixture : IDisposable
         }
     }
 
+    /// <summary>Returns the initialized hardware session or marks the requesting test as skipped.</summary>
+    /// <returns>The shared GLFW context and Auralis device session.</returns>
+    /// <exception cref="Xunit.Sdk.SkipException">A usable desktop OpenGL 4.5 Core context could not be created.</exception>
     public GlfwOpenGLHardwareSession GetSessionOrSkip()
     {
         if (_session is null)
@@ -28,6 +37,7 @@ public sealed class OpenGLHardwareFixture : IDisposable
         return _session;
     }
 
+    /// <summary>Disposes the shared session and its device-owned context, when initialization succeeded.</summary>
     public void Dispose() => _session?.Dispose();
 
     private static bool IsHardwareUnavailable(Exception exception) =>
