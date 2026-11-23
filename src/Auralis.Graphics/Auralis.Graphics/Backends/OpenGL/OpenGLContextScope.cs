@@ -18,6 +18,8 @@ internal ref struct OpenGLContextScope
 
     internal GL Gl { get; }
 
+    /// <summary>Releases one activation depth and the device context gate exactly once.</summary>
+    /// <remarks>Must be called on the thread that acquired this stack-only scope, including during exception unwinding.</remarks>
     public void Dispose()
     {
         OpenGLGraphicsDevice? device = _device;
