@@ -131,9 +131,6 @@ internal sealed class OpenGLGraphicsSwapChain : OpenGLNativeDeviceObject, IGraph
                     hasUnacquiredImage = true;
                     if (image.PresentSync == 0)
                     {
-                        if (!allowImmediatePoll && deadline.IsExpired)
-                            return new GraphicsAcquireResult(GraphicsAcquireStatus.Timeout, default);
-
                         // Revalidate immediately before publishing acquisition.
                         if (!allowImmediatePoll && deadline.IsExpired)
                             return new GraphicsAcquireResult(GraphicsAcquireStatus.Timeout, default);
@@ -473,20 +470,6 @@ internal sealed class OpenGLGraphicsSwapChain : OpenGLNativeDeviceObject, IGraph
 
             image.Acquired = false;
         }
-    }
-
-    private static ulong GetRemainingNanoseconds(long startTimestamp, long timeoutTicks)
-    {
-        if (timeoutTicks == long.MaxValue)
-            return ulong.MaxValue;
-
-        long elapsed = Stopwatch.GetTimestamp() - startTimestamp;
-        long remainingTicks = Math.Max(0, timeoutTicks - elapsed);
-        if (remainingTicks == 0)
-            return 0;
-
-        double nanoseconds = remainingTicks * (1_000_000_000d / Stopwatch.Frequency);
-        return nanoseconds >= ulong.MaxValue ? ulong.MaxValue : (ulong)nanoseconds;
     }
 
     /// <summary>Releases owner references; actual framebuffer and texture teardown is performed under the current GL context.</summary>
