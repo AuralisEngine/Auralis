@@ -1103,6 +1103,15 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
             _gl.PopDebugGroup();
     }
 
+    /// <summary>Synchronously shuts down the device, drains submitted work, and releases native resources.</summary>
+    /// <remarks>
+    /// Disposal first prevents new operations and prepares mapped resources without holding the
+    /// context gate, then makes the context current, waits for GPU work, retires queues, and releases
+    /// native objects. Calls racing an in-progress disposal wait for that shutdown attempt to finish.
+    /// The provider is disposed only when its ownership policy assigns context lifetime to the device.
+    /// Cleanup failures are propagated after the backend has attempted the remaining release steps.
+    /// </remarks>
+    /// <exception cref="AggregateException">One or more queue, resource, context-release, or provider-disposal operations fail during teardown.</exception>
     public void Dispose()
     {
         IOpenGLNativeResource[]? resourcesToPrepare = null;
