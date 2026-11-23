@@ -18,6 +18,8 @@ internal ref struct OpenGLESContextScope
 
     internal GL Gl { get; }
 
+    /// <summary>Releases one GLES context activation depth and the device context gate exactly once.</summary>
+    /// <remarks>Must be called on the acquiring thread, including while unwinding an exception.</remarks>
     public void Dispose()
     {
         OpenGLESGraphicsDevice? device = _device;
