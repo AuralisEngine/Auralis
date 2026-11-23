@@ -234,6 +234,7 @@ internal sealed class OpenGLESGraphicsSwapChain : OpenGLESNativeDeviceObject, IG
         OpenGLESAcquireDeadline deadline = hooks?.TimestampProvider is { } timestampProvider
             ? new OpenGLESAcquireDeadline(timeout, timestampProvider)
             : new OpenGLESAcquireDeadline(timeout);
+        bool allowImmediatePoll = timeout == TimeSpan.Zero;
         if (!_device.TryAcquireContext(
                 deadline.GetRemainingTime(),
                 CancellationToken.None,
@@ -269,7 +270,12 @@ internal sealed class OpenGLESGraphicsSwapChain : OpenGLESNativeDeviceObject, IG
 
                     hasUnacquiredImage = true;
                     if (image.PresentSync == 0)
+                    {
+                        if (!allowImmediatePoll && deadline.IsExpired)
+                            return new GraphicsAcquireResult(GraphicsAcquireStatus.Timeout, default);
+
                         return AcquireImage(index, image);
+                    }
 
                     GLEnum status = hooks?.PollClientWaitSync is { } poll
                         ? poll(image.PresentSync)
@@ -280,6 +286,9 @@ internal sealed class OpenGLESGraphicsSwapChain : OpenGLESNativeDeviceObject, IG
                         gl.DeleteSync(completedSync);
                         image.PresentSync = 0;
                         hooks?.AfterAcquireSyncDeleted?.Invoke(completedSync);
+                        if (!allowImmediatePoll && deadline.IsExpired)
+                            return new GraphicsAcquireResult(GraphicsAcquireStatus.Timeout, default);
+
                         return AcquireImage(index, image);
                     }
 
@@ -315,6 +324,9 @@ internal sealed class OpenGLESGraphicsSwapChain : OpenGLESNativeDeviceObject, IG
                     gl.DeleteSync(completedSync);
                     pending.PresentSync = 0;
                     hooks?.AfterAcquireSyncDeleted?.Invoke(completedSync);
+                    if (deadline.IsExpired)
+                        return new GraphicsAcquireResult(GraphicsAcquireStatus.Timeout, default);
+
                     return AcquireImage((uint)firstPendingIndex, pending);
                 }
 
@@ -325,9 +337,10 @@ internal sealed class OpenGLESGraphicsSwapChain : OpenGLESNativeDeviceObject, IG
                     throw new GraphicsException(
                         $"OpenGL ES returned unexpected client-wait status {waitStatus} for a presentation sync.");
 
-                // Rescan all available images before reporting expiry; another slot may have
-                // completed while the native wait was blocked. The next scan checks the original
-                // deadline after probing every slot, so timeout accounting is not extended.
+                // A timed wait consumes the original deadline. Do not rescan and acquire an image
+                // that became available only after the caller's timeout has elapsed.
+                if (deadline.IsExpired)
+                    return new GraphicsAcquireResult(GraphicsAcquireStatus.Timeout, default);
 
             }
         }
