@@ -113,8 +113,10 @@ internal sealed class OpenGLESGraphicsTexture : OpenGLESNativeDeviceObject, IGra
             device, context.Gl, device.TextureViewExt, this, copy);
     }
 
+    /// <inheritdoc />
     protected override void DisposeCore() => ReleaseOwnerReference();
 
+    /// <inheritdoc />
     public override void ReleaseNative(GL gl)
     {
         uint handle = Interlocked.Exchange(ref _handle, 0);
@@ -394,8 +396,10 @@ internal sealed class OpenGLESGraphicsTextureView : OpenGLESNativeDeviceObject, 
                 $"OpenGL ES does not support the requested texture-view type {viewType}.")
         };
 
+    /// <inheritdoc />
     protected override void DisposeCore() => ReleaseOwnerReference();
 
+    /// <inheritdoc />
     public override void ReleaseNative(GL gl)
     {
         uint handle = Interlocked.Exchange(ref _handle, 0);
