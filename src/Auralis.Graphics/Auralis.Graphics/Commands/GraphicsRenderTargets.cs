@@ -13,6 +13,9 @@ public readonly record struct GraphicsViewport(
     float MinDepth = 0,
     float MaxDepth = 1)
 {
+    /// <summary>Validates finite viewport coordinates, non-negative dimensions, and a normalized depth interval.</summary>
+    /// <exception cref="ArgumentException">A viewport component is not finite.</exception>
+    /// <exception cref="ArgumentOutOfRangeException">Dimensions are negative or the depth range is outside 0 to 1.</exception>
     public void Validate()
     {
         if (!float.IsFinite(X) || !float.IsFinite(Y) ||
@@ -31,6 +34,8 @@ public readonly record struct GraphicsViewport(
 /// <summary>Integer scissor rectangle. Zero width or height intentionally discards all fragments.</summary>
 public readonly record struct GraphicsScissorRect(int X, int Y, uint Width, uint Height)
 {
+    /// <summary>Validates that unsigned scissor dimensions fit the native signed rectangle range.</summary>
+    /// <exception cref="ArgumentOutOfRangeException">Either dimension exceeds <see cref="int.MaxValue" />.</exception>
     public void Validate()
     {
         if (Width > int.MaxValue || Height > int.MaxValue)
@@ -38,8 +43,11 @@ public readonly record struct GraphicsScissorRect(int X, int Y, uint Width, uint
     }
 }
 
+/// <summary>Floating-point RGBA value used to clear a floating-point or normalized color attachment.</summary>
 public readonly record struct GraphicsClearColor(float Red, float Green, float Blue, float Alpha)
 {
+    /// <summary>Ensures all floating-point clear components are finite.</summary>
+    /// <exception cref="ArgumentException">Any component is NaN or infinite.</exception>
     public void Validate()
     {
         if (!float.IsFinite(Red) || !float.IsFinite(Green) ||
@@ -48,8 +56,10 @@ public readonly record struct GraphicsClearColor(float Red, float Green, float B
     }
 }
 
+/// <summary>Unsigned-integer RGBA value used to clear an unsigned integer color attachment.</summary>
 public readonly record struct GraphicsClearColorUInt(uint Red, uint Green, uint Blue, uint Alpha);
 
+/// <summary>Signed-integer RGBA value used to clear a signed integer color attachment.</summary>
 public readonly record struct GraphicsClearColorSInt(int Red, int Green, int Blue, int Alpha);
 
 /// <summary>Extent and sample count shared by every attachment in one render-target set.</summary>
@@ -61,6 +71,14 @@ public readonly record struct GraphicsRenderTargetExtent(uint Width, uint Height
 /// </summary>
 public static class GraphicsRenderTargetValidation
 {
+    /// <summary>Validates a render-target set and returns its common mip extent and sample count.</summary>
+    /// <param name="device">Device against which ownership and format capabilities are checked.</param>
+    /// <param name="colorTargets">Color attachment views; may be empty when a depth/stencil attachment is supplied.</param>
+    /// <param name="depthStencilTarget">Optional depth/stencil attachment view.</param>
+    /// <returns>Extent and sample count shared by every attachment.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="device" /> is <see langword="null" />.</exception>
+    /// <exception cref="ArgumentException">No attachments are supplied or a color attachment entry is null.</exception>
+    /// <exception cref="GraphicsValidationException">An attachment is foreign, disposed, has incompatible usage/format, or differs in extent/sample count.</exception>
     public static GraphicsRenderTargetExtent Validate(
         IGraphicsDevice device,
         ReadOnlySpan<IGraphicsTextureView> colorTargets,
