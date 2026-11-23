@@ -168,6 +168,7 @@ internal static class OpenGLBindingSetBinder
     /// <param name="pipelineLayout">Pipeline layout that allocated native slots.</param>
     /// <param name="setIndex">Pipeline set index being applied.</param>
     /// <exception cref="GraphicsValidationException">A mapping is missing or a required descriptor is incomplete.</exception>
+    internal static void Bind(
         GL gl,
         ArbDirectStateAccess dsa,
         ArbShaderImageLoadStore imageLoadStoreApi,
@@ -345,6 +346,7 @@ internal sealed class OpenGLGraphicsBindingSet : GraphicsDeviceObject, IGraphics
     /// <param name="range">Byte range, or <see cref="ulong.MaxValue" /> to use the remaining bytes.</param>
     /// <exception cref="GraphicsValidationException">The binding kind, device ownership, usage, or offset alignment is invalid.</exception>
     /// <exception cref="ArgumentOutOfRangeException">The array element, offset, or range is outside the declared binding or buffer.</exception>
+    public void SetBuffer(
         uint binding,
         uint arrayElement,
         IGraphicsBuffer buffer,
@@ -397,6 +399,7 @@ internal sealed class OpenGLGraphicsBindingSet : GraphicsDeviceObject, IGraphics
     /// <param name="textureView">Same-device view whose parent texture usage is compatible with the descriptor kind.</param>
     /// <exception cref="GraphicsValidationException">The binding kind, device ownership, or parent texture usage is incompatible.</exception>
     /// <exception cref="ArgumentOutOfRangeException">The array element is outside the declared binding.</exception>
+    public void SetTexture(uint binding, uint arrayElement, IGraphicsTextureView textureView)
     {
         ThrowIfDisposed();
         ArgumentNullException.ThrowIfNull(textureView);
@@ -432,6 +435,7 @@ internal sealed class OpenGLGraphicsBindingSet : GraphicsDeviceObject, IGraphics
     /// <param name="sampler">Live sampler created by the same device.</param>
     /// <exception cref="GraphicsValidationException">The binding kind or sampler device ownership is incompatible.</exception>
     /// <exception cref="ArgumentOutOfRangeException">The array element is outside the declared binding.</exception>
+    public void SetSampler(uint binding, uint arrayElement, IGraphicsSampler sampler)
     {
         ThrowIfDisposed();
         ArgumentNullException.ThrowIfNull(sampler);
@@ -458,13 +462,13 @@ internal sealed class OpenGLGraphicsBindingSet : GraphicsDeviceObject, IGraphics
     internal int ValueCount => _values.Length;
 
     /// <summary>
-    /// Copies a validated immutable snapshot into command-list-owned reusable storage. This avoids
-    /// allocating a snapshot object and cloned array for every descriptor-set recording operation.
+    /// Validates descriptor completeness and copies a stable snapshot into command-list-owned reusable storage.
+    /// This avoids allocating a snapshot object and cloned array for every descriptor-set recording operation.
     /// </summary>
-    /// <summary>Validates descriptor completeness and appends a stable value snapshot to command-list-owned storage.</summary>
     /// <param name="destination">Reusable destination list owned by the command recorder.</param>
     /// <returns>Starting element offset of the appended snapshot.</returns>
     /// <exception cref="GraphicsValidationException">A required descriptor is missing or a partially-bound descriptor is only partly populated.</exception>
+    internal int SnapshotTo(List<OpenGLBindingValue> destination)
     {
         ThrowIfDisposed();
         ArgumentNullException.ThrowIfNull(destination);
