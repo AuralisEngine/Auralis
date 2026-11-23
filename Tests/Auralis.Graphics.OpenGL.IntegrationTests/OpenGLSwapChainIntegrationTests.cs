@@ -36,6 +36,16 @@ public sealed partial class OpenGLIntegrationTests
         Assert.Equal(1UL, swapChain.Generation);
         Assert.Equal(description, swapChain.Description);
 
+        // Keep the device context gate on this thread while another thread attempts acquisition.
+        // The timeout must include gate contention and return without ever entering a blocking GL wait.
+        OpenGLGraphicsDevice nativeDevice = (OpenGLGraphicsDevice)session.Device;
+        using (OpenGLContextScope heldContext = nativeDevice.AcquireContext())
+        {
+            Task<GraphicsAcquireResult> contendedAcquire = Task.Run(
+                () => swapChain.AcquireNextImage(TimeSpan.FromMilliseconds(75)));
+            Assert.Equal(GraphicsAcquireStatus.Timeout, contendedAcquire.GetAwaiter().GetResult().Status);
+        }
+
         // Zero-timeout acquisition must still return images that have no presentation sync.
         GraphicsAcquireResult first = swapChain.AcquireNextImage(TimeSpan.Zero);
         Assert.Equal(GraphicsAcquireStatus.Success, first.Status);

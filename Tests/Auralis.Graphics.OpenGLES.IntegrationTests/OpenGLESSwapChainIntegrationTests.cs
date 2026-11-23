@@ -38,6 +38,14 @@ public sealed partial class OpenGLESIntegrationTests
         Assert.Equal(1UL, swapChain.Generation);
         Assert.Equal(description, swapChain.Description);
 
+        OpenGLESGraphicsDevice nativeDevice = (OpenGLESGraphicsDevice)device;
+        using (OpenGLESContextScope heldContext = nativeDevice.AcquireContext())
+        {
+            Task<GraphicsAcquireResult> contendedAcquire = Task.Run(
+                () => swapChain.AcquireNextImage(TimeSpan.FromMilliseconds(75)));
+            Assert.Equal(GraphicsAcquireStatus.Timeout, contendedAcquire.GetAwaiter().GetResult().Status);
+        }
+
         GraphicsAcquireResult first = swapChain.AcquireNextImage(TimeSpan.Zero);
         Assert.Equal(GraphicsAcquireStatus.Success, first.Status);
         Assert.Equal(0u, first.Image.ImageIndex);
