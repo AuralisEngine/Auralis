@@ -37,9 +37,14 @@ public readonly record struct GraphicsFormatCapabilities(
     GraphicsFormatSupport Support,
     GraphicsSampleCountFlags SampleCounts)
 {
+    /// <summary>Determines whether every requested operation is supported for this format.</summary>
+    /// <param name="support">Required usage/support flags.</param>
+    /// <returns><see langword="false" /> for <see cref="GraphicsFormatSupport.None" /> or when any requested capability is absent.</returns>
     public bool Supports(GraphicsFormatSupport support) =>
         support != GraphicsFormatSupport.None && (Support & support) == support;
 
+    /// <summary>Determines whether the format supports the specified multisample count.</summary>
+    /// <param name="sampleCount">Sample count to query; only represented sample-count flags can be supported.</param>
     public bool SupportsSampleCount(uint sampleCount)
     {
         GraphicsSampleCountFlags flag = sampleCount switch
@@ -73,6 +78,13 @@ public sealed class GraphicsDeviceCapabilities
 
     public ReadOnlySpan<GraphicsFormatCapabilities> Formats => _formats;
 
+    /// <summary>Creates an immutable capability snapshot and copies the supplied per-format records.</summary>
+    /// <param name="features">Optional device features actually supported by the backend.</param>
+    /// <param name="queueCapabilities">Logical queue roles exposed by the device.</param>
+    /// <param name="limits">Queried implementation limits; zero denotes a limit the backend does not report.</param>
+    /// <param name="formats">Per-format usage and sample-count records.</param>
+    /// <exception cref="ArgumentOutOfRangeException">Feature or queue flags contain unknown bits, or maximum anisotropy is invalid.</exception>
+    /// <exception cref="ArgumentException">A format entry is unknown, contains unsupported bits, or duplicates another format.</exception>
     public GraphicsDeviceCapabilities(
         GraphicsFeatureSet features,
         GraphicsQueueCapabilities queueCapabilities,
@@ -138,6 +150,10 @@ public sealed class GraphicsDeviceCapabilities
         }
     }
 
+    /// <summary>Looks up the reported capability record for one graphics format.</summary>
+    /// <param name="format">Format to search for.</param>
+    /// <param name="capabilities">Receives the record when found; otherwise receives its default value.</param>
+    /// <returns><see langword="true" /> when the device reports this format.</returns>
     public bool TryGetFormatCapabilities(
         GraphicsFormat format,
         out GraphicsFormatCapabilities capabilities)
@@ -155,10 +171,18 @@ public sealed class GraphicsDeviceCapabilities
         return false;
     }
 
+    /// <summary>Checks whether the device reports all requested operations for a format.</summary>
+    /// <param name="format">Format to query.</param>
+    /// <param name="support">Required usage/support flags.</param>
+    /// <returns><see langword="true" /> when a capability record exists and contains every requested flag.</returns>
     public bool SupportsFormat(GraphicsFormat format, GraphicsFormatSupport support) =>
         TryGetFormatCapabilities(format, out GraphicsFormatCapabilities capabilities) &&
         capabilities.Supports(support);
 
+    /// <summary>Checks whether a format supports a particular multisample count.</summary>
+    /// <param name="format">Format to query.</param>
+    /// <param name="sampleCount">Sample count to test.</param>
+    /// <returns><see langword="true" /> when the format record advertises the requested count.</returns>
     public bool SupportsSampleCount(GraphicsFormat format, uint sampleCount) =>
         TryGetFormatCapabilities(format, out GraphicsFormatCapabilities capabilities) &&
         capabilities.SupportsSampleCount(sampleCount);
@@ -284,6 +308,10 @@ public sealed class GraphicsDeviceCapabilities
         return required;
     }
 
+    /// <summary>Validates the sampler description and checks anisotropy against the feature set and device limit.</summary>
+    /// <param name="description">Sampler state to validate.</param>
+    /// <exception cref="ArgumentException">The sampler description contains structurally invalid values.</exception>
+    /// <exception cref="GraphicsException">Anisotropy is requested without support or exceeds the reported maximum.</exception>
     public void ValidateSamplerDescription(in GraphicsSamplerDescription description)
     {
         description.Validate();
