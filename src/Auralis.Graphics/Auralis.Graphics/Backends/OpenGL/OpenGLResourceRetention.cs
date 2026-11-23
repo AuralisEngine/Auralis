@@ -12,9 +12,13 @@ internal sealed class OpenGLResourceRetention
     private readonly HashSet<IOpenGLNativeResource> _uniqueResources =
         new(ReferenceEqualityComparer.Instance);
 
+    /// <summary>Gets the number of distinct native resources retained by this recording.</summary>
     internal int Count => _resources.Count;
 
-    internal void Retain(IOpenGLNativeResource resource)
+    /// <summary>Retains a resource once per recording, even when multiple commands reference it.</summary>
+    /// <param name="resource">Native GL object referenced by a recorded command.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="resource" /> is <see langword="null" />.</exception>
+    /// <exception cref="ObjectDisposedException">The resource owner has closed and can no longer be retained.</exception>
     {
         ArgumentNullException.ThrowIfNull(resource);
         if (!_uniqueResources.Add(resource))
@@ -38,6 +42,8 @@ internal sealed class OpenGLResourceRetention
         }
     }
 
+    /// <summary>Releases every retained resource in reverse acquisition order and continues after individual release failures.</summary>
+    /// <exception cref="AggregateException">One or more resource references failed to release; all other retained references are still attempted.</exception>
     internal void ReleaseAll()
     {
         List<Exception>? failures = null;
