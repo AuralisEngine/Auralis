@@ -69,14 +69,17 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
         GraphicsFormat.RGBA32SInt
     ];
 
+    /// <summary>Native EXT delegate for issuing multiple non-indexed indirect draw commands in one call.</summary>
     [UnmanagedFunctionPointer(CallingConvention.Winapi)]
     internal unsafe delegate void MultiDrawArraysIndirectExtDelegate(
         PrimitiveType mode, void* indirect, int drawCount, int stride);
 
+    /// <summary>Native EXT delegate for issuing multiple indexed indirect draw commands in one call.</summary>
     [UnmanagedFunctionPointer(CallingConvention.Winapi)]
     internal unsafe delegate void MultiDrawElementsIndirectExtDelegate(
         PrimitiveType mode, DrawElementsType type, void* indirect, int drawCount, int stride);
 
+    /// <summary>Native OES entry point for copying a region between compatible texture images.</summary>
     [UnmanagedFunctionPointer(CallingConvention.Winapi)]
     internal delegate void CopyImageSubDataOesDelegate(
         uint source, TextureTarget sourceTarget, int sourceLevel,
@@ -85,15 +88,19 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
         int destinationX, int destinationY, int destinationZ,
         uint width, uint height, uint depth);
 
+    /// <summary>Native EXT direct mesh/task dispatch entry point with three-dimensional group counts.</summary>
     [UnmanagedFunctionPointer(CallingConvention.Winapi)]
     internal delegate void DrawMeshTasksExtDelegate(uint numGroupsX, uint numGroupsY, uint numGroupsZ);
 
+    /// <summary>Native EXT indirect mesh/task dispatch entry point using a 12-byte three-axis command record.</summary>
     [UnmanagedFunctionPointer(CallingConvention.Winapi)]
     internal delegate void DrawMeshTasksIndirectExtDelegate(nint indirect);
 
+    /// <summary>Native EXT multi-draw entry point for an array of three-axis indirect mesh/task command records.</summary>
     [UnmanagedFunctionPointer(CallingConvention.Winapi)]
     internal delegate void MultiDrawMeshTasksIndirectExtDelegate(nint indirect, uint drawCount, uint stride);
 
+    /// <summary>Native EXT texture-view entry point that creates a new name for a selected parent subresource range.</summary>
     [UnmanagedFunctionPointer(CallingConvention.Winapi)]
     internal delegate void TextureViewExtDelegate(
         uint texture, TextureTarget target, uint originalTexture, SizedInternalFormat internalFormat,
@@ -997,6 +1004,8 @@ internal sealed class OpenGLESGraphicsDevice : IGraphicsDevice
 
     private static uint ToUInt(int value) => value <= 0 ? 0u : (uint)value;
 
+    /// <summary>Initialization-time snapshot of GLES limits queried while the host context is current.</summary>
+    /// <remarks>These values are consumed by device capability reporting and command/pipeline validation; they are not dynamic telemetry.</remarks>
     internal readonly record struct OpenGLESQueriedLimits(
         uint MaxTextureSize,
         uint MaxTexture3DSize,
