@@ -35,6 +35,14 @@ internal sealed class OpenGLGraphicsComputePipeline : OpenGLNativeDeviceObject, 
         }
     }
 
+    /// <summary>Validates and links a single compute-stage shader into a native GL program.</summary>
+    /// <param name="device">Owning OpenGL device and context.</param>
+    /// <param name="description">Compute shader and pipeline-layout description.</param>
+    /// <returns>A device-registered compute pipeline that owns the linked program until its final reference is released.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="description" /> is <see langword="null" />.</exception>
+    /// <exception cref="GraphicsFeatureNotSupportedException">The context does not expose compute shaders.</exception>
+    /// <exception cref="GraphicsValidationException">The layout, shader backend, or shader stage is incompatible.</exception>
+    /// <exception cref="GraphicsException">Native program creation or linking fails.</exception>
     internal static OpenGLGraphicsComputePipeline Create(
         OpenGLGraphicsDevice device,
         GraphicsComputePipelineDescription description)
