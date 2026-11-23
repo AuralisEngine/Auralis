@@ -3,6 +3,7 @@ using Auralis.Graphics.Backends.OpenGLES;
 using Auralis.Graphics.Commands;
 using Auralis.Graphics.Devices;
 using Auralis.Graphics.Resources;
+using Auralis.Graphics.Synchronization;
 using Xunit;
 
 namespace Auralis.Graphics.Tests;
@@ -90,7 +91,7 @@ public sealed class OpenGLESMemoryBarrierTranslatorTests
     }
 
     private static GraphicsResourceBarrier Barrier(IGraphicsResource resource, GraphicsResourceAccess access) =>
-        new(resource, GraphicsPipelineStage.ComputeShader, GraphicsPipelineStage.Fragment,
+        new(resource, GraphicsPipelineStage.ComputeShader, GraphicsPipelineStage.FragmentShader,
             GraphicsResourceAccess.ShaderWrite, access);
 
     private sealed class TestBuffer(IGraphicsDevice device, GraphicsBufferUsage usage)

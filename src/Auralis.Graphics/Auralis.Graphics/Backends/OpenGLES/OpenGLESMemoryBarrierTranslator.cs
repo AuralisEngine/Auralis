@@ -1,5 +1,6 @@
 using Auralis.Graphics.Commands;
 using Auralis.Graphics.Resources;
+using Auralis.Graphics.Synchronization;
 
 namespace Auralis.Graphics.Backends.OpenGLES;
 
