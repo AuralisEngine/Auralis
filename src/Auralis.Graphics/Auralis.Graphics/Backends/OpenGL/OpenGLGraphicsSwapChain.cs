@@ -473,9 +473,17 @@ internal sealed class OpenGLGraphicsSwapChain : OpenGLNativeDeviceObject, IGraph
 
         for (int i = 0; i < previousImages.Length; i++)
         {
+            OpenGLSwapChainImage image = previousImages[i];
+            if (image.PresentSync != 0 || image.Framebuffer != 0)
+            {
+                failures.Add(new GraphicsException(
+                    "A previous swap-chain image still owns native synchronization or framebuffer resources; its texture cannot be retired safely."));
+                continue;
+            }
+
             try
             {
-                previousImages[i].Texture.Dispose();
+                image.Texture.Dispose();
             }
             catch (Exception retirementFailure)
             {
@@ -550,6 +558,13 @@ internal sealed class OpenGLGraphicsSwapChain : OpenGLNativeDeviceObject, IGraph
             OpenGLSwapChainImage? image = images[i];
             if (image is null)
                 continue;
+
+            if (image.PresentSync != 0 || image.Framebuffer != 0)
+            {
+                failures.Add(new GraphicsException(
+                    "A staged swap-chain image still owns native synchronization or framebuffer resources; its texture was retained for safe deferred cleanup."));
+                continue;
+            }
 
             try
             {
@@ -654,6 +669,13 @@ internal sealed class OpenGLGraphicsSwapChain : OpenGLNativeDeviceObject, IGraph
                     OpenGLSwapChainImage? image = images[i];
                     if (image is null)
                         continue;
+
+                    if (image.PresentSync != 0 || image.Framebuffer != 0)
+                    {
+                        cleanupFailures.Add(new GraphicsException(
+                            "A partially created swap-chain image still owns a native sync or framebuffer; its texture was retained for safe deferred cleanup."));
+                        continue;
+                    }
 
                     try
                     {
