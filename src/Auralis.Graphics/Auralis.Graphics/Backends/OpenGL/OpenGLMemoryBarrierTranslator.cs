@@ -10,7 +10,14 @@ namespace Auralis.Graphics.Backends.OpenGL;
 /// </summary>
 internal static class OpenGLMemoryBarrierTranslator
 {
-    internal static MemoryBarrierMask ToMask(in GraphicsResourceBarrier barrier)
+    /// <summary>Translates a logical resource barrier into the GL bits required by its destination accesses.</summary>
+    /// <param name="barrier">Resource, source/destination usages, and destination access mask validated by the shared command layer.</param>
+    /// <returns>GL visibility bits for subsequent consumers; zero when the destination has no access.</returns>
+    /// <remarks>
+    /// A generic memory read/write request maps to all barrier bits. Texture layouts are semantic
+    /// validation hints because desktop GL has no explicit image-layout transition. CPU buffer maps
+    /// use staging/explicit buffer-update calls, so they do not require the client-mapped-buffer bit.
+    /// </remarks>
     {
         GraphicsResourceAccess access = barrier.DestinationAccess;
         if (access == GraphicsResourceAccess.None)
