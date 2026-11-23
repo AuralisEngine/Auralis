@@ -22,6 +22,9 @@ public sealed unsafe class GlfwOpenGLESContextProvider : IOpenGLESContextProvide
         _window = window;
     }
 
+    /// <summary>Creates a hidden GLFW window and an OpenGL ES 3.1 context for hardware tests and benchmarks.</summary>
+    /// <returns>An owned provider with exclusive context-state ownership and no presentation drawable.</returns>
+    /// <exception cref="HardwareContextUnavailableException">The GLFW native library, display, or required GLES context is unavailable.</exception>
     public static GlfwOpenGLESContextProvider Create()
     {
         Glfw glfw;
@@ -79,19 +82,29 @@ public sealed unsafe class GlfwOpenGLESContextProvider : IOpenGLESContextProvide
         }
     }
 
+    /// <inheritdoc />
     public object ContextIdentity => _identity;
+    /// <inheritdoc />
     public OpenGLESContextOwnership Ownership => OpenGLESContextOwnership.Owned;
+    /// <inheritdoc />
     public OpenGLESContextStateOwnership StateOwnership => OpenGLESContextStateOwnership.Exclusive;
+    /// <inheritdoc />
     public bool IsAvailable => Volatile.Read(ref _disposed) == 0;
+    /// <inheritdoc />
     public string? UnavailableReason => IsAvailable ? null : "The GLFW OpenGL ES context has been disposed.";
+    /// <inheritdoc />
     public bool SupportsPresentation => false;
 
+    /// <inheritdoc />
     public bool IsPresentationTargetCompatible(in GraphicsPresentationTargetSnapshot target) => false;
+    /// <inheritdoc />
     public bool SupportsPresentMode(GraphicsPresentMode presentMode) => false;
 
+    /// <inheritdoc />
     public void SetPresentMode(GraphicsPresentMode presentMode) =>
         throw new NotSupportedException("The hidden GLES test drawable does not support presentation.");
 
+    /// <inheritdoc />
     public void MakeCurrent()
     {
         ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
@@ -110,6 +123,7 @@ public sealed unsafe class GlfwOpenGLESContextProvider : IOpenGLESContextProvide
         _currentDepth.Value = 1;
     }
 
+    /// <inheritdoc />
     public void ReleaseCurrent()
     {
         if (Volatile.Read(ref _disposed) != 0)
@@ -128,6 +142,7 @@ public sealed unsafe class GlfwOpenGLESContextProvider : IOpenGLESContextProvide
         _glfw.MakeContextCurrent(null);
     }
 
+    /// <inheritdoc />
     public nint GetProcAddress(string name)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
@@ -135,9 +150,11 @@ public sealed unsafe class GlfwOpenGLESContextProvider : IOpenGLESContextProvide
         return _glfw.GetProcAddress(name);
     }
 
+    /// <inheritdoc />
     public void SwapBuffers() =>
         throw new NotSupportedException("The hidden GLES test drawable does not support presentation.");
 
+    /// <inheritdoc />
     public void Dispose()
     {
         if (Interlocked.Exchange(ref _disposed, 1) != 0)
