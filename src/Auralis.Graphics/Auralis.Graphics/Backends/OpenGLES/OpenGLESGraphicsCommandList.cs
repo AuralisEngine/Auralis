@@ -43,6 +43,7 @@ internal enum OpenGLESCmdKind : byte
 internal struct OpenGLESCmd
 {
     internal OpenGLESCmdKind Kind;
+    internal uint BarrierMask;
     internal IGraphicsBuffer? Buffer0;
     internal IGraphicsBuffer? Buffer1;
     internal IGraphicsTexture? Texture0;
@@ -189,16 +190,23 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
         if (barriers.IsEmpty)
             return;
 
+        uint mask = 0;
         for (int i = 0; i < barriers.Length; i++)
         {
             GraphicsResourceBarrier barrier = barriers[i];
             barrier.Validate();
             EnsureOwned(barrier.Resource);
+            mask |= OpenGLESMemoryBarrierTranslator.ToMask(barrier);
         }
 
-        // GLES exposes a global memory barrier rather than resource/range-specific barriers. The
-        // all-bits token is defined by GLES 3.1 and covers every common access transition.
-        _commands.Add(new OpenGLESCmd { Kind = OpenGLESCmdKind.Barrier });
+        if (mask != 0)
+        {
+            _commands.Add(new OpenGLESCmd
+            {
+                Kind = OpenGLESCmdKind.Barrier,
+                BarrierMask = mask
+            });
+        }
     }
 
     /// <inheritdoc />
@@ -816,7 +824,7 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
                 switch (command.Kind)
                 {
                     case OpenGLESCmdKind.Barrier:
-                        gl.MemoryBarrier(unchecked((uint)MemoryBarrierMask.AllBarrierBits));
+                        gl.MemoryBarrier(command.BarrierMask);
                         break;
 
                     case OpenGLESCmdKind.CopyBuffer:

@@ -165,7 +165,10 @@ internal sealed class OpenGLESGraphicsSwapChain : OpenGLESNativeDeviceObject, IG
         get { ThrowIfDisposed(); return Volatile.Read(ref _generation); }
     }
 
-    /// <summary>Acquires the next reusable GLES offscreen image, polling its previous presentation sync as needed.</summary>
+    /// <summary>
+    /// Acquires the next reusable GLES offscreen image. Context-gate contention and native sync waits
+    /// share one monotonic deadline; the context remains activated while pending syncs are waited.
+    /// </summary>
     /// <param name="timeout">Maximum CPU wait for an image to become reusable, or <see cref="Timeout.InfiniteTimeSpan" />.</param>
     /// <returns>An acquired image, or a timeout, suspended, or out-of-date status without an image.</returns>
     /// <exception cref="ArgumentOutOfRangeException"><paramref name="timeout" /> is negative and is not infinite.</exception>
@@ -184,20 +187,25 @@ internal sealed class OpenGLESGraphicsSwapChain : OpenGLESNativeDeviceObject, IG
             snapshot.Extent.Width != _description.Width || snapshot.Extent.Height != _description.Height)
             return new GraphicsAcquireResult(GraphicsAcquireStatus.OutOfDate, default);
 
-        long start = Stopwatch.GetTimestamp();
-        long timeoutTicks = timeout == Timeout.InfiniteTimeSpan
-            ? long.MaxValue
-            : (long)(timeout.TotalSeconds * Stopwatch.Frequency);
-
-        while (true)
+        OpenGLESAcquireDeadline deadline = new(timeout);
+        if (!_device.TryAcquireContext(
+                deadline.GetRemainingTime(),
+                CancellationToken.None,
+                out OpenGLESContextScope context))
         {
-            (int index, bool anyUnacquired) result;
-            using (OpenGLESContextScope context = _device.AcquireContext())
+            return new GraphicsAcquireResult(GraphicsAcquireStatus.Timeout, default);
+        }
+
+        using (context)
+        {
+            GL gl = context.Gl;
+            while (true)
             {
-                GL gl = context.Gl;
-                bool foundIndex = false;
-                int acquiredIndex = -1;
-                bool hasUnacquired = false;
+                int firstPendingIndex = -1;
+                bool hasUnacquiredImage = false;
+
+                // Inspect all slots before blocking so an already-signaled later image wins over
+                // an earlier image whose previous GPU work is still pending.
                 for (int attempt = 0; attempt < _images.Length; attempt++)
                 {
                     uint index = (_nextImage + (uint)attempt) % (uint)_images.Length;
@@ -205,42 +213,85 @@ internal sealed class OpenGLESGraphicsSwapChain : OpenGLESNativeDeviceObject, IG
                     if (image.Acquired)
                         continue;
 
-                    hasUnacquired = true;
-                    if (image.PresentSync != 0)
+                    hasUnacquiredImage = true;
+                    if (image.PresentSync == 0)
+                        return AcquireImage(index, image);
+
+                    GLEnum status = gl.ClientWaitSync(image.PresentSync, (uint)0, 0);
+                    if (status is GLEnum.AlreadySignaled or GLEnum.ConditionSatisfied)
                     {
-                        GLEnum status = gl.ClientWaitSync(image.PresentSync, (uint)0, 0);
-                        if (status == GLEnum.TimeoutExpired)
-                            continue;
-                        if (status == GLEnum.WaitFailed)
-                            throw new GraphicsException("OpenGL ES failed while waiting to reacquire a presented image.");
                         gl.DeleteSync(image.PresentSync);
                         image.PresentSync = 0;
+                        return AcquireImage(index, image);
                     }
 
-                    image.Acquired = true;
-                    _nextImage = (index + 1) % (uint)_images.Length;
-                    acquiredIndex = (int)index;
-                    foundIndex = true;
-                    break;
+                    if (status == GLEnum.WaitFailed)
+                        throw new GraphicsException(
+                            "OpenGL ES failed while polling a presentation sync before image acquisition.");
+                    if (status != GLEnum.TimeoutExpired)
+                        throw new GraphicsException(
+                            $"OpenGL ES returned unexpected client-wait status {status} for a presentation sync.");
+
+                    if (firstPendingIndex < 0)
+                        firstPendingIndex = (int)index;
                 }
 
-                result = (foundIndex ? acquiredIndex : -1, hasUnacquired);
+                // If all slots are held by the application, GPU completion cannot make one reusable.
+                if (!hasUnacquiredImage || firstPendingIndex < 0 || deadline.IsExpired)
+                    return new GraphicsAcquireResult(GraphicsAcquireStatus.Timeout, default);
+
+                ulong waitNanoseconds = deadline.GetClientWaitTimeoutNanoseconds();
+                if (waitNanoseconds == 0)
+                    return new GraphicsAcquireResult(GraphicsAcquireStatus.Timeout, default);
+
+                OpenGLESSwapChainImage pending = _images[firstPendingIndex];
+                // SYNC_FLUSH_COMMANDS_BIT also makes progress if an earlier Flush failed after the
+                // fence was inserted. Infinite waits use bounded native intervals rather than the
+                // GL_TIMEOUT_IGNORED sentinel, which is not a ClientWaitSync timeout value.
+                GLEnum waitStatus = gl.ClientWaitSync(pending.PresentSync, (uint)1, waitNanoseconds);
+                if (waitStatus is GLEnum.AlreadySignaled or GLEnum.ConditionSatisfied)
+                {
+                    gl.DeleteSync(pending.PresentSync);
+                    pending.PresentSync = 0;
+                    return AcquireImage((uint)firstPendingIndex, pending);
+                }
+
+                if (waitStatus == GLEnum.WaitFailed)
+                    throw new GraphicsException(
+                        "OpenGL ES failed while waiting for a presented swap-chain image.");
+                if (waitStatus != GLEnum.TimeoutExpired)
+                    throw new GraphicsException(
+                        $"OpenGL ES returned unexpected client-wait status {waitStatus} for a presentation sync.");
+
+                // Re-scan all images and recompute the remaining finite timeout before another wait.
+                if (deadline.IsExpired)
+                    return new GraphicsAcquireResult(GraphicsAcquireStatus.Timeout, default);
             }
-
-            if (result.index >= 0)
-            {
-                int index = result.index;
-                return new GraphicsAcquireResult(
-                    GraphicsAcquireStatus.Success,
-                    new GraphicsAcquiredImage((uint)index, _generation, _images[index].Texture));
-            }
-
-            if (!result.anyUnacquired || timeoutTicks == 0 ||
-                (timeoutTicks != long.MaxValue && Stopwatch.GetTimestamp() - start >= timeoutTicks))
-                return new GraphicsAcquireResult(GraphicsAcquireStatus.Timeout, default);
-
-            Thread.Yield();
         }
+    }
+
+    private GraphicsAcquireResult AcquireImage(uint index, OpenGLESSwapChainImage image)
+    {
+        image.Acquired = true;
+        _nextImage = (index + 1) % (uint)_images.Length;
+        return new GraphicsAcquireResult(
+            GraphicsAcquireStatus.Success,
+            new GraphicsAcquiredImage(index, _generation, image.Texture));
+    }
+
+    internal static void PublishPresentationSync(OpenGLESSwapChainImage slot, nint sync)
+    {
+        ArgumentNullException.ThrowIfNull(slot);
+        if (sync == 0)
+            throw new ArgumentOutOfRangeException(nameof(sync));
+        if (slot.PresentSync != 0)
+            throw new InvalidOperationException(
+                "An acquired GLES swap-chain image must not already own a presentation sync.");
+
+        // Publish ownership and release the acquired state before the host swap operation. The
+        // sync prevents actual reuse until the submitted GPU work has completed.
+        slot.PresentSync = sync;
+        slot.Acquired = false;
     }
 
     /// <summary>Blits an acquired image to framebuffer zero, inserts a GLES sync, flushes, and asks the host provider to swap buffers.</summary>
@@ -308,12 +359,21 @@ internal sealed class OpenGLESGraphicsSwapChain : OpenGLESNativeDeviceObject, IG
             if (sync == 0)
                 throw new GraphicsException("OpenGL ES failed to create a presentation sync object.");
 
-            if (slot.PresentSync != 0)
-                gl.DeleteSync(slot.PresentSync);
-            slot.PresentSync = sync;
+            try
+            {
+                PublishPresentationSync(slot, sync);
+            }
+            catch
+            {
+                // The slot did not take ownership; delete the newly-created object before rethrowing.
+                gl.DeleteSync(sync);
+                throw;
+            }
+
             gl.Flush();
+            // A failed host swap does not undo the submitted GPU work. Keep the completion sync
+            // attached so later acquisition can safely wait before reusing this image.
             _device.ContextProvider.SwapBuffers();
-            slot.Acquired = false;
         }
 
         return GraphicsPresentStatus.Presented;
