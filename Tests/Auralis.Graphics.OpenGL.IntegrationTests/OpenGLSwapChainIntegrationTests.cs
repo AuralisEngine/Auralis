@@ -1,10 +1,13 @@
 using System.Diagnostics;
 using Auralis.Graphics.Abstractions;
+using Auralis.Graphics.Backends;
 using Auralis.Graphics.Commands;
 using Auralis.Graphics.Backends.OpenGL;
 using Auralis.Graphics.OpenGL.TestSupport;
 using Auralis.Graphics.Presentation;
 using Auralis.Graphics.Resources;
+using Silk.NET.OpenGL;
+using Silk.NET.OpenGL.Extensions.ARB;
 using Xunit;
 
 namespace Auralis.Graphics.OpenGL.IntegrationTests;

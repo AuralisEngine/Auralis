@@ -6,6 +6,7 @@ using Auralis.Graphics.Devices;
 using Auralis.Graphics.OpenGL.TestSupport;
 using Auralis.Graphics.Presentation;
 using Auralis.Graphics.Resources;
+using Silk.NET.OpenGLES;
 using Xunit;
 
 namespace Auralis.Graphics.OpenGLES.IntegrationTests;
