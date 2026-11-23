@@ -70,6 +70,7 @@ public sealed class GraphicsReviewRegressionTests
         gate.Exit();
     }
 
+    /// <summary>Verifies uncontended monitor and <see cref="Lock" /> gates can be acquired with zero, finite, and very large timeouts.</summary>
     [Fact]
     public void ContextGateAcquisitionSucceedsWhenTheGateIsAvailableIncludingZeroTimeout()
     {
@@ -127,6 +128,8 @@ public sealed class GraphicsReviewRegressionTests
             lockGate.Exit);
     }
 
+    /// <summary>Verifies zero-count indirect commands skip execution while retaining offset, stride, and command-layout validation.</summary>
+    /// <param name="commandSize">Native byte size of the indirect argument record being validated.</param>
     [Theory]
     [InlineData(16)]
     [InlineData(20)]
@@ -155,6 +158,7 @@ public sealed class GraphicsReviewRegressionTests
                 description, offset: 128, drawCount: 1, commandSize, stride: 0, out _));
     }
 
+    /// <summary>Verifies GLES retained-resource cleanup attempts every release and aggregates all independent failures.</summary>
     [Fact]
     public void GlesRetainedResourceCleanupAggregatesEveryReleaseFailure()
     {
@@ -171,6 +175,7 @@ public sealed class GraphicsReviewRegressionTests
         Assert.Equal(1, third.ReleaseAttempts);
     }
 
+    /// <summary>Verifies attachment validation enforces same-device ownership, matching extent/sample count, attachment usage, and format support.</summary>
     [Fact]
     public void RenderTargetValidationChecksOwnershipExtentSamplesUsageAndFormats()
     {
@@ -259,6 +264,7 @@ public sealed class GraphicsReviewRegressionTests
         Assert.Equal(1, texture.NativeReleaseCount);
     }
 
+    /// <summary>Verifies disposed views/devices and views backed by a foreign texture cannot be attached.</summary>
     [Fact]
     public void RenderTargetValidationRejectsDisposedViewsDevicesAndForeignBackingTextures()
     {
@@ -297,6 +303,7 @@ public sealed class GraphicsReviewRegressionTests
             GraphicsRenderTargetValidation.Validate(disposedDevice, [deviceView]));
     }
 
+    /// <summary>Verifies attachment compatibility uses the selected mip dimensions rather than each parent texture's base extent.</summary>
     [Fact]
     public void RenderTargetValidationComparesEffectiveMipExtentsRatherThanParentExtents()
     {
@@ -332,6 +339,7 @@ public sealed class GraphicsReviewRegressionTests
             GraphicsRenderTargetValidation.Validate(device, [mipView, mismatchedBaseView]));
     }
 
+    /// <summary>Verifies viewport, scissor, render-target, and clear-value descriptions reject invalid ranges and non-finite components.</summary>
     [Fact]
     public void RenderTargetAndDynamicStateDescriptionsRejectInvalidValues()
     {
@@ -351,6 +359,7 @@ public sealed class GraphicsReviewRegressionTests
         new GraphicsClearColor(0, 0, 0, 1).Validate();
     }
 
+    /// <summary>Verifies variable-count descriptor bindings are required to have the highest binding number even when input entries are unsorted.</summary>
     [Fact]
     public void VariableCountBindingMustHaveHighestBindingNumberRegardlessOfInputOrder()
     {
@@ -373,6 +382,7 @@ public sealed class GraphicsReviewRegressionTests
         Assert.Equal(10u, valid.Entries[0].Binding);
     }
 
+    /// <summary>Verifies barrier access masks are legal for the resource kind, creation usage, and destination pipeline stage.</summary>
     [Fact]
     public void BarrierAccessCompatibilityValidatesResourceKindUsageAndStage()
     {
@@ -434,6 +444,7 @@ public sealed class GraphicsReviewRegressionTests
             GraphicsTextureLayout.ShaderReadOnly).Validate();
     }
 
+    /// <summary>Verifies logical texture layouts cannot claim transfer, sampled, or attachment usage that the texture was not created with.</summary>
     [Fact]
     public void BarrierValidatesTextureLayoutsAgainstDeclaredUsage()
     {
@@ -474,6 +485,7 @@ public sealed class GraphicsReviewRegressionTests
             GraphicsTextureLayout.Present).Validate();
     }
 
+    /// <summary>Verifies host barrier read/write accesses require matching CPU-readable or CPU-writable buffer memory flags.</summary>
     [Fact]
     public void HostBarrierAccessRequiresMatchingCpuMemoryAccess()
     {
@@ -499,6 +511,7 @@ public sealed class GraphicsReviewRegressionTests
             GraphicsResourceAccess.ShaderRead).Validate();
     }
 
+    /// <summary>Verifies capability validation rejects buffer and texture descriptions that exceed reported device limits.</summary>
     [Fact]
     public void DeviceCapabilitiesEnforceBufferAndTextureLimits()
     {
@@ -561,6 +574,7 @@ public sealed class GraphicsReviewRegressionTests
         Assert.Throws<GraphicsException>(() => capabilities.ValidateTextureDescription(threeDimensional));
     }
 
+    /// <summary>Verifies texture-view format compatibility and maximum vertex-input attribute limits are enforced from the capability snapshot.</summary>
     [Fact]
     public void DeviceCapabilitiesValidateTextureViewFormatSupportAndVertexInputLimits()
     {
@@ -623,6 +637,7 @@ public sealed class GraphicsReviewRegressionTests
             missingViewFormat.ValidateTextureViewDescription(mutableTexture, srgbView));
     }
 
+    /// <summary>Verifies valid graphics stage combinations include mesh/task, geometry, and tessellation configurations without mixing incompatible paths.</summary>
     [Fact]
     public void RenderPipelineSupportsMeshTaskGeometryAndTessellationStageConfigurations()
     {
@@ -680,6 +695,7 @@ public sealed class GraphicsReviewRegressionTests
         Assert.Equal(4u, tessellationPipeline.Tessellation!.Value.PatchControlPoints);
     }
 
+    /// <summary>Verifies pipeline creation requires advertised shader features and rejects illegal stage combinations or foreign shader resources.</summary>
     [Fact]
     public void PipelineValidationRequiresShaderFeaturesAndLegalStageCombinations()
     {
@@ -753,6 +769,7 @@ public sealed class GraphicsReviewRegressionTests
             tessellation: new GraphicsTessellationState(3)));
     }
 
+    /// <summary>Verifies blend-enabled attachments require format-level blend support rather than merely color-attachment support.</summary>
     [Fact]
     public void BlendingRequiresFormatBlendSupport()
     {
@@ -782,6 +799,7 @@ public sealed class GraphicsReviewRegressionTests
             blend: blend));
     }
 
+    /// <summary>Verifies presentation queue selection respects surface/device compatibility and the graphics queue role.</summary>
     [Fact]
     public void PresentationSurfaceSelectsQueueBySurfaceCompatibility()
     {
@@ -810,6 +828,7 @@ public sealed class GraphicsReviewRegressionTests
             new GraphicsSwapChainDescription(1280, 720, GraphicsFormat.BGRA8UNorm, 3, GraphicsPresentMode.Fifo)));
     }
 
+    /// <summary>Verifies texture views can select a single array layer and only reinterpret formats allowed by the parent storage compatibility class.</summary>
     [Fact]
     public void TextureViewsCanSelectSingleLayersAndCompatibleMutableFormats()
     {
@@ -861,6 +880,7 @@ public sealed class GraphicsReviewRegressionTests
         GraphicsCommandValidation.ValidateCpuFenceSignalDoesNotOvertakeGpu(10, null);
     }
 
+    /// <summary>Verifies indexed indirect execution rejects a non-zero bound index-buffer offset because the indirect API supplies its own index offset.</summary>
     [Fact]
     public void IndexedIndirectRequiresZeroIndexBufferOffset()
     {
@@ -871,6 +891,7 @@ public sealed class GraphicsReviewRegressionTests
             GraphicsCommandValidation.ValidateIndexedIndirectIndexBufferOffset(4));
     }
 
+    /// <summary>Verifies texture copy validation rejects source and destination views that alias the same underlying subresource.</summary>
     [Fact]
     public void TextureCopyRejectsAliasedSourceAndDestination()
     {
