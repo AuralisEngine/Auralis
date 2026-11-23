@@ -359,6 +359,8 @@ internal sealed unsafe class OpenGLESMappedStagingMemoryManager : MemoryManager<
 
     internal void Invalidate() => Dispose(true);
 
+    /// <summary>Invalidates the staging view and returns its array to the pool once every outstanding pin is released.</summary>
+    /// <remarks>When disposal races an existing pin, new memory access is rejected immediately but the backing array is kept alive until the final <see cref="Unpin" />.</remarks>
     protected override void Dispose(bool disposing)
     {
         byte[]? bufferToReturn = null;
