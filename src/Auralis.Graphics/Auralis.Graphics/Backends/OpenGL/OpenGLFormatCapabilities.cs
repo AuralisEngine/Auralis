@@ -5,13 +5,25 @@ using Silk.NET.OpenGL.Extensions.ARB;
 
 namespace Auralis.Graphics.Backends.OpenGL;
 
-/// <summary>Maps common formats to desktop OpenGL sized internal formats and queries their actual support.</summary>
+/// <summary>Maps Auralis formats to desktop GL sized internal formats and queries implementation-reported capabilities.</summary>
+/// <remarks>
+/// An internal-format mapping alone does not imply renderability, filtering, blending, storage-image
+/// access, or multisample support. Those usages are added only when the relevant format-query API
+/// reports them; compressed formats are queried only when their required compression extension is present.
+/// </remarks>
 internal static class OpenGLFormatCapabilities
 {
     private static readonly GraphicsFormat[] s_formats = Enum.GetValues<GraphicsFormat>();
 
     internal static int MaximumFormatCount => s_formats.Length;
 
+    /// <summary>Queries support and sample counts for every mapped format that the current context exposes.</summary>
+    /// <param name="gl">Current desktop OpenGL dispatch object.</param>
+    /// <param name="internalFormatQuery">Resolved internal-format query wrapper, or <see langword="null" /> when unavailable.</param>
+    /// <param name="hasInternalFormatQuery2">Whether the extended query pnames for filtering, renderability, blending, and storage are available.</param>
+    /// <param name="results">Destination span large enough for <see cref="MaximumFormatCount" /> entries.</param>
+    /// <returns>Number of format capability records written; zero when the query API is unavailable.</returns>
+    /// <exception cref="ArgumentException"><paramref name="results" /> is too small.</exception>
     internal static int Query(
         GL gl,
         ArbInternalformatQuery? internalFormatQuery,
@@ -146,6 +158,11 @@ internal static class OpenGLFormatCapabilities
         return resultCount;
     }
 
+    /// <summary>Maps a common format to its desktop GL sized internal-format token.</summary>
+    /// <param name="format">Auralis format to map.</param>
+    /// <param name="internalFormat">Receives the mapped GL token, or zero when no mapping exists.</param>
+    /// <param name="requiredExtension">Receives the exact compression extension required by extension-defined formats, otherwise <see langword="null" />.</param>
+    /// <returns><see langword="true" /> when a native internal-format token is defined.</returns>
     internal static bool TryGetInternalFormat(
         GraphicsFormat format,
         out SizedInternalFormat internalFormat,
@@ -214,11 +231,13 @@ internal static class OpenGLFormatCapabilities
         return true;
     }
 
+    /// <summary>Determines whether the format stores unsigned integer color components.</summary>
     internal static bool IsUnsignedInteger(GraphicsFormat format) => format is
         GraphicsFormat.R8UInt or GraphicsFormat.RG8UInt or GraphicsFormat.RGBA8UInt or
         GraphicsFormat.R16UInt or GraphicsFormat.RG16UInt or GraphicsFormat.RGBA16UInt or
         GraphicsFormat.R32UInt or GraphicsFormat.RG32UInt or GraphicsFormat.RGBA32UInt;
 
+    /// <summary>Determines whether the format stores signed integer color components.</summary>
     internal static bool IsSignedInteger(GraphicsFormat format) => format is
         GraphicsFormat.R8SInt or GraphicsFormat.RG8SInt or GraphicsFormat.RGBA8SInt or
         GraphicsFormat.R16SInt or GraphicsFormat.RG16SInt or GraphicsFormat.RGBA16SInt or
