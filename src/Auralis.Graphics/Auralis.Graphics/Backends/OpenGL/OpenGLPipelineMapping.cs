@@ -4,6 +4,8 @@ using Silk.NET.OpenGL;
 
 namespace Auralis.Graphics.Backends.OpenGL;
 
+/// <summary>Native vertex attribute representation selected for one Auralis vertex format.</summary>
+/// <remarks>Integer formats use the integer attribute path; normalized and floating-point formats use the converted floating-point path.</remarks>
 internal readonly record struct OpenGLVertexFormat(
     int ComponentCount,
     VertexAttribType Type,
@@ -11,9 +13,11 @@ internal readonly record struct OpenGLVertexFormat(
     bool IsInteger,
     bool Normalized);
 
+/// <summary>Converts backend-neutral primitive, depth, stencil, blend, and vertex-format state to desktop GL enums and layouts.</summary>
 internal static class OpenGLPipelineMapping
 {
-    internal static PrimitiveType ToPrimitiveType(GraphicsPrimitiveTopology topology) => topology switch
+    /// <summary>Maps an Auralis primitive topology to the corresponding GL draw mode.</summary>
+    /// <exception cref="ArgumentOutOfRangeException">The topology has no supported desktop GL mapping.</exception>
     {
         GraphicsPrimitiveTopology.PointList => PrimitiveType.Points,
         GraphicsPrimitiveTopology.LineList => PrimitiveType.Lines,
@@ -29,7 +33,8 @@ internal static class OpenGLPipelineMapping
         _ => throw new ArgumentOutOfRangeException(nameof(topology))
     };
 
-    internal static DepthFunction ToDepthFunction(GraphicsCompareOperation operation) => operation switch
+    /// <summary>Maps a depth/stencil comparison operation to its GL comparison function.</summary>
+    /// <exception cref="ArgumentOutOfRangeException">The operation is undefined.</exception>
     {
         GraphicsCompareOperation.Never => DepthFunction.Never,
         GraphicsCompareOperation.Less => DepthFunction.Less,
@@ -42,7 +47,8 @@ internal static class OpenGLPipelineMapping
         _ => throw new ArgumentOutOfRangeException(nameof(operation))
     };
 
-    internal static StencilOp ToStencilOperation(GraphicsStencilOperation operation) => operation switch
+    /// <summary>Maps a stencil operation, including saturating and wrapping increment/decrement variants.</summary>
+    /// <exception cref="ArgumentOutOfRangeException">The operation is undefined.</exception>
     {
         GraphicsStencilOperation.Keep => StencilOp.Keep,
         GraphicsStencilOperation.Zero => StencilOp.Zero,
@@ -55,7 +61,8 @@ internal static class OpenGLPipelineMapping
         _ => throw new ArgumentOutOfRangeException(nameof(operation))
     };
 
-    internal static BlendingFactor ToBlendFactor(GraphicsBlendFactor factor) => factor switch
+    /// <summary>Maps a backend-neutral source/destination blend factor to the matching GL factor.</summary>
+    /// <exception cref="ArgumentOutOfRangeException">The factor is undefined or has no desktop GL mapping.</exception>
     {
         GraphicsBlendFactor.Zero => BlendingFactor.Zero,
         GraphicsBlendFactor.One => BlendingFactor.One,
@@ -75,7 +82,8 @@ internal static class OpenGLPipelineMapping
         _ => throw new ArgumentOutOfRangeException(nameof(factor))
     };
 
-    internal static BlendEquationModeEXT ToBlendEquation(GraphicsBlendOperation operation) => operation switch
+    /// <summary>Maps a blend equation to the desktop GL blend-equation token.</summary>
+    /// <exception cref="ArgumentOutOfRangeException">The operation is undefined.</exception>
     {
         GraphicsBlendOperation.Add => BlendEquationModeEXT.FuncAdd,
         GraphicsBlendOperation.Subtract => BlendEquationModeEXT.FuncSubtract,
@@ -85,7 +93,8 @@ internal static class OpenGLPipelineMapping
         _ => throw new ArgumentOutOfRangeException(nameof(operation))
     };
 
-    internal static uint GetVertexFormatByteSize(GraphicsFormat format) => format switch
+    /// <summary>Returns the packed byte size of a format supported by the vertex-input mapping.</summary>
+    /// <returns>Bytes per attribute element, or zero when the format is not supported for vertex input.</returns>
     {
         GraphicsFormat.R8UNorm or GraphicsFormat.R8SNorm or GraphicsFormat.R8UInt or GraphicsFormat.R8SInt => 1,
         GraphicsFormat.RG8UNorm or GraphicsFormat.RG8SNorm or GraphicsFormat.RG8UInt or GraphicsFormat.RG8SInt => 2,
@@ -101,7 +110,10 @@ internal static class OpenGLPipelineMapping
         _ => 0
     };
 
-    internal static bool TryGetVertexFormat(GraphicsFormat format, out OpenGLVertexFormat result)
+    /// <summary>Resolves a supported vertex format to component count, native scalar types, integer interpretation, and normalization.</summary>
+    /// <param name="format">Auralis vertex attribute format.</param>
+    /// <param name="result">Receives the native representation, or the default value when unsupported.</param>
+    /// <returns><see langword="true" /> when the format can be supplied to a GL vertex attribute.</returns>
     {
         result = format switch
         {
