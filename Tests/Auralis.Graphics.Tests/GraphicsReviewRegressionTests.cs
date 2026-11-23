@@ -1189,6 +1189,7 @@ public sealed class GraphicsReviewRegressionTests
             usage,
             creationOptions);
 
+    /// <summary>Native-resource test double that throws on managed-reference release to exercise best-effort submission cleanup.</summary>
     private sealed class ThrowingGlesRetainedResource(string label) : IOpenGLESNativeResource
     {
         public int ReleaseAttempts { get; private set; }
@@ -1202,6 +1203,7 @@ public sealed class GraphicsReviewRegressionTests
         public void ReleaseNative(Silk.NET.OpenGLES.GL gl) { }
     }
 
+    /// <summary>Minimal buffer double carrying usage and size metadata for command and render-target validation tests.</summary>
     private sealed class TestBuffer(
         IGraphicsDevice device,
         GraphicsBufferDescription description) : GraphicsDeviceObject(device), IGraphicsBuffer
@@ -1214,6 +1216,7 @@ public sealed class GraphicsReviewRegressionTests
         protected override void DisposeCore() { }
     }
 
+    /// <summary>Texture double used to construct views for lifetime and render-target regression tests.</summary>
     private sealed class TestTexture(
         IGraphicsDevice device,
         GraphicsTextureDescription description) : GraphicsDeviceObject(device), IGraphicsTexture
@@ -1225,6 +1228,7 @@ public sealed class GraphicsReviewRegressionTests
         protected override void DisposeCore() { }
     }
 
+    /// <summary>Simple texture-view double that holds a managed reference to its parent texture.</summary>
     private sealed class TestTextureView : GraphicsDeviceObject, IGraphicsTextureView
     {
         public TestTextureView(IGraphicsTexture texture, GraphicsTextureViewDescription description)
@@ -1248,6 +1252,7 @@ public sealed class GraphicsReviewRegressionTests
     }
 
     /// <summary>A hardware-independent texture whose backing storage is retained by each live view.</summary>
+    /// <summary>Texture test double with explicit owner/view reference counting and an observable native-release count.</summary>
     private sealed class RetainedTestTexture(
         IGraphicsDevice device,
         GraphicsTextureDescription description) : GraphicsDeviceObject(device), IGraphicsTexture
@@ -1282,6 +1287,7 @@ public sealed class GraphicsReviewRegressionTests
         }
     }
 
+    /// <summary>View test double that retains its parent texture until the view owner is disposed.</summary>
     private sealed class RetainedTestTextureView : GraphicsDeviceObject, IGraphicsTextureView
     {
         private readonly RetainedTestTexture _texture;
@@ -1304,6 +1310,7 @@ public sealed class GraphicsReviewRegressionTests
         protected override void DisposeCore() => _texture.ReleaseViewReference();
     }
 
+    /// <summary>Empty pipeline-layout test double used where only device ownership is relevant.</summary>
     private sealed class TestPipelineLayout(IGraphicsDevice device)
         : GraphicsDeviceObject(device), IGraphicsPipelineLayout
     {
@@ -1311,6 +1318,7 @@ public sealed class GraphicsReviewRegressionTests
         protected override void DisposeCore() { }
     }
 
+    /// <summary>Shader metadata double used by pipeline and stage validation regression tests.</summary>
     private sealed class TestShader(
         IGraphicsDevice device,
         GraphicsShaderStage stage) : GraphicsDeviceObject(device), IGraphicsShader
@@ -1325,6 +1333,7 @@ public sealed class GraphicsReviewRegressionTests
         protected override void DisposeCore() { }
     }
 
+    /// <summary>Queue double that exposes a selected logical queue role without executing command submissions.</summary>
     private sealed class TestQueue(
         IGraphicsDevice device,
         GraphicsQueueType queueType) : IGraphicsCommandQueue
@@ -1339,6 +1348,7 @@ public sealed class GraphicsReviewRegressionTests
         public void Wait(IGraphicsFence fence, ulong value) => throw new NotSupportedException();
     }
 
+    /// <summary>Presentation-target double with a stable custom native-surface snapshot.</summary>
     private sealed class TestTarget : IGraphicsPresentationTarget
     {
         private readonly GraphicsPresentationTargetSnapshot _snapshot = new(
@@ -1355,6 +1365,7 @@ public sealed class GraphicsReviewRegressionTests
         public GraphicsPresentationTargetSnapshot GetSnapshot() => _snapshot;
     }
 
+    /// <summary>Presentation-surface double that validates queue ownership and creates an in-memory swap-chain test double.</summary>
     private sealed class TestPresentationSurface(
         IGraphicsDevice device,
         IGraphicsPresentationTarget target) : GraphicsDeviceObject(device), IGraphicsPresentationSurface
@@ -1380,6 +1391,7 @@ public sealed class GraphicsReviewRegressionTests
         protected override void DisposeCore() { }
     }
 
+    /// <summary>In-memory swap-chain double that advances its generation when resized.</summary>
     private sealed class TestSwapChain(
         IGraphicsDevice device,
         IGraphicsQueue presentationQueue,
