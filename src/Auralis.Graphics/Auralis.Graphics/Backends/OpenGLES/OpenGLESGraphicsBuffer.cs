@@ -240,6 +240,7 @@ internal sealed unsafe class OpenGLESGraphicsBuffer : OpenGLESNativeDeviceObject
         }
     }
 
+    /// <inheritdoc />
     protected override void DisposeCore()
     {
         OpenGLESMappedStagingMemoryManager? mapped;
@@ -252,6 +253,7 @@ internal sealed unsafe class OpenGLESGraphicsBuffer : OpenGLESNativeDeviceObject
         ReleaseOwnerReference();
     }
 
+    /// <inheritdoc />
     public override void ReleaseNative(GL gl)
     {
         lock (_mapGate)
