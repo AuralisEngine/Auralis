@@ -386,6 +386,8 @@ internal sealed class OpenGLGraphicsSwapChain : OpenGLNativeDeviceObject, IGraph
     /// <exception cref="NotSupportedException">The provider cannot honor the requested present mode.</exception>
     public void Resize(in GraphicsSwapChainDescription description)
     {
+        lock (_resizeGate)
+        {
         ThrowIfDisposed();
         ThrowIfFaulted();
 
