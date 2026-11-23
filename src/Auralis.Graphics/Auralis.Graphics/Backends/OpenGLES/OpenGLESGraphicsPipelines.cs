@@ -561,6 +561,7 @@ internal sealed class OpenGLESGraphicsComputePipeline : OpenGLESGraphicsPipeline
     /// <exception cref="GraphicsFeatureNotSupportedException">The GLES context does not expose compute shaders.</exception>
     /// <exception cref="GraphicsValidationException">The shader, stage, or layout is incompatible with this device.</exception>
     /// <exception cref="GraphicsException">Native program creation or linking fails.</exception>
+    internal static OpenGLESGraphicsComputePipeline Create(
         OpenGLESGraphicsDevice device,
         GraphicsComputePipelineDescription description)
     {
