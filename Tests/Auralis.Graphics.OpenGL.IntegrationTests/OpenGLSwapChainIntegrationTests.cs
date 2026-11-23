@@ -134,4 +134,116 @@ public sealed partial class OpenGLIntegrationTests
             $"SwapBuffers failure recovery, resize generations, format/buffer-count changes, and repeated retirement. " +
             $"Drawable={resizedTarget.Extent.Width}x{resizedTarget.Extent.Height}.");
     }
+
+    [Fact]
+    public void SwapChainResizeRollsBackTextureFramebufferAndGpuWaitFailures() =>
+        RunHardwareTest(ExerciseResizePreparationFailures);
+
+    private static void ExerciseResizePreparationFailures(GlfwOpenGLHardwareSession session)
+    {
+        OpenGLGraphicsDevice device = (OpenGLGraphicsDevice)session.Device;
+        GlfwPresentationTarget target = session.ContextProvider.CreatePresentationTarget();
+        using IGraphicsPresentationSurface surface = device.CreatePresentationSurface(target);
+        using IGraphicsSwapChain swapChain = surface.CreateSwapChain(
+            device.GetPresentationQueue(),
+            new GraphicsSwapChainDescription(
+                target.GetSnapshot().Extent.Width,
+                target.GetSnapshot().Extent.Height,
+                GraphicsFormat.RGBA8UNorm,
+                2,
+                GraphicsPresentMode.Immediate));
+
+        OpenGLSwapChainTestHooks hooks = new();
+        device.SwapChainTestHooks = hooks;
+        GraphicsSwapChainDescription original = swapChain.Description;
+        GraphicsSwapChainDescription replacement = original with { BufferCount = 3 };
+
+        try
+        {
+            hooks.BeforeTextureCreation = () =>
+            {
+                hooks.BeforeTextureCreation = null;
+                throw new InvalidOperationException("Injected replacement texture allocation failure.");
+            };
+            Assert.Throws<InvalidOperationException>(() => swapChain.Resize(replacement));
+            Assert.Equal(1UL, swapChain.Generation);
+            Assert.Equal(original, swapChain.Description);
+            AcquireAndPresent(swapChain);
+
+            hooks.AfterFramebufferCreated = _ =>
+            {
+                hooks.AfterFramebufferCreated = null;
+                throw new InvalidOperationException("Injected framebuffer initialization failure.");
+            };
+            Assert.Throws<InvalidOperationException>(() => swapChain.Resize(replacement));
+            Assert.Equal(1UL, swapChain.Generation);
+            Assert.Equal(original, swapChain.Description);
+            AcquireAndPresent(swapChain);
+
+            hooks.BeforeGpuFinish = () =>
+            {
+                hooks.BeforeGpuFinish = null;
+                throw new InvalidOperationException("Injected previous-work wait failure.");
+            };
+            Assert.Throws<AggregateException>(() => swapChain.Resize(replacement));
+            Assert.Equal(1UL, swapChain.Generation);
+            Assert.Equal(original, swapChain.Description);
+            AcquireAndPresent(swapChain);
+        }
+        finally
+        {
+            device.SwapChainTestHooks = null;
+        }
+    }
+
+    [Fact]
+    public void SwapChainPartialRetirementFailureFaultsTheOldRingAndAllowsCleanupRetry() =>
+        RunHardwareTest(ExerciseResizeRetirementFailure);
+
+    private static void ExerciseResizeRetirementFailure(GlfwOpenGLHardwareSession session)
+    {
+        OpenGLGraphicsDevice device = (OpenGLGraphicsDevice)session.Device;
+        GlfwPresentationTarget target = session.ContextProvider.CreatePresentationTarget();
+        using IGraphicsPresentationSurface surface = device.CreatePresentationSurface(target);
+        using IGraphicsSwapChain swapChain = surface.CreateSwapChain(
+            device.GetPresentationQueue(),
+            new GraphicsSwapChainDescription(
+                target.GetSnapshot().Extent.Width,
+                target.GetSnapshot().Extent.Height,
+                GraphicsFormat.RGBA8UNorm,
+                2,
+                GraphicsPresentMode.Immediate));
+
+        OpenGLSwapChainTestHooks hooks = new();
+        device.SwapChainTestHooks = hooks;
+        try
+        {
+            AcquireAndPresent(swapChain);
+            hooks.BeforeFramebufferDeletion = _ =>
+            {
+                hooks.BeforeFramebufferDeletion = null;
+                throw new InvalidOperationException("Injected framebuffer retirement failure.");
+            };
+
+            Assert.Throws<AggregateException>(() =>
+                swapChain.Resize(swapChain.Description with { BufferCount = 3 }));
+
+            Assert.Throws<GraphicsException>(() => swapChain.AcquireNextImage(TimeSpan.Zero));
+            Assert.Throws<GraphicsException>(() => _ = swapChain.Description);
+        }
+        finally
+        {
+            // The callback is one-shot; disposing the faulted swap chain retries the native
+            // framebuffer deletion and then drops the texture owner references.
+            device.SwapChainTestHooks = null;
+        }
+    }
+
+    private static void AcquireAndPresent(IGraphicsSwapChain swapChain)
+    {
+        GraphicsAcquireResult acquired = swapChain.AcquireNextImage(TimeSpan.FromSeconds(5));
+        Assert.Equal(GraphicsAcquireStatus.Success, acquired.Status);
+        Assert.Equal(GraphicsPresentStatus.Presented, swapChain.Present(acquired.Image));
+    }
+
 }
