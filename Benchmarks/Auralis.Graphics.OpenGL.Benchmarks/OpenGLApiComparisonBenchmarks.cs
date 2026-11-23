@@ -39,6 +39,7 @@ public sealed unsafe class OpenGLApiComparisonBenchmarks
     private ulong _auralisFenceValue;
 
     [GlobalSetup]
+    /// Creates the hidden hardware context, buffers, command list, and fence, then validates both copy paths before measurement. All of this initialization and readback work is excluded from benchmark iterations.
     public void Setup()
     {
         _session = GlfwOpenGLHardwareSession.CreateAsync().AsTask().GetAwaiter().GetResult();
@@ -97,6 +98,7 @@ public sealed unsafe class OpenGLApiComparisonBenchmarks
     }
 
     [Benchmark(Baseline = true, Description = "Silk.NET raw OpenGL: 4 KiB copy + GPU fence wait")]
+    /// Measures the raw Silk.NET path for one 4 KiB GPU buffer copy, including context activation, native buffer binding, copy submission, fence creation, flush, CPU-side fence polling, sync deletion, and context release. The result is hardware- and driver-dependent.
     public int SilkNetCopyAndWait()
     {
         _session!.ContextProvider.MakeCurrent();
@@ -142,6 +144,7 @@ public sealed unsafe class OpenGLApiComparisonBenchmarks
     }
 
     [Benchmark(Description = "Auralis OpenGL API: 4 KiB copy + GPU fence wait")]
+    /// Measures the Auralis path for the same 4 KiB copy, including command-list reset/record/end, queue submission, timeline-fence waiting, command-list retirement observation, and associated context-gate/managed API overhead. It includes GPU completion, not just command recording.
     public int AuralisCopyAndWait()
     {
         IGraphicsCommandList list = CommandList;
@@ -164,6 +167,7 @@ public sealed unsafe class OpenGLApiComparisonBenchmarks
     }
 
     [GlobalCleanup]
+    /// Releases the raw OpenGL GL objects and Auralis resources outside the measured iterations, aggregating teardown failures after attempting each cleanup.
     public void Cleanup()
     {
         List<Exception> errors = [];
