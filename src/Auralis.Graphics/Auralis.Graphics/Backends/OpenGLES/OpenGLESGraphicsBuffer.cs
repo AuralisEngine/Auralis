@@ -90,6 +90,14 @@ internal sealed unsafe class OpenGLESGraphicsBuffer : OpenGLESNativeDeviceObject
     /// such as by waiting for its submission fence. A read mapping is a snapshot, not a live view.
     /// Write-only mapping performs no GL calls and does not acquire the device context.
     /// </remarks>
+    /// <param name="mode">Read, write, or read/write access permitted by the buffer's creation-time memory-access flags.</param>
+    /// <param name="offset">Byte offset from the start of the buffer.</param>
+    /// <param name="size">Number of bytes to map, or <see cref="ulong.MaxValue" /> for the remaining range.</param>
+    /// <returns>Managed staging memory valid until <see cref="Unmap" /> or disposal; outstanding pins defer returning its array to the pool.</returns>
+    /// <exception cref="ArgumentOutOfRangeException">The range or mode is invalid.</exception>
+    /// <exception cref="GraphicsValidationException">The creation-time CPU access does not permit the requested mapping direction.</exception>
+    /// <exception cref="InvalidOperationException">The buffer is already mapped.</exception>
+    /// <exception cref="GraphicsException">A read staging snapshot cannot be copied from the native buffer.</exception>
     public Memory<byte> Map(GraphicsMapMode mode, ulong offset = 0, ulong size = ulong.MaxValue)
     {
         ThrowIfDisposed();
@@ -193,6 +201,11 @@ internal sealed unsafe class OpenGLESGraphicsBuffer : OpenGLESNativeDeviceObject
     /// Ends the staging map and invalidates previously returned memory views. Write and ReadWrite
     /// mappings upload the complete mapped range, including any bytes the caller did not modify.
     /// </summary>
+    /// <param name="mode">(No parameter documentation required; this member closes the mapping established by <see cref="Map" />.)</param>
+    /// <summary>Uploads writable staging data when required, then invalidates the mapped memory view.</summary>
+    /// <remarks>Write and ReadWrite modes upload the complete mapped range, not only modified bytes. Read mode performs no upload.</remarks>
+    /// <exception cref="InvalidOperationException">The buffer is not mapped.</exception>
+    /// <exception cref="GraphicsException">GLES reports a mapping or buffer update failure.</exception>
     public void Unmap()
     {
         ThrowIfDisposed();
@@ -255,10 +268,12 @@ internal sealed unsafe class OpenGLESGraphicsBuffer : OpenGLESNativeDeviceObject
     }
 }
 
-/// <summary>
-/// Independently owned staging-memory view. Only the backing array is pooled; disposal prevents new
-/// access immediately and defers returning the array until every outstanding MemoryHandle is unpinned.
-/// </summary>
+/// <summary>Owns the pooled managed byte array exposed by an OpenGL ES buffer staging map.</summary>
+/// <remarks>
+/// The manager can be invalidated while callers still hold <see cref="MemoryHandle" /> pins. New
+/// span and pin requests then fail immediately, while the pinned array is returned to the pool only
+/// after the final outstanding handle is unpinned.
+/// </remarks>
 internal sealed unsafe class OpenGLESMappedStagingMemoryManager : MemoryManager<byte>
 {
     private readonly Lock _gate = new();
@@ -275,6 +290,8 @@ internal sealed unsafe class OpenGLESMappedStagingMemoryManager : MemoryManager<
         _buffer = ArrayPool<byte>.Shared.Rent(length);
     }
 
+    /// <summary>Returns the mapped staging range while the manager remains valid.</summary>
+    /// <exception cref="ObjectDisposedException">The mapping has been invalidated.</exception>
     public override Span<byte> GetSpan()
     {
         lock (_gate)
@@ -287,6 +304,10 @@ internal sealed unsafe class OpenGLESMappedStagingMemoryManager : MemoryManager<
         }
     }
 
+    /// <summary>Pins the backing array and returns a handle that must be released through <see cref="Unpin" />.</summary>
+    /// <param name="elementIndex">Zero-based byte index within the mapped range.</param>
+    /// <exception cref="ArgumentOutOfRangeException">The index is outside the mapped range.</exception>
+    /// <exception cref="ObjectDisposedException">The mapping has been invalidated.</exception>
     public override MemoryHandle Pin(int elementIndex = 0)
     {
         lock (_gate)
@@ -311,6 +332,7 @@ internal sealed unsafe class OpenGLESMappedStagingMemoryManager : MemoryManager<
         }
     }
 
+    /// <summary>Releases one pin and returns the pooled array when this was the final pin after disposal.</summary>
     public override void Unpin()
     {
         byte[]? bufferToReturn = null;
