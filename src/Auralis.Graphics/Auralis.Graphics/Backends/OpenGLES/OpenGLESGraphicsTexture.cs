@@ -434,12 +434,11 @@ internal static class OpenGLESTextureViewValidation
         viewFormat == textureDescription.Format;
 
     /// <summary>
-    /// Whether a subresource can be exposed as a 2D framebuffer attachment without
-    /// glTextureView: one mip of a 2D texture, or one layer/mip of a 2D-array texture.
-    /// It must preserve the parent's format and storage; this is not a sampleable view.
+    /// Determines whether a subresource can be exposed as a 2D framebuffer attachment without
+    /// creating a native texture-view object: one mip of a 2D texture, or one layer/mip of a
+    /// 2D-array texture. The alias preserves the parent's format and storage and is not sampleable.
     /// </summary>
-    /// <summary>Determines whether a subresource can be attached directly from its parent without creating a native texture-view object.</summary>
-    /// <remarks>The result is a framebuffer-only compatibility path, not a claim of general GLES texture-view support.</remarks>
+    /// <remarks>This is a restricted framebuffer-only compatibility path, not general GLES texture-view support.</remarks>
     internal static bool CanUseFramebufferOnlyAlias(
         in GraphicsTextureDescription textureDescription,
         TextureTarget textureTarget,
