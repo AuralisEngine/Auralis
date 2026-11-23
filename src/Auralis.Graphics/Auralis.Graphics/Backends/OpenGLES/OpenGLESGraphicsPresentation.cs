@@ -55,6 +55,9 @@ internal sealed class OpenGLESGraphicsPresentationSurface : GraphicsDeviceObject
         }
     }
 
+    /// <summary>Checks whether the device graphics queue can present to the current host GLES drawable.</summary>
+    /// <param name="queue">Candidate queue to validate.</param>
+    /// <returns><see langword="true" /> only for this device's graphics queue and a compatible provider drawable.</returns>
     public bool SupportsPresentation(IGraphicsQueue queue)
     {
         if (IsDisposed || queue is not OpenGLESGraphicsCommandQueue glesQueue)
@@ -76,7 +79,13 @@ internal sealed class OpenGLESGraphicsPresentationSurface : GraphicsDeviceObject
         }
     }
 
-    public IGraphicsSwapChain CreateSwapChain(
+    /// <summary>Creates a swap chain of backend-owned color textures for the host GLES drawable.</summary>
+    /// <param name="presentationQueue">Graphics queue associated with this surface and device.</param>
+    /// <param name="description">Image count, exact drawable extent, format, and present mode.</param>
+    /// <returns>A swap chain that blits an acquired image to framebuffer zero and delegates buffer swapping to the host provider.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="presentationQueue" /> is <see langword="null" />.</exception>
+    /// <exception cref="GraphicsValidationException">The queue is incompatible, the target is suspended, or the requested extent differs from the current drawable.</exception>
+    /// <exception cref="NotSupportedException">The host provider cannot honor the requested presentation mode.</exception>
         IGraphicsQueue presentationQueue,
         in GraphicsSwapChainDescription description)
     {
