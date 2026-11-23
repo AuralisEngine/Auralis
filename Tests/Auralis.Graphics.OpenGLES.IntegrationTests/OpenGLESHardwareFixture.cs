@@ -6,6 +6,8 @@ using Xunit.Sdk;
 
 namespace Auralis.Graphics.OpenGLES.IntegrationTests;
 
+/// <summary>Creates and shares one OpenGL ES device/context across the integration-test class.</summary>
+/// <remarks>Unavailable native GLFW or GLES environments are converted into per-test skips; unexpected initialization failures still fail fixture construction.</remarks>
 public sealed class OpenGLESHardwareFixture : IDisposable
 {
     private readonly GlfwOpenGLESContextProvider? _context;
@@ -41,6 +43,9 @@ public sealed class OpenGLESHardwareFixture : IDisposable
         }
     }
 
+    /// <summary>Returns the initialized GLES device or skips the requesting test when no usable context exists.</summary>
+    /// <returns>The shared graphics device.</returns>
+    /// <exception cref="Xunit.Sdk.SkipException">A usable OpenGL ES 3.1-or-newer context could not be created.</exception>
     public IGraphicsDevice GetDeviceOrSkip()
     {
         if (_device is null)
@@ -48,6 +53,9 @@ public sealed class OpenGLESHardwareFixture : IDisposable
         return _device;
     }
 
+    /// <summary>Returns the GLFW context provider or skips the requesting test when context creation was unavailable.</summary>
+    /// <returns>The provider for the fixture's GLES context.</returns>
+    /// <exception cref="Xunit.Sdk.SkipException">A usable OpenGL ES 3.1-or-newer context could not be created.</exception>
     public GlfwOpenGLESContextProvider GetContextOrSkip()
     {
         if (_context is null)
@@ -55,6 +63,7 @@ public sealed class OpenGLESHardwareFixture : IDisposable
         return _context;
     }
 
+    /// <summary>Disposes the device first, allowing it to drain GPU work and release resources before context teardown.</summary>
     public void Dispose()
     {
         if (_device is not null) _device.Dispose();
