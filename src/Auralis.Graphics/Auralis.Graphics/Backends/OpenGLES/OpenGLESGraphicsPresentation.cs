@@ -217,6 +217,14 @@ internal sealed class OpenGLESGraphicsSwapChain : OpenGLESNativeDeviceObject, IG
         if (timeout < TimeSpan.Zero && timeout != Timeout.InfiniteTimeSpan)
             throw new ArgumentOutOfRangeException(nameof(timeout));
 
+        // Target refresh, context-gate contention, native waits, and acquisition all share one
+        // monotonic timeout budget.
+        OpenGLESSwapChainTestHooks? hooks = _device.SwapChainTestHooks;
+        OpenGLESAcquireDeadline deadline = hooks?.TimestampProvider is { } timestampProvider
+            ? new OpenGLESAcquireDeadline(timeout, timestampProvider)
+            : new OpenGLESAcquireDeadline(timeout);
+        bool allowImmediatePoll = timeout == TimeSpan.Zero;
+
         GraphicsPresentationTargetSnapshot snapshot = _surface.RefreshSnapshot();
         if (snapshot.IsSuspended)
             return new GraphicsAcquireResult(GraphicsAcquireStatus.Suspended, default);
@@ -232,11 +240,6 @@ internal sealed class OpenGLESGraphicsSwapChain : OpenGLESNativeDeviceObject, IG
             }
         }
 
-        OpenGLESSwapChainTestHooks? hooks = _device.SwapChainTestHooks;
-        OpenGLESAcquireDeadline deadline = hooks?.TimestampProvider is { } timestampProvider
-            ? new OpenGLESAcquireDeadline(timeout, timestampProvider)
-            : new OpenGLESAcquireDeadline(timeout);
-        bool allowImmediatePoll = timeout == TimeSpan.Zero;
         if (!_device.TryAcquireContext(
                 deadline.GetRemainingTime(),
                 CancellationToken.None,
