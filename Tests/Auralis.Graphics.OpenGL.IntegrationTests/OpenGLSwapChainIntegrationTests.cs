@@ -197,6 +197,7 @@ public sealed partial class OpenGLIntegrationTests
             Assert.Throws<InvalidOperationException>(() => swapChain.Resize(replacement));
             Assert.Equal(1UL, swapChain.Generation);
             Assert.Equal(original, swapChain.Description);
+            Assert.Equal(original.PresentMode, provider.CurrentPresentMode);
             AcquireAndPresent(swapChain);
 
             hooks.BeforeGpuFinish = () =>
@@ -207,6 +208,7 @@ public sealed partial class OpenGLIntegrationTests
             Assert.Throws<AggregateException>(() => swapChain.Resize(replacement));
             Assert.Equal(1UL, swapChain.Generation);
             Assert.Equal(original, swapChain.Description);
+            Assert.Equal(original.PresentMode, provider.CurrentPresentMode);
             AcquireAndPresent(swapChain);
         }
         finally
