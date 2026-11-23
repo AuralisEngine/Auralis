@@ -501,4 +501,122 @@ public sealed partial class OpenGLIntegrationTests
         }
     }
 
+
+    [Fact]
+    public void RepeatedSwapChainCyclesReleaseTrackedNativeTexturesFramebuffersAndSyncs() =>
+        RunHardwareTest(ExerciseTrackedResourceRetirement);
+
+    private static void ExerciseTrackedResourceRetirement(GlfwOpenGLHardwareSession session)
+    {
+        OpenGLGraphicsDevice device = (OpenGLGraphicsDevice)session.Device;
+        HashSet<uint> activeTextures = [];
+        HashSet<uint> activeFramebuffers = [];
+        HashSet<nint> activeSyncs = [];
+        HashSet<uint> allTextures = [];
+        HashSet<uint> allFramebuffers = [];
+        HashSet<nint> allSyncs = [];
+
+        OpenGLSwapChainTestHooks hooks = new()
+        {
+            AfterTextureCreated = texture =>
+            {
+                uint handle = texture.Handle;
+                Assert.True(activeTextures.Add(handle), $"Texture {handle} was registered twice.");
+                allTextures.Add(handle);
+            },
+            AfterTextureDeleted = handle =>
+                Assert.True(activeTextures.Remove(handle), $"Texture {handle} was deleted without ownership."),
+            AfterFramebufferCreated = handle =>
+            {
+                Assert.True(activeFramebuffers.Add(handle), $"Framebuffer {handle} was registered twice.");
+                allFramebuffers.Add(handle);
+            },
+            AfterFramebufferDeleted = handle =>
+                Assert.True(activeFramebuffers.Remove(handle), $"Framebuffer {handle} was deleted without ownership."),
+            AfterPresentationSyncCreated = sync =>
+            {
+                Assert.True(activeSyncs.Add(sync), $"Sync {sync} was registered twice.");
+                allSyncs.Add(sync);
+            },
+            AfterPresentationSyncDeleted = sync =>
+                Assert.True(activeSyncs.Remove(sync), $"Sync {sync} was deleted without ownership.")
+        };
+
+        device.SwapChainTestHooks = hooks;
+        try
+        {
+            GlfwPresentationTarget target = session.ContextProvider.CreatePresentationTarget();
+            using IGraphicsPresentationSurface surface = device.CreatePresentationSurface(target);
+            GraphicsSwapChainDescription description = new(
+                target.GetSnapshot().Extent.Width,
+                target.GetSnapshot().Extent.Height,
+                GraphicsFormat.RGBA8UNorm,
+                2,
+                GraphicsPresentMode.Immediate);
+
+            IGraphicsSwapChain swapChain = surface.CreateSwapChain(device.GetPresentationQueue(), description);
+            try
+            {
+                for (int cycle = 0; cycle < 4; cycle++)
+                {
+                    GraphicsAcquireResult first = swapChain.AcquireNextImage(TimeSpan.FromSeconds(5));
+                    GraphicsAcquireResult second = swapChain.AcquireNextImage(TimeSpan.FromSeconds(5));
+                    Assert.Equal(GraphicsAcquireStatus.Success, first.Status);
+                    Assert.Equal(GraphicsAcquireStatus.Success, second.Status);
+                    Assert.Equal(GraphicsPresentStatus.Presented, swapChain.Present(first.Image));
+                    Assert.Equal(GraphicsPresentStatus.Presented, swapChain.Present(second.Image));
+                    Assert.Equal(2, activeSyncs.Count);
+
+                    uint nextCount = cycle % 2 == 0 ? 3u : 2u;
+                    swapChain.Resize(swapChain.Description with { BufferCount = nextCount });
+
+                    Assert.Empty(activeSyncs);
+                    Assert.Equal((int)nextCount, activeTextures.Count);
+                    Assert.Equal((int)nextCount, activeFramebuffers.Count);
+
+                    using OpenGLContextScope context = device.AcquireContext();
+                    context.Gl.Finish();
+                    foreach (uint handle in allTextures)
+                        Assert.True(activeTextures.Contains(handle) || !context.Gl.IsTexture(handle),
+                            $"Retired texture {handle} is still a valid GL texture.");
+                    foreach (uint handle in allFramebuffers)
+                        Assert.True(activeFramebuffers.Contains(handle) || !context.Gl.IsFramebuffer(handle),
+                            $"Retired framebuffer {handle} is still a valid GL framebuffer.");
+                    foreach (nint sync in allSyncs)
+                        Assert.True(activeSyncs.Contains(sync) || !_deviceSyncIsValid(device, sync),
+                            $"Retired sync {sync} is still a valid GL sync.");
+                }
+            }
+            finally
+            {
+                swapChain.Dispose();
+            }
+
+            using (OpenGLContextScope context = device.AcquireContext())
+            {
+                context.Gl.Finish();
+                Assert.Empty(activeTextures);
+                Assert.Empty(activeFramebuffers);
+                Assert.Empty(activeSyncs);
+                foreach (uint handle in allTextures)
+                    Assert.False(context.Gl.IsTexture(handle), $"Texture {handle} survived swap-chain disposal.");
+                foreach (uint handle in allFramebuffers)
+                    Assert.False(context.Gl.IsFramebuffer(handle), $"Framebuffer {handle} survived swap-chain disposal.");
+                foreach (nint sync in allSyncs)
+                    Assert.False(device.SyncApi.IsSync(sync), $"Sync {sync} survived swap-chain disposal.");
+            }
+
+            Console.WriteLine(
+                $"PASS: Desktop GL native swap-chain resource accounting. " +
+                $"Textures={allTextures.Count}, framebuffers={allFramebuffers.Count}, syncs={allSyncs.Count} created and all released.");
+        }
+        finally
+        {
+            device.SwapChainTestHooks = null;
+        }
+    }
+
+    private static bool _deviceSyncIsValid(OpenGLGraphicsDevice device, nint sync) =>
+        device.SyncApi.IsSync(sync);
+
 }
