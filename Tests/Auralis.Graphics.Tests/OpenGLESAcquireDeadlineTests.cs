@@ -50,10 +50,10 @@ public sealed class OpenGLESAcquireDeadlineTests
     public void PresentationSyncIsOwnedAndImageReleasedBeforeHostSwap()
     {
         OpenGLESSwapChainImage slot = new() { Texture = null!, Acquired = true };
-        OpenGLESSwapChain.PublishPresentationSync(slot, (nint)123);
+        OpenGLESGraphicsSwapChain.PublishPresentationSync(slot, (nint)123);
 
-        InvalidOperationException failure = Assert.Throws<InvalidOperationException>(() =>
-            throw new InvalidOperationException("Simulated SwapBuffers failure."));
+        InvalidOperationException failure = Assert.Throws<InvalidOperationException>(
+            (Action)(() => throw new InvalidOperationException("Simulated SwapBuffers failure.")));
 
         Assert.Equal("Simulated SwapBuffers failure.", failure.Message);
         Assert.False(slot.Acquired);
@@ -70,9 +70,9 @@ public sealed class OpenGLESAcquireDeadlineTests
             PresentSync = (nint)456
         };
         Assert.Throws<InvalidOperationException>(() =>
-            OpenGLESSwapChain.PublishPresentationSync(slot, (nint)123));
+            OpenGLESGraphicsSwapChain.PublishPresentationSync(slot, (nint)123));
         Assert.Throws<ArgumentOutOfRangeException>(() =>
-            OpenGLESSwapChain.PublishPresentationSync(slot, 0));
+            OpenGLESGraphicsSwapChain.PublishPresentationSync(slot, 0));
         Assert.Equal((nint)456, slot.PresentSync);
         Assert.True(slot.Acquired);
     }
