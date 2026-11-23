@@ -105,8 +105,10 @@ internal sealed class OpenGLESGraphicsShader : OpenGLESNativeDeviceObject, IGrap
         string source) =>
         OpenGLESShaderCompatibility.ValidateSourceVersion(device.Version, stage, source);
 
+    /// <inheritdoc />
     protected override void DisposeCore() => ReleaseOwnerReference();
 
+    /// <inheritdoc />
     public override void ReleaseNative(GL gl)
     {
         uint handle = Interlocked.Exchange(ref _handle, 0);
