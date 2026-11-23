@@ -11,6 +11,11 @@ internal sealed class OpenGLContextLease : IDisposable
 
     private OpenGLContextLease(IOpenGLContextProvider provider) => _provider = provider;
 
+    /// <summary>Makes the provider's existing desktop GL context current and returns its release lease.</summary>
+    /// <param name="provider">Host-supplied provider for the context being activated.</param>
+    /// <returns>A lease that releases the context once when disposed on this same thread.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="provider" /> is <see langword="null" />.</exception>
+    /// <exception cref="InvalidOperationException">The provider cannot make its context current on the calling thread.</exception>
     internal static OpenGLContextLease Acquire(IOpenGLContextProvider provider)
     {
         ArgumentNullException.ThrowIfNull(provider);
