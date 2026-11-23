@@ -7,10 +7,14 @@ using Silk.NET.OpenGL.Extensions.ARB;
 
 namespace Auralis.Graphics.Backends.OpenGL;
 
-/// <summary>
-/// Timeline-style fence backed by ordered GLsync objects. Signal order is monotonic, so a FIFO
-/// queue is sufficient and avoids per-entry tree nodes and temporary cleanup collections.
-/// </summary>
+/// <summary>Implements a monotonic timeline fence using ordered desktop OpenGL sync objects.</summary>
+/// <remarks>
+/// GPU signals insert <see cref="GLsync" />-backed completion points in command-stream order;
+/// CPU signals advance the value immediately after validating that they do not overtake pending
+/// GPU signals. Polling and CPU waits acquire the device context gate because GL sync queries
+/// require this device's context to be current. Fence completion does not itself retire a submitted
+/// command list; queue polling performs that separate lifecycle transition and releases retained resources.
+/// </remarks>
 internal sealed class OpenGLGraphicsFence : OpenGLNativeDeviceObject, IGraphicsFence
 {
     private readonly OpenGLGraphicsDevice _device;
@@ -31,6 +35,9 @@ internal sealed class OpenGLGraphicsFence : OpenGLNativeDeviceObject, IGraphicsF
         _lastSignaledValue = initialValue;
     }
 
+    /// <summary>Gets the greatest timeline value whose completion has been observed.</summary>
+    /// <remarks>Reading the value may block while acquiring the device context gate and polls pending GL sync objects.</remarks>
+    /// <exception cref="ObjectDisposedException">The fence or its device has been disposed.</exception>
     public ulong CompletedValue
     {
         get
@@ -105,6 +112,15 @@ internal sealed class OpenGLGraphicsFence : OpenGLNativeDeviceObject, IGraphicsF
             $"Fence value {value} has not been submitted or CPU-signaled; OpenGL cannot enqueue a wait for an unknown future sync object.");
     }
 
+    /// <summary>Waits on the CPU until the timeline reaches the requested value or the wait expires.</summary>
+    /// <param name="value">Timeline value to observe.</param>
+    /// <param name="timeout">Maximum elapsed wait, or <see cref="Timeout.InfiniteTimeSpan" /> for an unbounded wait.</param>
+    /// <param name="cancellationToken">Token that can interrupt the wait.</param>
+    /// <returns><see langword="true" /> when the value is complete; <see langword="false" /> when the timeout expires or the context gate cannot be acquired before the remaining deadline.</returns>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="timeout" /> is negative and is not infinite.</exception>
+    /// <exception cref="OperationCanceledException">The wait is canceled.</exception>
+    /// <exception cref="ObjectDisposedException">The fence or its device has been disposed.</exception>
+    /// <exception cref="GraphicsException">OpenGL reports a failed sync wait.</exception>
     public bool Wait(ulong value, TimeSpan timeout, CancellationToken cancellationToken = default)
     {
         ThrowIfDisposed();
