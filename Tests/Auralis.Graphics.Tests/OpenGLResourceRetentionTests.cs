@@ -15,8 +15,8 @@ namespace Auralis.Graphics.Tests;
 /// <remarks>The suite exercises recorded references, multiple independent lists, submission completion, device shutdown, duplicate disposal/release, and cleanup failure aggregation.</remarks>
 public sealed class OpenGLResourceRetentionTests
 {
-    [Fact]
     /// <summary>Verifies disposing a buffer owner does not delete its GL storage while a recorded command still retains it.</summary>
+    [Fact]
     public void DisposedBufferRemainsAliveUntilRecordedReferencesAreReleased()
     {
         var retention = new OpenGLResourceRetention();
@@ -30,8 +30,8 @@ public sealed class OpenGLResourceRetentionTests
         Assert.Equal(1, buffer.NativeReleaseCount);
     }
 
-    [Fact]
     /// <summary>Verifies texture storage remains alive while a command-list reference exists after owner disposal.</summary>
+    [Fact]
     public void DisposedTextureRemainsAliveUntilRecordedReferencesAreReleased()
     {
         var retention = new OpenGLResourceRetention();
@@ -45,8 +45,8 @@ public sealed class OpenGLResourceRetentionTests
         Assert.Equal(1, texture.NativeReleaseCount);
     }
 
-    [Fact]
     /// <summary>Verifies Reset releases resources retained during the previous recording.</summary>
+    [Fact]
     public void ResettingCommandListReleasesItsRecordedNativeReferences()
     {
         var retention = new OpenGLResourceRetention();
@@ -63,8 +63,8 @@ public sealed class OpenGLResourceRetentionTests
         Assert.Equal(0, retention.Count);
     }
 
-    [Fact]
     /// <summary>Verifies disposing a never-submitted list releases its recorded references.</summary>
+    [Fact]
     public void DisposingUnsubmittedCommandListReleasesItsRecordedNativeReferences()
     {
         var retention = new OpenGLResourceRetention();
@@ -80,8 +80,8 @@ public sealed class OpenGLResourceRetentionTests
         Assert.Equal(1, resource.NativeReleaseCount);
     }
 
-    [Fact]
     /// <summary>Verifies submission retains disposed resources until the GPU completes and the command list is reset or reclaimed.</summary>
+    [Fact]
     public void SubmittedCommandListKeepsDisposedResourcesUntilCompletionAndReset()
     {
         var lifecycle = new GraphicsCommandListLifecycle(GraphicsQueueType.Graphics);
@@ -105,8 +105,8 @@ public sealed class OpenGLResourceRetentionTests
         Assert.Equal(1, resource.NativeReleaseCount);
     }
 
-    [Fact]
     /// <summary>Verifies each list owns an independent retain on a shared native resource.</summary>
+    [Fact]
     public void MultipleCommandListsRetainSharedResourceIndependently()
     {
         var firstList = new OpenGLResourceRetention();
@@ -146,8 +146,8 @@ public sealed class OpenGLResourceRetentionTests
         Assert.Equal(1, resource.NativeReleaseCount);
     }
 
-    [Fact]
     /// <summary>Verifies device shutdown drains pending work and releases native storage even when a submitted list retains a managed reference.</summary>
+    [Fact]
     public void DeviceShutdownReleasesNativeObjectWhileSubmittedListStillRetainsIt()
     {
         var lifecycle = new GraphicsCommandListLifecycle(GraphicsQueueType.Graphics);
@@ -173,8 +173,8 @@ public sealed class OpenGLResourceRetentionTests
         Assert.Equal(1, resource.NativeReleaseCount);
     }
 
-    [Fact]
     /// <summary>Verifies disposal and reference-release races cannot trigger duplicate native deletion.</summary>
+    [Fact]
     public void RepeatedDisposalAndDuplicateReleaseCannotDeleteNativeResourceTwice()
     {
         var retention = new OpenGLResourceRetention();
@@ -203,8 +203,8 @@ public sealed class OpenGLResourceRetentionTests
         Assert.Equal(1, resource.NativeReleaseCount);
     }
 
-    [Fact]
     /// <summary>Verifies racing retain and owner-close operations preserve exact-once native reclamation.</summary>
+    [Fact]
     public async Task ConcurrentRetainsRacingOwnerDisposalReleaseExactlyOnce()
     {
         var resource = new InstrumentedNativeResource();
