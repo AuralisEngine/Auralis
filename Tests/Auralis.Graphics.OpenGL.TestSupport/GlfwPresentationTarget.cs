@@ -8,7 +8,7 @@ namespace Auralis.Graphics.OpenGL.TestSupport;
 /// </summary>
 public sealed class GlfwPresentationTarget : IGraphicsPresentationTarget
 {
-    internal const uint NativeWindowHandleKind = 0x8A11;
+    public const uint NativeWindowHandleKind = 0x8A11;
 
     private readonly object _gate = new();
     private readonly GraphicsNativeSurfaceDescription _nativeSurface;

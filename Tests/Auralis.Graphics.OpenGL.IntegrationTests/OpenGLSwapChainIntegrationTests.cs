@@ -11,6 +11,14 @@ namespace Auralis.Graphics.OpenGL.IntegrationTests;
 public sealed partial class OpenGLIntegrationTests
 {
     [Fact]
+    public void GlfwPresentationTargetUsesAValidCustomNativeHandleKind()
+    {
+        Assert.Equal(
+            GlfwPresentationTarget.NativeWindowHandleKind,
+            GraphicsNativeHandleKind.CreateCustom(GlfwPresentationTarget.NativeWindowHandleKind).Value);
+    }
+
+    [Fact]
     public void SwapChainAcquisitionPresentationAndResizeWorkOnTheHostDrawable() =>
         RunHardwareTest(ExerciseSwapChainLifecycle);
 
