@@ -49,9 +49,32 @@ internal sealed class OpenGLGraphicsSwapChain : OpenGLNativeDeviceObject, IGraph
         _device = (OpenGLGraphicsDevice)surface.Device;
         _description = description;
         _surfaceRevision = snapshot.Revision;
-        _images = CreateImages(description);
+        _images = Array.Empty<OpenGLSwapChainImage>();
+
+        // Register before allocating so a failed constructor can still retain and retry cleanup
+        // of any partially created native framebuffer set through the device resource registry.
         using OpenGLContextScope context = _device.AcquireContext();
         _device.RegisterUnderContext(this);
+        try
+        {
+            _images = CreateImages(description);
+        }
+        catch (Exception creationFailure)
+        {
+            try
+            {
+                ReleaseOwnerReference();
+            }
+            catch (Exception cleanupFailure)
+            {
+                throw new AggregateException(
+                    "OpenGL swap-chain creation failed and native rollback could not complete.",
+                    creationFailure,
+                    cleanupFailure);
+            }
+
+            throw;
+        }
     }
 
     public GraphicsSwapChainDescription Description
@@ -321,17 +344,21 @@ internal sealed class OpenGLGraphicsSwapChain : OpenGLNativeDeviceObject, IGraph
                 ClearBufferMask.ColorBufferBit,
                 BlitFramebufferFilter.Linear);
 
+            if (slot.PresentSync != 0)
+                throw new GraphicsValidationException(
+                    "An acquired OpenGL swap-chain image unexpectedly still owns a presentation sync.");
+
             nint sync = _device.SyncApi.FenceSync(
                 SyncCondition.SyncGpuCommandsComplete,
                 SyncBehaviorFlags.None);
             if (sync == 0)
                 throw new GraphicsException("OpenGL failed to create a presentation completion sync.");
 
-            if (slot.PresentSync != 0)
-                _device.SyncApi.DeleteSync(slot.PresentSync);
+            // Publish the completion dependency before the host swap. SwapBuffers may throw after
+            // the blit and fence have already been submitted; the image must retain sync ownership
+            // and be marked unacquired so a later acquisition waits before reuse.
             slot.PresentSync = sync;
             slot.Acquired = false;
-
             _device.ContextProvider.SwapBuffers();
         }
 
@@ -628,8 +655,7 @@ internal sealed class OpenGLGraphicsSwapChain : OpenGLNativeDeviceObject, IGraph
             if (cleanupFailures.Count != 0)
             {
                 cleanupFailures.Insert(0, creationFailure);
-                if (_images is not null && _images.Length != 0)
-                    RetainImageSetForCleanup(images);
+                RetainImageSetForCleanup(images);
                 throw new AggregateException(
                     "OpenGL swap-chain image creation failed and partial replacement cleanup was incomplete.",
                     cleanupFailures);
