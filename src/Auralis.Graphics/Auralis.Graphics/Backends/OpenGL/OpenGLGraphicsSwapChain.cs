@@ -1,5 +1,5 @@
-using System.Diagnostics;
 using Auralis.Graphics.Abstractions;
+using Auralis.Graphics.Backends;
 using Auralis.Graphics.Commands;
 using Auralis.Graphics.Presentation;
 using Auralis.Graphics.Resources;
@@ -82,6 +82,11 @@ internal sealed class OpenGLGraphicsSwapChain : OpenGLNativeDeviceObject, IGraph
         if (timeout < TimeSpan.Zero && timeout != Timeout.InfiniteTimeSpan)
             throw new ArgumentOutOfRangeException(nameof(timeout));
 
+        // The target refresh, context-gate contention, native waits, and acquisition commit all
+        // consume this one monotonic budget. A zero timeout still performs a nonblocking scan.
+        GraphicsAcquireDeadline deadline = new(timeout);
+        bool allowImmediatePoll = timeout == TimeSpan.Zero;
+
         GraphicsPresentationTargetSnapshot snapshot;
         try
         {
@@ -98,67 +103,121 @@ internal sealed class OpenGLGraphicsSwapChain : OpenGLNativeDeviceObject, IGraph
         if (snapshot.Revision != _surfaceRevision)
             return new GraphicsAcquireResult(GraphicsAcquireStatus.OutOfDate, default);
 
-        long start = Stopwatch.GetTimestamp();
-        long timeoutTicks = timeout == Timeout.InfiniteTimeSpan
-            ? long.MaxValue
-            : (long)(timeout.TotalSeconds * Stopwatch.Frequency);
-
-        while (true)
+        if (!_device.TryAcquireContext(
+                deadline.GetRemainingTime(),
+                CancellationToken.None,
+                out OpenGLContextScope context))
         {
-            ulong remainingNanoseconds = GetRemainingNanoseconds(start, timeoutTicks);
+            return new GraphicsAcquireResult(GraphicsAcquireStatus.Timeout, default);
+        }
 
-            GraphicsAcquireResult result;
-            using (OpenGLContextScope context = _device.AcquireContext())
+        using (context)
+        {
+            GL gl = context.Gl;
+            while (true)
             {
-                GL gl = context.Gl;
-                int imageCount = _images.Length;
-                result = new GraphicsAcquireResult(GraphicsAcquireStatus.Timeout, default);
-                for (int attempt = 0; attempt < imageCount; attempt++)
+                int firstPendingIndex = -1;
+                bool hasUnacquiredImage = false;
+
+                // Poll every slot before waiting. An already-reusable later image must not be
+                // blocked behind an earlier image whose previous presentation is still pending.
+                for (int attempt = 0; attempt < _images.Length; attempt++)
                 {
-                    uint index = (_nextImage + (uint)attempt) % (uint)imageCount;
+                    uint index = (_nextImage + (uint)attempt) % (uint)_images.Length;
                     OpenGLSwapChainImage image = _images[index];
                     if (image.Acquired)
                         continue;
 
-                    if (image.PresentSync != 0)
+                    hasUnacquiredImage = true;
+                    if (image.PresentSync == 0)
                     {
-                        ARB wait = _device.SyncApi.ClientWaitSync(
-                            image.PresentSync,
-                            (SyncObjectMask)0,
-                            remainingNanoseconds);
+                        if (!allowImmediatePoll && deadline.IsExpired)
+                            return new GraphicsAcquireResult(GraphicsAcquireStatus.Timeout, default);
 
-                        if (wait == ARB.TimeoutExpired)
-                            continue;
-                        if (wait == ARB.WaitFailed)
-                            throw new GraphicsException("OpenGL failed while waiting for a presented swapchain image.");
+                        // Revalidate immediately before publishing acquisition.
+                        if (!allowImmediatePoll && deadline.IsExpired)
+                            return new GraphicsAcquireResult(GraphicsAcquireStatus.Timeout, default);
+
+                        return AcquireImage(index, image);
+                    }
+
+                    ARB pollStatus = _device.SyncApi.ClientWaitSync(
+                        image.PresentSync,
+                        (SyncObjectMask)0,
+                        0);
+
+                    if (pollStatus is ARB.AlreadySignaled or ARB.ConditionSatisfied)
+                    {
+                        if (!allowImmediatePoll && deadline.IsExpired)
+                            return new GraphicsAcquireResult(GraphicsAcquireStatus.Timeout, default);
 
                         _device.SyncApi.DeleteSync(image.PresentSync);
                         image.PresentSync = 0;
+                        return AcquireImage(index, image);
                     }
 
-                    image.Acquired = true;
-                    _nextImage = (index + 1) % (uint)imageCount;
-                    result = new GraphicsAcquireResult(
-                        GraphicsAcquireStatus.Success,
-                        new GraphicsAcquiredImage(index, _generation, image.Texture));
-                    break;
+                    if (pollStatus == ARB.WaitFailed)
+                        throw new GraphicsException(
+                            "OpenGL failed while polling a presentation sync before image acquisition.");
+                    if (pollStatus != ARB.TimeoutExpired)
+                        throw new GraphicsException(
+                            $"OpenGL returned unexpected client-wait status {pollStatus} for a presentation sync.");
+
+                    if (firstPendingIndex < 0)
+                        firstPendingIndex = (int)index;
                 }
+
+                // If all slots are held by the application, GPU completion cannot make one reusable.
+                if (!hasUnacquiredImage || firstPendingIndex < 0 || deadline.IsExpired)
+                    return new GraphicsAcquireResult(GraphicsAcquireStatus.Timeout, default);
+
+                // Calculate the native timeout immediately before every blocking wait. Infinite
+                // waits are deliberately sliced so no GL_TIMEOUT_IGNORED sentinel is passed.
+                ulong remainingNanoseconds = deadline.GetClientWaitTimeoutNanoseconds();
+                if (remainingNanoseconds == 0)
+                    return new GraphicsAcquireResult(GraphicsAcquireStatus.Timeout, default);
+
+                OpenGLSwapChainImage pending = _images[firstPendingIndex];
+                ARB waitStatus = _device.SyncApi.ClientWaitSync(
+                    pending.PresentSync,
+                    (SyncObjectMask)1, // GL_SYNC_FLUSH_COMMANDS_BIT
+                    remainingNanoseconds);
+
+                if (waitStatus is ARB.AlreadySignaled or ARB.ConditionSatisfied)
+                {
+                    // The sync is complete even if the deadline expired while the native call was
+                    // returning. Retire it, but leave the image unacquired for the next operation.
+                    _device.SyncApi.DeleteSync(pending.PresentSync);
+                    pending.PresentSync = 0;
+
+                    if (deadline.IsExpired)
+                        return new GraphicsAcquireResult(GraphicsAcquireStatus.Timeout, default);
+
+                    return AcquireImage((uint)firstPendingIndex, pending);
+                }
+
+                if (waitStatus == ARB.WaitFailed)
+                    throw new GraphicsException(
+                        "OpenGL failed while waiting for a presented swap-chain image.");
+                if (waitStatus != ARB.TimeoutExpired)
+                    throw new GraphicsException(
+                        $"OpenGL returned unexpected client-wait status {waitStatus} for a presentation sync.");
+
+                // A timed wait consumes the original deadline. Do not rescan and acquire an image
+                // that became available only after the caller's timeout has elapsed.
+                if (deadline.IsExpired)
+                    return new GraphicsAcquireResult(GraphicsAcquireStatus.Timeout, default);
             }
-
-            if (result.HasImage)
-                return result;
-            if (timeoutTicks == 0 || timeoutTicks != long.MaxValue && Stopwatch.GetTimestamp() - start >= timeoutTicks)
-                return new GraphicsAcquireResult(GraphicsAcquireStatus.Timeout, default);
-
-            // If every image is held by the application, no GPU wait can make one available.
-            bool hasGpuPendingImage = false;
-            for (int i = 0; i < _images.Length; i++)
-                hasGpuPendingImage |= !_images[i].Acquired && _images[i].PresentSync != 0;
-
-            if (!hasGpuPendingImage)
-                return new GraphicsAcquireResult(GraphicsAcquireStatus.Timeout, default);
         }
+    }
 
+    private GraphicsAcquireResult AcquireImage(uint index, OpenGLSwapChainImage image)
+    {
+        image.Acquired = true;
+        _nextImage = (index + 1) % (uint)_images.Length;
+        return new GraphicsAcquireResult(
+            GraphicsAcquireStatus.Success,
+            new GraphicsAcquiredImage(index, _generation, image.Texture));
     }
 
     /// <summary>Blits an acquired image to the host drawable, inserts a reuse sync, and requests a host buffer swap.</summary>
