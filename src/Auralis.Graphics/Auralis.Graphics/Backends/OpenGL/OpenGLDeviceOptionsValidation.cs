@@ -6,6 +6,10 @@ namespace Auralis.Graphics.Backends.OpenGL;
 /// <summary>Rejects device options the injected-context OpenGL backend cannot satisfy.</summary>
 internal static class OpenGLDeviceOptionsValidation
 {
+    /// <summary>Rejects device options that cannot be honored by an already-created desktop OpenGL context.</summary>
+    /// <param name="options">Options to validate before context initialization.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="options" /> is <see langword="null" />.</exception>
+    /// <exception cref="GraphicsBackendUnavailableException">A physical adapter was requested or GPU-based validation was enabled.</exception>
     internal static void Validate(GraphicsDeviceOptions options)
     {
         ArgumentNullException.ThrowIfNull(options);
