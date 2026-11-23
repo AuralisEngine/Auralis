@@ -433,4 +433,62 @@ public sealed partial class OpenGLESIntegrationTests
         }
     }
 
+
+    [Fact]
+    public void CompletedPresentationWaitAfterDeadlineDoesNotPublishAcquisition() =>
+        RunHardwareTest(ExerciseLateCompletedWait);
+
+    private static void ExerciseLateCompletedWait(
+        IGraphicsDevice graphicsDevice,
+        GlfwOpenGLESContextProvider provider)
+    {
+        OpenGLESGraphicsDevice device = (OpenGLESGraphicsDevice)graphicsDevice;
+        GlfwPresentationTarget target = provider.CreatePresentationTarget();
+        using IGraphicsPresentationSurface surface = device.CreatePresentationSurface(target);
+        using IGraphicsSwapChain swapChain = surface.CreateSwapChain(
+            device.GetPresentationQueue(),
+            new GraphicsSwapChainDescription(
+                target.GetSnapshot().Extent.Width,
+                target.GetSnapshot().Extent.Height,
+                GraphicsFormat.RGBA8UNorm,
+                2,
+                GraphicsPresentMode.Immediate));
+
+        GraphicsAcquireResult first = swapChain.AcquireNextImage(TimeSpan.FromSeconds(5));
+        GraphicsAcquireResult second = swapChain.AcquireNextImage(TimeSpan.FromSeconds(5));
+        Assert.Equal(GraphicsPresentStatus.Presented, swapChain.Present(first.Image));
+        Assert.Equal(GraphicsPresentStatus.Presented, swapChain.Present(second.Image));
+        using (OpenGLESContextScope context = device.AcquireContext())
+            context.Gl.Finish();
+
+        OpenGLESSwapChainTestHooks hooks = new();
+        device.SwapChainTestHooks = hooks;
+        long fakeTimestamp = 0;
+        int deletions = 0;
+        hooks.TimestampProvider = () => fakeTimestamp;
+        hooks.PollClientWaitSync = _ => GLEnum.TimeoutExpired;
+        hooks.WaitClientWaitSync = (_, _, _) =>
+        {
+            fakeTimestamp += Stopwatch.Frequency * 2;
+            return GLEnum.ConditionSatisfied;
+        };
+        hooks.AfterAcquireSyncDeleted = _ => deletions++;
+
+        try
+        {
+            GraphicsAcquireResult timedOut = swapChain.AcquireNextImage(TimeSpan.FromSeconds(1));
+            Assert.Equal(GraphicsAcquireStatus.Timeout, timedOut.Status);
+            Assert.Equal(1, deletions);
+
+            GraphicsAcquireResult immediate = swapChain.AcquireNextImage(TimeSpan.Zero);
+            Assert.Equal(GraphicsAcquireStatus.Success, immediate.Status);
+            Assert.Equal(0u, immediate.Image.ImageIndex);
+            Assert.Equal(1, deletions);
+        }
+        finally
+        {
+            device.SwapChainTestHooks = null;
+        }
+    }
+
 }
