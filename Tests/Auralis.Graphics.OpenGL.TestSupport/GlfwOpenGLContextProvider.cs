@@ -17,6 +17,7 @@ public sealed unsafe class GlfwOpenGLContextProvider : IOpenGLContextProvider
     private readonly object _contextIdentity = new();
     private readonly ThreadLocal<int> _currentDepth = new();
     private int _disposed;
+    private int _failNextSwapBuffers;
 
     private GlfwOpenGLContextProvider(Glfw glfw, WindowHandle* window)
     {
@@ -57,7 +58,7 @@ public sealed unsafe class GlfwOpenGLContextProvider : IOpenGLContextProvider
             glfw.WindowHint(WindowHintInt.ContextVersionMinor, 5);
             glfw.WindowHint(WindowHintOpenGlProfile.OpenGlProfile, OpenGlProfile.Core);
             glfw.WindowHint(WindowHintBool.Visible, false);
-            glfw.WindowHint(WindowHintBool.Resizable, false);
+            glfw.WindowHint(WindowHintBool.Resizable, true);
 
             window = glfw.CreateWindow(64, 64, "Auralis OpenGL Hardware Tests", null, null);
             if (window is null)
@@ -99,19 +100,89 @@ public sealed unsafe class GlfwOpenGLContextProvider : IOpenGLContextProvider
     /// <inheritdoc />
     public string? UnavailableReason => IsAvailable ? null : "The GLFW context provider has been disposed.";
     /// <inheritdoc />
-    public bool SupportsPresentation => false;
+    /// <inheritdoc />
+    public bool SupportsPresentation => IsAvailable;
 
     /// <inheritdoc />
-    public bool IsPresentationTargetCompatible(in GraphicsPresentationTargetSnapshot target) => false;
+    public bool IsPresentationTargetCompatible(in GraphicsPresentationTargetSnapshot target) =>
+        IsAvailable &&
+        target.NativeSurface.Platform == GraphicsNativePlatform.Custom &&
+        target.NativeSurface.TryGetHandle(
+            GraphicsNativeHandleKind.CreateCustom(GlfwPresentationTarget.NativeWindowHandleKind),
+            out GraphicsNativeHandle handle) &&
+        handle.Value == (nint)_window &&
+        handle.Ownership == GraphicsNativeHandleOwnership.Borrowed;
 
     /// <inheritdoc />
-    public bool SupportsPresentMode(GraphicsPresentMode presentMode) => false;
+    public bool SupportsPresentMode(GraphicsPresentMode presentMode) =>
+        presentMode is GraphicsPresentMode.Fifo or GraphicsPresentMode.Immediate;
+
+    /// <summary>
+    /// Requests a one-shot SwapBuffers failure after the backend has already submitted its blit and
+    /// presentation fence. This exercises the real Present ownership transition in hardware tests.
+    /// </summary>
+    public bool FailNextSwapBuffers
+    {
+        get => Volatile.Read(ref _failNextSwapBuffers) != 0;
+        set => Volatile.Write(ref _failNextSwapBuffers, value ? 1 : 0);
+    }
+
+    /// <summary>Creates a target adapter for this provider's own GLFW drawable.</summary>
+    public GlfwPresentationTarget CreatePresentationTarget()
+    {
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+        _glfw.GetFramebufferSize(_window, out int width, out int height);
+        if (width <= 0 || height <= 0)
+            throw new InvalidOperationException("The GLFW drawable has no non-zero framebuffer extent.");
+        return new GlfwPresentationTarget((nint)_window, (uint)width, (uint)height);
+    }
+
+    /// <summary>
+    /// Resizes this provider's drawable and advances the target revision to the actual framebuffer
+    /// extent reported by GLFW (which may differ from logical window units on scaled displays).
+    /// </summary>
+    public GraphicsPresentationTargetSnapshot ResizePresentationTarget(
+        GlfwPresentationTarget target,
+        uint width,
+        uint height)
+    {
+        ArgumentNullException.ThrowIfNull(target);
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+        if (target.WindowHandle != (nint)_window)
+            throw new ArgumentException("The presentation target belongs to another GLFW context provider.", nameof(target));
+        if (width == 0 || height == 0 || width > int.MaxValue || height > int.MaxValue)
+            throw new ArgumentOutOfRangeException(nameof(width));
+
+        _glfw.SetWindowSize(_window, (int)width, (int)height);
+        _glfw.PollEvents();
+        _glfw.GetFramebufferSize(_window, out int framebufferWidth, out int framebufferHeight);
+        if (framebufferWidth <= 0 || framebufferHeight <= 0)
+            throw new InvalidOperationException("GLFW did not produce a non-zero framebuffer extent after resizing.");
+        target.UpdateExtent((uint)framebufferWidth, (uint)framebufferHeight);
+        return target.GetSnapshot();
+    }
 
     /// <inheritdoc />
-    public void SetPresentMode(GraphicsPresentMode presentMode) =>
-        throw new NotSupportedException("The test context is hidden and has no presentation drawable.");
+    public void SetPresentMode(GraphicsPresentMode presentMode)
+    {
+        if (!SupportsPresentMode(presentMode))
+            throw new NotSupportedException($"The GLFW test drawable cannot honor present mode {presentMode}.");
 
-    /// <inheritdoc />
+        bool activatedHere = _currentDepth.Value == 0;
+        if (activatedHere)
+            MakeCurrent();
+
+        try
+        {
+            _glfw.SwapInterval(presentMode == GraphicsPresentMode.Fifo ? 1 : 0);
+        }
+        finally
+        {
+            if (activatedHere)
+                ReleaseCurrent();
+        }
+    }
+
     public void MakeCurrent()
     {
         ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
@@ -185,8 +256,25 @@ public sealed unsafe class GlfwOpenGLContextProvider : IOpenGLContextProvider
     }
 
     /// <inheritdoc />
-    public void SwapBuffers() =>
-        throw new NotSupportedException("The test context is hidden and has no presentation drawable.");
+    public void SwapBuffers()
+    {
+        if (Interlocked.Exchange(ref _failNextSwapBuffers, 0) != 0)
+            throw new InvalidOperationException("Injected GLFW SwapBuffers failure after presentation sync publication.");
+
+        bool activatedHere = _currentDepth.Value == 0;
+        if (activatedHere)
+            MakeCurrent();
+
+        try
+        {
+            _glfw.SwapBuffers(_window);
+        }
+        finally
+        {
+            if (activatedHere)
+                ReleaseCurrent();
+        }
+    }
 
     /// <inheritdoc />
     public void Dispose()
