@@ -204,6 +204,7 @@ internal sealed class OpenGLGraphicsSwapChain : OpenGLNativeDeviceObject, IGraph
                         _device.SyncApi.DeleteSync(completedSync);
                         image.PresentSync = 0;
                         hooks?.AfterAcquireSyncDeleted?.Invoke(completedSync);
+                        hooks?.AfterPresentationSyncDeleted?.Invoke(completedSync);
                         if (!allowImmediatePoll && deadline.IsExpired)
                             return new GraphicsAcquireResult(GraphicsAcquireStatus.Timeout, default);
 
@@ -247,6 +248,7 @@ internal sealed class OpenGLGraphicsSwapChain : OpenGLNativeDeviceObject, IGraph
                     _device.SyncApi.DeleteSync(completedSync);
                     pending.PresentSync = 0;
                     hooks?.AfterAcquireSyncDeleted?.Invoke(completedSync);
+                    hooks?.AfterPresentationSyncDeleted?.Invoke(completedSync);
 
                     if (deadline.IsExpired)
                         return new GraphicsAcquireResult(GraphicsAcquireStatus.Timeout, default);
@@ -396,6 +398,8 @@ internal sealed class OpenGLGraphicsSwapChain : OpenGLNativeDeviceObject, IGraph
                 SyncBehaviorFlags.None);
             if (sync == 0)
                 throw new GraphicsException("OpenGL failed to create a presentation completion sync.");
+
+            _device.SwapChainTestHooks?.AfterPresentationSyncCreated?.Invoke(sync);
 
             // Publish the completion dependency before the host swap. SwapBuffers may throw after
             // the blit and fence have already been submitted; the image must retain sync ownership
@@ -786,8 +790,10 @@ internal sealed class OpenGLGraphicsSwapChain : OpenGLNativeDeviceObject, IGraph
                 try
                 {
                     _device.SwapChainTestHooks?.BeforeFramebufferDeletion?.Invoke(image.Framebuffer);
-                    gl.DeleteFramebuffer(image.Framebuffer);
+                    uint deletedFramebuffer = image.Framebuffer;
+                    gl.DeleteFramebuffer(deletedFramebuffer);
                     image.Framebuffer = 0;
+                    _device.SwapChainTestHooks?.AfterFramebufferDeleted?.Invoke(deletedFramebuffer);
                 }
                 catch (Exception exception)
                 {

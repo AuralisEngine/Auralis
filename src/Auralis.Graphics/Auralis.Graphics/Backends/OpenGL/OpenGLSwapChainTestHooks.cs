@@ -38,4 +38,13 @@ internal sealed class OpenGLSwapChainTestHooks
 
     /// <summary>Runs immediately before an image framebuffer is deleted.</summary>
     internal Action<uint>? BeforeFramebufferDeletion { get; set; }
+
+    /// <summary>Runs after an image framebuffer has been deleted successfully.</summary>
+    internal Action<uint>? AfterFramebufferDeleted { get; set; }
+
+    /// <summary>Observes presentation syncs created by the actual Present operation.</summary>
+    internal Action<nint>? AfterPresentationSyncCreated { get; set; }
+
+    /// <summary>Runs after a presentation sync is deleted during acquisition or retirement.</summary>
+    internal Action<nint>? AfterPresentationSyncDeleted { get; set; }
 }

@@ -286,6 +286,7 @@ internal sealed class OpenGLESGraphicsSwapChain : OpenGLESNativeDeviceObject, IG
                         gl.DeleteSync(completedSync);
                         image.PresentSync = 0;
                         hooks?.AfterAcquireSyncDeleted?.Invoke(completedSync);
+                        hooks?.AfterPresentationSyncDeleted?.Invoke(completedSync);
                         if (!allowImmediatePoll && deadline.IsExpired)
                             return new GraphicsAcquireResult(GraphicsAcquireStatus.Timeout, default);
 
@@ -324,6 +325,7 @@ internal sealed class OpenGLESGraphicsSwapChain : OpenGLESNativeDeviceObject, IG
                     gl.DeleteSync(completedSync);
                     pending.PresentSync = 0;
                     hooks?.AfterAcquireSyncDeleted?.Invoke(completedSync);
+                    hooks?.AfterPresentationSyncDeleted?.Invoke(completedSync);
                     if (deadline.IsExpired)
                         return new GraphicsAcquireResult(GraphicsAcquireStatus.Timeout, default);
 
@@ -448,6 +450,8 @@ internal sealed class OpenGLESGraphicsSwapChain : OpenGLESNativeDeviceObject, IG
             nint sync = gl.FenceSync(SyncCondition.SyncGpuCommandsComplete, (uint)0);
             if (sync == 0)
                 throw new GraphicsException("OpenGL ES failed to create a presentation sync object.");
+
+            _device.SwapChainTestHooks?.AfterPresentationSyncCreated?.Invoke(sync);
 
             try
             {
@@ -829,8 +833,10 @@ internal sealed class OpenGLESGraphicsSwapChain : OpenGLESNativeDeviceObject, IG
             {
                 try
                 {
-                    gl.DeleteSync(image.PresentSync);
+                    nint deletedSync = image.PresentSync;
+                    gl.DeleteSync(deletedSync);
                     image.PresentSync = 0;
+                    _device.SwapChainTestHooks?.AfterPresentationSyncDeleted?.Invoke(deletedSync);
                 }
                 catch (Exception exception)
                 {
@@ -843,8 +849,10 @@ internal sealed class OpenGLESGraphicsSwapChain : OpenGLESNativeDeviceObject, IG
                 try
                 {
                     _device.SwapChainTestHooks?.BeforeFramebufferDeletion?.Invoke(image.Framebuffer);
-                    gl.DeleteFramebuffer(image.Framebuffer);
+                    uint deletedFramebuffer = image.Framebuffer;
+                    gl.DeleteFramebuffer(deletedFramebuffer);
                     image.Framebuffer = 0;
+                    _device.SwapChainTestHooks?.AfterFramebufferDeleted?.Invoke(deletedFramebuffer);
                 }
                 catch (Exception exception)
                 {
