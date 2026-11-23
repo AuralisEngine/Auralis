@@ -138,6 +138,7 @@ public sealed partial class OpenGLIntegrationTests : IClassFixture<OpenGLHardwar
         }
     }
 
+    /// <summary>Captures the independently observed extension advertisement, wrapper support, and native mesh-shader entry-point availability.</summary>
     private readonly record struct MeshShaderContextDiagnostics(
         int ExtensionCount,
         string AdvertisedExtensions,
