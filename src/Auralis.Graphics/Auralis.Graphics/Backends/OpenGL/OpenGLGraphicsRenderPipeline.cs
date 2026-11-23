@@ -464,8 +464,10 @@ internal sealed class OpenGLGraphicsRenderPipeline : OpenGLNativeDeviceObject, I
             gl.Disable(cap);
     }
 
+    /// <inheritdoc />
     protected override void DisposeCore() => ReleaseOwnerReference();
 
+    /// <inheritdoc />
     public override void ReleaseNative(GL gl)
     {
         uint vertexArray = Interlocked.Exchange(ref _vertexArray, 0);
