@@ -157,6 +157,7 @@ internal sealed unsafe class OpenGLESGraphicsRenderPipeline : OpenGLESGraphicsPi
     /// <exception cref="GraphicsFeatureNotSupportedException">A required stage or optional feature is unavailable.</exception>
     /// <exception cref="GraphicsValidationException">Shader/layout ownership, stage combinations, formats, limits, or state are unsupported by the context.</exception>
     /// <exception cref="GraphicsException">Native program linking or vertex-array creation fails.</exception>
+    internal static OpenGLESGraphicsRenderPipeline Create(
         OpenGLESGraphicsDevice device,
         GraphicsRenderPipelineDescription description)
     {
