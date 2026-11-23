@@ -1,4 +1,5 @@
 using Silk.NET.OpenGL;
+using Silk.NET.OpenGL.Extensions.ARB;
 
 namespace Auralis.Graphics.Backends.OpenGL;
 
@@ -8,6 +9,18 @@ namespace Auralis.Graphics.Backends.OpenGL;
 /// </summary>
 internal sealed class OpenGLSwapChainTestHooks
 {
+    /// <summary>Supplies a controllable monotonic clock for acquisition deadline tests.</summary>
+    internal Func<long>? TimestampProvider { get; set; }
+
+    /// <summary>Overrides zero-timeout presentation-sync polling for deterministic acquisition tests.</summary>
+    internal Func<nint, ARB>? PollClientWaitSync { get; set; }
+
+    /// <summary>Overrides blocking presentation-sync waits for deterministic timeout tests.</summary>
+    internal Func<nint, SyncObjectMask, ulong, ARB>? WaitClientWaitSync { get; set; }
+
+    /// <summary>Observes a sync after acquisition has successfully deleted and relinquished it.</summary>
+    internal Action<nint>? AfterAcquireSyncDeleted { get; set; }
+
     /// <summary>Runs immediately before a replacement texture allocation.</summary>
     internal Action? BeforeTextureCreation { get; set; }
 

@@ -8,6 +8,18 @@ namespace Auralis.Graphics.Backends.OpenGLES;
 /// </summary>
 internal sealed class OpenGLESSwapChainTestHooks
 {
+    /// <summary>Supplies a controllable monotonic clock for acquisition deadline tests.</summary>
+    internal Func<long>? TimestampProvider { get; set; }
+
+    /// <summary>Overrides zero-timeout presentation-sync polling for deterministic acquisition tests.</summary>
+    internal Func<nint, GLEnum>? PollClientWaitSync { get; set; }
+
+    /// <summary>Overrides blocking presentation-sync waits for deterministic timeout tests.</summary>
+    internal Func<nint, uint, ulong, GLEnum>? WaitClientWaitSync { get; set; }
+
+    /// <summary>Observes a sync after acquisition has successfully deleted and relinquished it.</summary>
+    internal Action<nint>? AfterAcquireSyncDeleted { get; set; }
+
     /// <summary>Runs immediately before a replacement texture allocation.</summary>
     internal Action? BeforeTextureCreation { get; set; }
 

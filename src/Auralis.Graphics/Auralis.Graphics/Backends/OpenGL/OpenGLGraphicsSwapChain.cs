@@ -115,7 +115,10 @@ internal sealed class OpenGLGraphicsSwapChain : OpenGLNativeDeviceObject, IGraph
 
         // The target refresh, context-gate contention, native waits, and acquisition commit all
         // consume this one monotonic budget. A zero timeout still performs a nonblocking scan.
-        GraphicsAcquireDeadline deadline = new(timeout);
+        OpenGLSwapChainTestHooks? hooks = _device.SwapChainTestHooks;
+        GraphicsAcquireDeadline deadline = hooks?.TimestampProvider is { } timestampProvider
+            ? new GraphicsAcquireDeadline(timeout, timestampProvider)
+            : new GraphicsAcquireDeadline(timeout);
         bool allowImmediatePoll = timeout == TimeSpan.Zero;
 
         GraphicsPresentationTargetSnapshot snapshot;
@@ -185,18 +188,22 @@ internal sealed class OpenGLGraphicsSwapChain : OpenGLNativeDeviceObject, IGraph
                         return AcquireImage(index, image);
                     }
 
-                    ARB pollStatus = _device.SyncApi.ClientWaitSync(
-                        image.PresentSync,
-                        (SyncObjectMask)0,
-                        0);
+                    ARB pollStatus = hooks?.PollClientWaitSync is { } poll
+                        ? poll(image.PresentSync)
+                        : _device.SyncApi.ClientWaitSync(
+                            image.PresentSync,
+                            (SyncObjectMask)0,
+                            0);
 
                     if (pollStatus is ARB.AlreadySignaled or ARB.ConditionSatisfied)
                     {
                         // A successful zero-timeout poll proves the dependency is complete. Always
                         // retire the sync first, even when the overall deadline expired during the
                         // poll; the image remains reusable by the next acquisition.
-                        _device.SyncApi.DeleteSync(image.PresentSync);
+                        nint completedSync = image.PresentSync;
+                        _device.SyncApi.DeleteSync(completedSync);
                         image.PresentSync = 0;
+                        hooks?.AfterAcquireSyncDeleted?.Invoke(completedSync);
                         if (!allowImmediatePoll && deadline.IsExpired)
                             return new GraphicsAcquireResult(GraphicsAcquireStatus.Timeout, default);
 
@@ -225,17 +232,21 @@ internal sealed class OpenGLGraphicsSwapChain : OpenGLNativeDeviceObject, IGraph
                     return new GraphicsAcquireResult(GraphicsAcquireStatus.Timeout, default);
 
                 OpenGLSwapChainImage pending = _images[firstPendingIndex];
-                ARB waitStatus = _device.SyncApi.ClientWaitSync(
-                    pending.PresentSync,
-                    (SyncObjectMask)1, // GL_SYNC_FLUSH_COMMANDS_BIT
-                    remainingNanoseconds);
+                ARB waitStatus = hooks?.WaitClientWaitSync is { } wait
+                    ? wait(pending.PresentSync, (SyncObjectMask)1, remainingNanoseconds)
+                    : _device.SyncApi.ClientWaitSync(
+                        pending.PresentSync,
+                        (SyncObjectMask)1, // GL_SYNC_FLUSH_COMMANDS_BIT
+                        remainingNanoseconds);
 
                 if (waitStatus is ARB.AlreadySignaled or ARB.ConditionSatisfied)
                 {
                     // The sync is complete even if the deadline expired while the native call was
                     // returning. Retire it, but leave the image unacquired for the next operation.
-                    _device.SyncApi.DeleteSync(pending.PresentSync);
+                    nint completedSync = pending.PresentSync;
+                    _device.SyncApi.DeleteSync(completedSync);
                     pending.PresentSync = 0;
+                    hooks?.AfterAcquireSyncDeleted?.Invoke(completedSync);
 
                     if (deadline.IsExpired)
                         return new GraphicsAcquireResult(GraphicsAcquireStatus.Timeout, default);

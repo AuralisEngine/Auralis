@@ -16,6 +16,10 @@ internal readonly struct OpenGLESAcquireDeadline
     internal OpenGLESAcquireDeadline(TimeSpan timeout) =>
         _deadline = new GraphicsAcquireDeadline(timeout);
 
+    /// <summary>Creates a deadline with a controllable monotonic clock for deterministic tests.</summary>
+    internal OpenGLESAcquireDeadline(TimeSpan timeout, Func<long> timestampProvider) =>
+        _deadline = new GraphicsAcquireDeadline(timeout, timestampProvider);
+
     internal OpenGLESAcquireDeadline(TimeSpan timeout, long startTimestamp, long frequency) =>
         _deadline = new GraphicsAcquireDeadline(timeout, startTimestamp, frequency);
 

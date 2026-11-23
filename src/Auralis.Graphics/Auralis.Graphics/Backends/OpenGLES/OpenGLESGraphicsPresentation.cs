@@ -230,7 +230,10 @@ internal sealed class OpenGLESGraphicsSwapChain : OpenGLESNativeDeviceObject, IG
             }
         }
 
-        OpenGLESAcquireDeadline deadline = new(timeout);
+        OpenGLESSwapChainTestHooks? hooks = _device.SwapChainTestHooks;
+        OpenGLESAcquireDeadline deadline = hooks?.TimestampProvider is { } timestampProvider
+            ? new OpenGLESAcquireDeadline(timeout, timestampProvider)
+            : new OpenGLESAcquireDeadline(timeout);
         if (!_device.TryAcquireContext(
                 deadline.GetRemainingTime(),
                 CancellationToken.None,
@@ -268,11 +271,15 @@ internal sealed class OpenGLESGraphicsSwapChain : OpenGLESNativeDeviceObject, IG
                     if (image.PresentSync == 0)
                         return AcquireImage(index, image);
 
-                    GLEnum status = gl.ClientWaitSync(image.PresentSync, (uint)0, 0);
+                    GLEnum status = hooks?.PollClientWaitSync is { } poll
+                        ? poll(image.PresentSync)
+                        : gl.ClientWaitSync(image.PresentSync, (uint)0, 0);
                     if (status is GLEnum.AlreadySignaled or GLEnum.ConditionSatisfied)
                     {
-                        gl.DeleteSync(image.PresentSync);
+                        nint completedSync = image.PresentSync;
+                        gl.DeleteSync(completedSync);
                         image.PresentSync = 0;
+                        hooks?.AfterAcquireSyncDeleted?.Invoke(completedSync);
                         return AcquireImage(index, image);
                     }
 
@@ -299,11 +306,15 @@ internal sealed class OpenGLESGraphicsSwapChain : OpenGLESNativeDeviceObject, IG
                 // SYNC_FLUSH_COMMANDS_BIT also makes progress if an earlier Flush failed after the
                 // fence was inserted. Infinite waits use bounded native intervals rather than the
                 // GL_TIMEOUT_IGNORED sentinel, which is not a ClientWaitSync timeout value.
-                GLEnum waitStatus = gl.ClientWaitSync(pending.PresentSync, (uint)1, waitNanoseconds);
+                GLEnum waitStatus = hooks?.WaitClientWaitSync is { } wait
+                    ? wait(pending.PresentSync, (uint)1, waitNanoseconds)
+                    : gl.ClientWaitSync(pending.PresentSync, (uint)1, waitNanoseconds);
                 if (waitStatus is GLEnum.AlreadySignaled or GLEnum.ConditionSatisfied)
                 {
-                    gl.DeleteSync(pending.PresentSync);
+                    nint completedSync = pending.PresentSync;
+                    gl.DeleteSync(completedSync);
                     pending.PresentSync = 0;
+                    hooks?.AfterAcquireSyncDeleted?.Invoke(completedSync);
                     return AcquireImage((uint)firstPendingIndex, pending);
                 }
 

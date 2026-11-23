@@ -13,13 +13,33 @@ internal readonly struct GraphicsAcquireDeadline
     private readonly bool _infinite;
     private readonly long _deadlineTimestamp;
     private readonly long _frequency;
+    private readonly Func<long>? _timestampProvider;
 
     internal GraphicsAcquireDeadline(TimeSpan timeout)
-        : this(timeout, Stopwatch.GetTimestamp(), Stopwatch.Frequency)
+        : this(timeout, Stopwatch.GetTimestamp(), Stopwatch.Frequency, null)
+    {
+    }
+
+    /// <summary>Creates a deadline using a controllable monotonic timestamp provider for deterministic tests.</summary>
+    internal GraphicsAcquireDeadline(TimeSpan timeout, Func<long> timestampProvider)
+        : this(
+            timeout,
+            (timestampProvider ?? throw new ArgumentNullException(nameof(timestampProvider)))(),
+            Stopwatch.Frequency,
+            timestampProvider)
     {
     }
 
     internal GraphicsAcquireDeadline(TimeSpan timeout, long startTimestamp, long frequency)
+        : this(timeout, startTimestamp, frequency, null)
+    {
+    }
+
+    private GraphicsAcquireDeadline(
+        TimeSpan timeout,
+        long startTimestamp,
+        long frequency,
+        Func<long>? timestampProvider)
     {
         if (timeout < TimeSpan.Zero && timeout != Timeout.InfiniteTimeSpan)
             throw new ArgumentOutOfRangeException(nameof(timeout));
@@ -28,6 +48,7 @@ internal readonly struct GraphicsAcquireDeadline
 
         _infinite = timeout == Timeout.InfiniteTimeSpan;
         _frequency = frequency;
+        _timestampProvider = timestampProvider;
         if (_infinite)
         {
             _deadlineTimestamp = long.MaxValue;
@@ -44,11 +65,11 @@ internal readonly struct GraphicsAcquireDeadline
     }
 
     internal bool IsInfinite => _infinite;
-    internal bool IsExpired => IsExpiredAt(Stopwatch.GetTimestamp());
+    internal bool IsExpired => IsExpiredAt(GetTimestamp());
     internal bool IsExpiredAt(long timestamp) => !_infinite && timestamp >= _deadlineTimestamp;
 
     /// <summary>Gets the remaining context-gate timeout without extending the original deadline.</summary>
-    internal TimeSpan GetRemainingTime() => GetRemainingTimeAt(Stopwatch.GetTimestamp());
+    internal TimeSpan GetRemainingTime() => GetRemainingTimeAt(GetTimestamp());
 
     internal TimeSpan GetRemainingTimeAt(long timestamp)
     {
@@ -71,7 +92,9 @@ internal readonly struct GraphicsAcquireDeadline
     /// remain distinct from the all-bits-one timeout sentinel.
     /// </summary>
     internal ulong GetClientWaitTimeoutNanoseconds() =>
-        GetClientWaitTimeoutNanosecondsAt(Stopwatch.GetTimestamp());
+        GetClientWaitTimeoutNanosecondsAt(GetTimestamp());
+
+    private long GetTimestamp() => _timestampProvider?.Invoke() ?? Stopwatch.GetTimestamp();
 
     internal ulong GetClientWaitTimeoutNanosecondsAt(long timestamp)
     {
