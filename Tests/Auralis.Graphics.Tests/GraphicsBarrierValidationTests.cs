@@ -105,6 +105,7 @@ public sealed class GraphicsBarrierValidationTests
             .Validate(depthStencil);
     }
 
+    /// <summary>Verifies buffer barriers accept omitted whole-resource ranges and reject out-of-bounds or texture-only subresource ranges.</summary>
     [Fact]
     public void BufferBarrierValidatesOptionalByteRangeAndWholeResourceBarrier()
     {
@@ -130,6 +131,7 @@ public sealed class GraphicsBarrierValidationTests
                 GraphicsTextureAspect.Color, 0, 1, 0, 1) }).Validate());
     }
 
+    /// <summary>Verifies texture barriers validate mip/layer intervals and reject buffer-only ranges.</summary>
     [Fact]
     public void TextureBarrierValidatesOptionalSubresourceRange()
     {
@@ -161,6 +163,7 @@ public sealed class GraphicsBarrierValidationTests
             (barrier with { BufferRange = new GraphicsBufferRange(0, 16) }).Validate());
     }
 
+    /// <summary>Verifies barriers are restricted to supported resource owners and cannot target a texture view as if it were a parent resource.</summary>
     [Fact]
     public void BarrierRejectsUnsupportedResourceTypesAndTextureViews()
     {
