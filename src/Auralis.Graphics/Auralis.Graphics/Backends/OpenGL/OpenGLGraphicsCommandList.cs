@@ -141,6 +141,8 @@ internal sealed class OpenGLGraphicsCommandList : GraphicsDeviceObject, IGraphic
 
     public GraphicsQueueType QueueType => _queue.QueueType;
     public GraphicsCommandListUsage Usage { get; }
+    /// <inheritdoc />
+    /// <remarks>Reading this property polls pending submissions and may acquire or contend for the native OpenGL context.</remarks>
     public GraphicsCommandListState State
     {
         get

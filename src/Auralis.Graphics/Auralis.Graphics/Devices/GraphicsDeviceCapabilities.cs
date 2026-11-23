@@ -72,6 +72,13 @@ public sealed class GraphicsDeviceCapabilities
 
     public GraphicsFeatureSet Features { get; }
 
+    /// <summary>Gets the logical queue roles exposed by this device.</summary>
+    /// <remarks>
+    /// A queue role does not imply an independent native hardware queue. Backends may serialize
+    /// multiple logical roles through one execution stream; use
+    /// <see cref="GraphicsFeature.SeparateComputeQueue" /> and
+    /// <see cref="GraphicsFeature.SeparateTransferQueue" /> to query independent-queue support.
+    /// </remarks>
     public GraphicsQueueCapabilities QueueCapabilities { get; }
 
     public GraphicsDeviceLimits Limits { get; }

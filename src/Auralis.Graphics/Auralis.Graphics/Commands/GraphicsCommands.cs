@@ -248,6 +248,13 @@ public interface IGraphicsCommandList : IGraphicsDeviceObject
 
     GraphicsCommandListUsage Usage { get; }
 
+    /// <summary>Gets the current lifecycle state of the command list.</summary>
+    /// <remarks>
+    /// On the OpenGL and OpenGL ES backends, reading this property polls pending submissions. It may
+    /// acquire the native context, perform synchronization calls, contend on the context gate, release
+    /// completed resources, or propagate a synchronization error; it is not guaranteed to be an
+    /// inexpensive managed-field read.
+    /// </remarks>
     GraphicsCommandListState State { get; }
 
     /// <summary>Begins recording commands into the list.</summary>

@@ -139,6 +139,8 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
 
     public GraphicsQueueType QueueType => _queue.QueueType;
     public GraphicsCommandListUsage Usage { get; }
+    /// <inheritdoc />
+    /// <remarks>Reading this property polls pending submissions and may acquire or contend for the native GLES context.</remarks>
     public GraphicsCommandListState State
     {
         get

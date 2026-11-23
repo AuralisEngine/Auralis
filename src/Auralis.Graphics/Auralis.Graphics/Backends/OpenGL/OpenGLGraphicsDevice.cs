@@ -1103,165 +1103,231 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
             _gl.PopDebugGroup();
     }
 
-    /// <summary>Synchronously shuts down the device, drains submitted work, and releases native resources.</summary>
+    /// <summary>
+    /// Disposes the device and safely retires its native resources. Preparation and GPU-drain
+    /// failures leave the device unavailable for normal use but allow a later Dispose retry.
+    /// </summary>
     /// <remarks>
-    /// Disposal first prevents new operations and prepares mapped resources without holding the
-    /// context gate, then makes the context current, waits for GPU work, retires queues, and releases
-    /// native objects. Calls racing an in-progress disposal wait for that shutdown attempt to finish.
-    /// The provider is disposed only when its ownership policy assigns context lifetime to the device.
-    /// Cleanup failures are propagated after the backend has attempted the remaining release steps.
+    /// Disposal states are active (0), disposing (1), retryable shutdown failure (2), and fully
+    /// disposed (3). Mapped resources are prepared without holding the context gate so existing
+    /// MemoryHandle pins can be released. Native resources are not released unless Finish confirms
+    /// GPU idleness. Independent cleanup failures are collected rather than silently discarded.
     /// </remarks>
-    /// <exception cref="Exception">Resource preparation or a teardown operation fails; the first failure is propagated after the remaining cleanup steps are attempted where possible.</exception>
+    /// <exception cref="AggregateException">One or more preparation or teardown operations fail.</exception>
     public void Dispose()
     {
         IOpenGLNativeResource[]? resourcesToPrepare = null;
         int resourcesToPrepareCount = 0;
+
         lock (_contextGate)
         {
-            if (Volatile.Read(ref _disposeState) != 0)
+            int state = Volatile.Read(ref _disposeState);
+            while (state == 1)
             {
-                while (Volatile.Read(ref _disposeState) == 1)
-                    Monitor.Wait(_contextGate);
-                return;
+                Monitor.Wait(_contextGate);
+                state = Volatile.Read(ref _disposeState);
             }
 
-            // Snapshot before publishing shutdown; preparation may mutate the resource registry.
+            if (state == 3)
+                return;
+
+            // Preserve the registry until each resource has been safely released. Publishing the
+            // disposing state prevents new device operations and resource registration.
             resourcesToPrepareCount = _resources.Count;
             if (resourcesToPrepareCount != 0)
             {
                 resourcesToPrepare = ArrayPool<IOpenGLNativeResource>.Shared.Rent(resourcesToPrepareCount);
                 _resources.CopyTo(resourcesToPrepare);
             }
+
             Volatile.Write(ref _disposeState, 1);
         }
 
         try
         {
-            // Invalidate mappings and wait for user pins without owning the shared GL context.
-            for (int i = 0; i < resourcesToPrepareCount; i++)
-                if (resourcesToPrepare![i] is IOpenGLNativeResourcePreparation preparation)
-                    preparation.PrepareForNativeRelease();
-        }
-        catch
-        {
+            List<Exception>? preparationFailures =
+                OpenGLNativeResourcePreparation.PrepareAll(resourcesToPrepare, resourcesToPrepareCount);
+            if (preparationFailures is { Count: > 0 })
+            {
+                lock (_contextGate)
+                {
+                    Volatile.Write(ref _disposeState, 2);
+                    Monitor.PulseAll(_contextGate);
+                }
+
+                throw new AggregateException(
+                    "OpenGL device shutdown preparation failed. Native resources and the context provider remain alive; Dispose may be retried.",
+                    preparationFailures);
+            }
+
+            List<Exception>? cleanupFailures = null;
+            bool retryableFailure = false;
+            bool contextCurrent = false;
+
             lock (_contextGate)
             {
-                Volatile.Write(ref _disposeState, 2);
-                Monitor.PulseAll(_contextGate);
+                try
+                {
+                    try
+                    {
+                        _contextActivation.Enter();
+                        contextCurrent = true;
+                    }
+                    catch (Exception exception)
+                    {
+                        (cleanupFailures ??= new List<Exception>(4)).Add(exception);
+                        retryableFailure = true;
+                    }
+
+                    bool gpuIdle = false;
+                    if (contextCurrent)
+                    {
+                        try
+                        {
+                            _gl.Finish();
+                            gpuIdle = true;
+                        }
+                        catch (Exception exception)
+                        {
+                            (cleanupFailures ??= new List<Exception>(4)).Add(exception);
+                            retryableFailure = true;
+                        }
+                    }
+
+                    // Do not retire submissions or touch native resources when GPU idleness
+                    // could not be established.
+                    bool queuesDrained = gpuIdle;
+                    if (gpuIdle)
+                    {
+                        foreach (OpenGLGraphicsCommandQueue? queue in _queues)
+                        {
+                            if (queue is null)
+                                continue;
+
+                            try
+                            {
+                                queue.DrainUnderContext(_gl);
+                            }
+                            catch (Exception exception)
+                            {
+                                (cleanupFailures ??= new List<Exception>(4)).Add(exception);
+                                retryableFailure = true;
+                                queuesDrained = false;
+                            }
+                        }
+                    }
+
+                    // Queue drain failures keep retained-resource ownership intact for retry.
+                    // Successfully released resources are removed individually so retries cannot
+                    // double-release them.
+                    if (gpuIdle && queuesDrained)
+                    {
+                        for (int i = 0; i < resourcesToPrepareCount; i++)
+                        {
+                            IOpenGLNativeResource resource = resourcesToPrepare![i];
+                            try
+                            {
+                                resource.ReleaseNative(_gl);
+                                _resources.Remove(resource);
+                            }
+                            catch (Exception exception)
+                            {
+                                (cleanupFailures ??= new List<Exception>(4)).Add(exception);
+                                retryableFailure = true;
+                            }
+                        }
+                    }
+                    else if (gpuIdle)
+                    {
+                        retryableFailure = true;
+                    }
+
+                    // Native dispatch wrappers and the provider stay alive while any queue or
+                    // resource remains registered and needs a retry.
+                    if (contextCurrent && gpuIdle && queuesDrained &&
+                        _resources.Count == 0 && !retryableFailure)
+                    {
+                        DisposeNativeApi(_uniformBufferObjectApi, ref cleanupFailures);
+                        DisposeNativeApi(_nvMeshShaderApi, ref cleanupFailures);
+                        DisposeNativeApi(_meshShaderApi, ref cleanupFailures);
+                        DisposeNativeApi(_computeShaderApi, ref cleanupFailures);
+                        DisposeNativeApi(_spirvApi, ref cleanupFailures);
+                        DisposeNativeApi(_shaderBinaryApi, ref cleanupFailures);
+                        DisposeNativeApi(_polygonOffsetClampApi, ref cleanupFailures);
+                        DisposeNativeApi(_depthBoundsApi, ref cleanupFailures);
+                        DisposeNativeApi(_indexedDrawBuffersApi, ref cleanupFailures);
+                        DisposeNativeApi(_drawBuffersBlendApi, ref cleanupFailures);
+                        DisposeNativeApi(_imageLoadStoreApi, ref cleanupFailures);
+                        DisposeNativeApi(_multiDrawIndirectApi, ref cleanupFailures);
+                        DisposeNativeApi(_drawIndirectApi, ref cleanupFailures);
+                        DisposeNativeApi(_baseInstanceApi, ref cleanupFailures);
+                        DisposeNativeApi(_viewportApi, ref cleanupFailures);
+                        DisposeNativeApi(_copyImageApi, ref cleanupFailures);
+                        DisposeNativeApi(_syncApi, ref cleanupFailures);
+                        DisposeNativeApi(_internalFormatQuery, ref cleanupFailures);
+                        DisposeNativeApi(_samplerObjects, ref cleanupFailures);
+                        DisposeNativeApi(_textureViewApi, ref cleanupFailures);
+
+                        try
+                        {
+                            DisableDebugOutput();
+                        }
+                        catch (Exception exception)
+                        {
+                            (cleanupFailures ??= new List<Exception>(4)).Add(exception);
+                        }
+
+                        DisposeNativeApi(_directStateAccess, ref cleanupFailures);
+                        DisposeNativeApi(_gl, ref cleanupFailures);
+                    }
+                }
+                finally
+                {
+                    if (contextCurrent)
+                    {
+                        try
+                        {
+                            _contextActivation.Exit();
+                        }
+                        catch (Exception exception)
+                        {
+                            (cleanupFailures ??= new List<Exception>(4)).Add(exception);
+                        }
+                    }
+
+                    if (!retryableFailure && _contextProvider.Ownership == OpenGLContextOwnership.Owned)
+                    {
+                        try
+                        {
+                            _contextProvider.Dispose();
+                        }
+                        catch (Exception exception)
+                        {
+                            (cleanupFailures ??= new List<Exception>(4)).Add(exception);
+                        }
+                    }
+
+                    Volatile.Write(ref _disposeState, retryableFailure ? 2 : 3);
+                    Monitor.PulseAll(_contextGate);
+                }
             }
-            throw;
+
+            if (cleanupFailures is { Count: > 0 })
+            {
+                string message = retryableFailure
+                    ? "OpenGL device shutdown is incomplete and can be retried; native resources and wrappers required for retry remain available."
+                    : "OpenGL device shutdown completed with one or more cleanup failures.";
+                throw new AggregateException(message, cleanupFailures);
+            }
         }
         finally
         {
             if (resourcesToPrepare is not null)
                 ArrayPool<IOpenGLNativeResource>.Shared.Return(resourcesToPrepare, clearArray: true);
         }
-
-        Exception? cleanupFailure = null;
-        lock (_contextGate)
-        {
-            bool contextCurrent = false;
-            try
-            {
-                _contextActivation.Enter();
-                contextCurrent = true;
-                _gl.Finish();
-
-                foreach (OpenGLGraphicsCommandQueue? queue in _queues)
-                {
-                    if (queue is null)
-                        continue;
-
-                    try
-                    {
-                        queue.DrainUnderContext(_gl);
-                    }
-                    catch (Exception exception)
-                    {
-                        cleanupFailure ??= exception;
-                    }
-                }
-
-                foreach (IOpenGLNativeResource resource in _resources)
-                {
-                    try
-                    {
-                        resource.ReleaseNative(_gl);
-                    }
-                    catch (Exception exception)
-                    {
-                        cleanupFailure ??= exception;
-                    }
-                }
-                _resources.Clear();
-
-                DisposeNativeApi(_uniformBufferObjectApi, ref cleanupFailure);
-                DisposeNativeApi(_nvMeshShaderApi, ref cleanupFailure);
-                DisposeNativeApi(_meshShaderApi, ref cleanupFailure);
-                DisposeNativeApi(_computeShaderApi, ref cleanupFailure);
-                DisposeNativeApi(_spirvApi, ref cleanupFailure);
-                DisposeNativeApi(_shaderBinaryApi, ref cleanupFailure);
-                DisposeNativeApi(_polygonOffsetClampApi, ref cleanupFailure);
-                DisposeNativeApi(_depthBoundsApi, ref cleanupFailure);
-                DisposeNativeApi(_indexedDrawBuffersApi, ref cleanupFailure);
-                DisposeNativeApi(_drawBuffersBlendApi, ref cleanupFailure);
-                DisposeNativeApi(_imageLoadStoreApi, ref cleanupFailure);
-                DisposeNativeApi(_multiDrawIndirectApi, ref cleanupFailure);
-                DisposeNativeApi(_drawIndirectApi, ref cleanupFailure);
-                DisposeNativeApi(_baseInstanceApi, ref cleanupFailure);
-                DisposeNativeApi(_viewportApi, ref cleanupFailure);
-                DisposeNativeApi(_copyImageApi, ref cleanupFailure);
-                DisposeNativeApi(_syncApi, ref cleanupFailure);
-                DisposeNativeApi(_internalFormatQuery, ref cleanupFailure);
-                DisposeNativeApi(_samplerObjects, ref cleanupFailure);
-                DisposeNativeApi(_textureViewApi, ref cleanupFailure);
-
-                try
-                {
-                    DisableDebugOutput();
-                }
-                catch (Exception exception)
-                {
-                    cleanupFailure ??= exception;
-                }
-
-                DisposeNativeApi(_directStateAccess, ref cleanupFailure);
-                DisposeNativeApi(_gl, ref cleanupFailure);
-            }
-            catch (Exception exception)
-            {
-                cleanupFailure ??= exception;
-            }
-            finally
-            {
-                if (contextCurrent)
-                {
-                    try { _contextActivation.Exit(); }
-                    catch (Exception exception) { cleanupFailure ??= exception; }
-                }
-
-                if (_contextProvider.Ownership == OpenGLContextOwnership.Owned)
-                {
-                    try
-                    {
-                        _contextProvider.Dispose();
-                    }
-                    catch (Exception exception)
-                    {
-                        cleanupFailure ??= exception;
-                    }
-                }
-
-                Volatile.Write(ref _disposeState, 2);
-                Monitor.PulseAll(_contextGate);
-            }
-        }
-
-        if (cleanupFailure is not null)
-            ExceptionDispatchInfo.Capture(cleanupFailure).Throw();
     }
 
-    private static void DisposeNativeApi(IDisposable? api, ref Exception? failure)
+    private static void DisposeNativeApi(IDisposable? api, ref List<Exception>? failures)
     {
         if (api is null)
             return;
@@ -1272,7 +1338,8 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
         }
         catch (Exception exception)
         {
-            failure ??= exception;
+            (failures ??= new List<Exception>(4)).Add(exception);
         }
     }
+
 }
