@@ -131,8 +131,15 @@ internal sealed class OpenGLGraphicsSwapChain : OpenGLNativeDeviceObject, IGraph
         if (snapshot.IsSuspended)
             return new GraphicsAcquireResult(GraphicsAcquireStatus.Suspended, default);
 
-        if (snapshot.Revision != _surfaceRevision)
-            return new GraphicsAcquireResult(GraphicsAcquireStatus.OutOfDate, default);
+        lock (_stateGate)
+        {
+            if (snapshot.Revision != _surfaceRevision ||
+                snapshot.Extent.Width != _description.Width ||
+                snapshot.Extent.Height != _description.Height)
+            {
+                return new GraphicsAcquireResult(GraphicsAcquireStatus.OutOfDate, default);
+            }
+        }
 
         if (!_device.TryAcquireContext(
                 deadline.GetRemainingTime(),
@@ -144,6 +151,15 @@ internal sealed class OpenGLGraphicsSwapChain : OpenGLNativeDeviceObject, IGraph
 
         using (context)
         {
+            // Resize commits while holding this same device gate, so this recheck prevents a scan
+            // against a newly published ring using an older presentation-target snapshot.
+            if (snapshot.Revision != _surfaceRevision ||
+                snapshot.Extent.Width != _description.Width ||
+                snapshot.Extent.Height != _description.Height)
+            {
+                return new GraphicsAcquireResult(GraphicsAcquireStatus.OutOfDate, default);
+            }
+
             GL gl = context.Gl;
             while (true)
             {
@@ -279,12 +295,14 @@ internal sealed class OpenGLGraphicsSwapChain : OpenGLNativeDeviceObject, IGraph
         if (waitFence is null && waitValue != 0)
             throw new ArgumentException("A non-zero wait value requires a fence.", nameof(waitValue));
 
-        if (image.Generation != _generation || image.ImageIndex >= (uint)_images.Length)
-            return GraphicsPresentStatus.OutOfDate;
+        OpenGLSwapChainImage slot;
+        lock (_stateGate)
+        {
+            if (image.Generation != _generation || image.ImageIndex >= (uint)_images.Length)
+                return GraphicsPresentStatus.OutOfDate;
 
-        OpenGLSwapChainImage slot = _images[image.ImageIndex];
-        if (!slot.Acquired || !ReferenceEquals(slot.Texture, image.Texture))
-            throw new GraphicsValidationException("The acquired image is stale, already presented, or belongs to another swapchain.");
+            slot = _images[image.ImageIndex];
+        }
 
         GraphicsPresentationTargetSnapshot snapshot;
         try
