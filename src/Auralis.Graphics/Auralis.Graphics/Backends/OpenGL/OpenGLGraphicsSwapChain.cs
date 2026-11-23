@@ -169,6 +169,7 @@ internal sealed class OpenGLGraphicsSwapChain : OpenGLNativeDeviceObject, IGraph
     /// <exception cref="ArgumentException">A non-zero wait value is supplied without a fence.</exception>
     /// <exception cref="GraphicsValidationException">The image is stale/foreign or the wait fence belongs to another device.</exception>
     /// <exception cref="GraphicsException">The driver cannot create the presentation completion sync.</exception>
+    public GraphicsPresentStatus Present(
         in GraphicsAcquiredImage image,
         IGraphicsFence? waitFence = null,
         ulong waitValue = 0)
