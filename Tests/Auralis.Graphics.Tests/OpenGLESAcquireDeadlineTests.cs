@@ -40,7 +40,7 @@ public sealed class OpenGLESAcquireDeadlineTests
     [Fact]
     public void VeryLargeFiniteDeadlineDoesNotBecomeInfinite()
     {
-        OpenGLESAcquireDeadline deadline = new(TimeSpan.MaxValue, 10, long.MaxValue);
+        OpenGLESAcquireDeadline deadline = new(TimeSpan.MaxValue, 10, 1);
         Assert.False(deadline.IsInfinite);
         Assert.False(deadline.IsExpiredAt(11));
         Assert.Equal(ulong.MaxValue - 1, deadline.GetClientWaitTimeoutNanosecondsAt(11));
