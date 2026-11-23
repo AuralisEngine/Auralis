@@ -277,7 +277,9 @@ internal sealed unsafe class OpenGLGraphicsBuffer : OpenGLNativeDeviceObject, IG
             if (_isMapped)
                 _mapped?.ValidateNoPins();
 
-            uint handle = Interlocked.Exchange(ref _handle, 0);
+            // Keep the native name until every fallible native-release operation succeeds.
+            // If unmapping or deletion fails, device teardown can retry this still-registered resource.
+            uint handle = Volatile.Read(ref _handle);
             if (handle == 0)
                 return;
 
@@ -288,8 +290,9 @@ internal sealed unsafe class OpenGLGraphicsBuffer : OpenGLNativeDeviceObject, IG
             }
 
             _mapped?.Invalidate();
-            _mapped = null;
             gl.DeleteBuffer(handle);
+            _mapped = null;
+            Volatile.Write(ref _handle, 0);
         }
     }
 }

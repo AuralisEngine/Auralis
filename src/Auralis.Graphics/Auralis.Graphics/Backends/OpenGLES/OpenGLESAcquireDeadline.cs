@@ -84,6 +84,10 @@ internal readonly struct OpenGLESAcquireDeadline
 
         UInt128 nanoseconds = (UInt128)(ulong)remaining * 1_000_000_000UL /
                               (ulong)_frequency;
-        return nanoseconds >= (UInt128)ulong.MaxValue ? ulong.MaxValue : (ulong)nanoseconds;
+        // Keep even very large finite values distinct from the GL_TIMEOUT_IGNORED sentinel.
+        const ulong largestFiniteClientWait = ulong.MaxValue - 1;
+        return nanoseconds >= (UInt128)largestFiniteClientWait
+            ? largestFiniteClientWait
+            : (ulong)nanoseconds;
     }
 }

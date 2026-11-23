@@ -43,7 +43,8 @@ public sealed class OpenGLESAcquireDeadlineTests
         OpenGLESAcquireDeadline deadline = new(TimeSpan.MaxValue, 10, long.MaxValue);
         Assert.False(deadline.IsInfinite);
         Assert.False(deadline.IsExpiredAt(11));
-        Assert.True(deadline.GetClientWaitTimeoutNanosecondsAt(11) > 0);
+        Assert.Equal(ulong.MaxValue - 1, deadline.GetClientWaitTimeoutNanosecondsAt(11));
+        Assert.NotEqual(ulong.MaxValue, deadline.GetClientWaitTimeoutNanosecondsAt(11));
     }
 
     [Fact]
