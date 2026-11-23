@@ -141,8 +141,10 @@ internal sealed class OpenGLGraphicsSampler : OpenGLNativeDeviceObject, IGraphic
         }
     }
 
+    /// <inheritdoc />
     protected override void DisposeCore() => ReleaseOwnerReference();
 
+    /// <inheritdoc />
     public override void ReleaseNative(GL gl)
     {
         uint handle = Interlocked.Exchange(ref _handle, 0);
