@@ -29,6 +29,7 @@ internal sealed class OpenGLGraphicsSwapChain : OpenGLNativeDeviceObject, IGraph
     private readonly OpenGLGraphicsCommandQueue _queue;
     private readonly OpenGLGraphicsDevice _device;
     private readonly object _stateGate = new();
+    private readonly object _resizeGate = new();
     private OpenGLSwapChainImage[] _images;
     private List<OpenGLSwapChainImage[]>? _retainedImageSets;
     private Exception? _faulted;
@@ -318,6 +319,19 @@ internal sealed class OpenGLGraphicsSwapChain : OpenGLNativeDeviceObject, IGraph
 
         using (OpenGLContextScope context = _device.AcquireContext())
         {
+            // Revalidate under the device gate: Resize may have committed while this Present call
+            // was preparing its target/fence state, and another thread may have presented the same lease.
+            if (image.Generation != _generation ||
+                image.ImageIndex >= (uint)_images.Length ||
+                !ReferenceEquals(_images[image.ImageIndex], slot))
+            {
+                return GraphicsPresentStatus.OutOfDate;
+            }
+
+            if (!slot.Acquired || !ReferenceEquals(slot.Texture, image.Texture))
+                throw new GraphicsValidationException(
+                    "The acquired OpenGL image was already presented or invalidated before presentation.");
+
             GL gl = context.Gl;
             if (openGlFence is not null)
                 openGlFence.EnqueueGpuWait(gl, waitValue);
@@ -491,6 +505,8 @@ internal sealed class OpenGLGraphicsSwapChain : OpenGLNativeDeviceObject, IGraph
             _surfaceRevision = snapshot.Revision;
             _nextImage = 0;
             Volatile.Write(ref _generation, nextGeneration);
+        }
+
         }
     }
 
