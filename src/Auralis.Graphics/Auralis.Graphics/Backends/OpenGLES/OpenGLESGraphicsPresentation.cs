@@ -827,6 +827,11 @@ internal sealed class OpenGLESGraphicsSwapChain : OpenGLESNativeDeviceObject, IG
             if (image is null)
                 continue;
 
+            // Keep the texture owner reference until deferred or failed native attachment
+            // teardown has completed.
+            if (image.PresentSync != 0 || image.Framebuffer != 0)
+                continue;
+
             try
             {
                 image.Texture.Dispose();
@@ -865,6 +870,13 @@ internal sealed class OpenGLESGraphicsSwapChain : OpenGLESNativeDeviceObject, IG
                     (failures ??= new List<Exception>(4)).Add(exception);
                 }
             }
+        }
+
+        DisposeImageTextures(_images, ref failures);
+        if (_retainedImageSets is not null)
+        {
+            for (int i = 0; i < _retainedImageSets.Count; i++)
+                DisposeImageTextures(_retainedImageSets[i], ref failures);
         }
 
         if (failures is { Count: > 0 })

@@ -782,6 +782,11 @@ internal sealed class OpenGLGraphicsSwapChain : OpenGLNativeDeviceObject, IGraph
             if (image is null)
                 continue;
 
+            // A deferred or failed framebuffer/sync release must complete before the
+            // attached texture owner reference is dropped.
+            if (image.PresentSync != 0 || image.Framebuffer != 0)
+                continue;
+
             try
             {
                 image.Texture.Dispose();
@@ -823,6 +828,13 @@ internal sealed class OpenGLGraphicsSwapChain : OpenGLNativeDeviceObject, IGraph
                     (failures ??= new List<Exception>(4)).Add(exception);
                 }
             }
+        }
+
+        DisposeImageTextures(_images, ref failures);
+        if (_retainedImageSets is not null)
+        {
+            for (int i = 0; i < _retainedImageSets.Count; i++)
+                DisposeImageTextures(_retainedImageSets[i], ref failures);
         }
 
         if (failures is { Count: > 0 })
