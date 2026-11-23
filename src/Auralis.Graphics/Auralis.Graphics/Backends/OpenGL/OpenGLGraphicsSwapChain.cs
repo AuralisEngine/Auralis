@@ -388,134 +388,134 @@ internal sealed class OpenGLGraphicsSwapChain : OpenGLNativeDeviceObject, IGraph
     {
         lock (_resizeGate)
         {
-        ThrowIfDisposed();
-        ThrowIfFaulted();
+            ThrowIfDisposed();
+            ThrowIfFaulted();
 
-        GraphicsSwapChainDescription copy = description;
-        copy.Validate();
+            GraphicsSwapChainDescription copy = description;
+            copy.Validate();
 
-        if (!_surface.SupportsPresentation(_queue))
-            throw new GraphicsValidationException("The swapchain's queue is no longer compatible with its surface.");
+            if (!_surface.SupportsPresentation(_queue))
+                throw new GraphicsValidationException("The swapchain's queue is no longer compatible with its surface.");
 
-        OpenGLPresentationTargetValidation.ValidatePresentMode(_device.ContextProvider, copy.PresentMode);
-        GraphicsPresentationTargetSnapshot snapshot = _surface.RefreshSnapshot();
-        if (snapshot.IsSuspended)
-            throw new GraphicsValidationException("A swapchain cannot be resized to a suspended presentation target.");
+            OpenGLPresentationTargetValidation.ValidatePresentMode(_device.ContextProvider, copy.PresentMode);
+            GraphicsPresentationTargetSnapshot snapshot = _surface.RefreshSnapshot();
+            if (snapshot.IsSuspended)
+                throw new GraphicsValidationException("A swapchain cannot be resized to a suspended presentation target.");
 
-        // Calculate this before creating or retiring anything so generation overflow cannot
-        // occur after the previous ring has already been destroyed.
-        ulong nextGeneration = checked(_generation + 1);
+            // Calculate this before creating or retiring anything so generation overflow cannot
+            // occur after the previous ring has already been destroyed.
+            ulong nextGeneration = checked(_generation + 1);
 
-        // Stage the complete replacement before changing provider state or touching the active ring.
-        OpenGLSwapChainImage[] replacement = CreateImages(copy);
-        OpenGLSwapChainImage[] previousImages = _images;
-        GraphicsPresentMode previousMode = _description.PresentMode;
+            // Stage the complete replacement before changing provider state or touching the active ring.
+            OpenGLSwapChainImage[] replacement = CreateImages(copy);
+            OpenGLSwapChainImage[] previousImages = _images;
+            GraphicsPresentMode previousMode = _description.PresentMode;
 
-        using OpenGLContextScope context = _device.AcquireContext();
-        List<Exception> failures = new(4);
+            using OpenGLContextScope context = _device.AcquireContext();
+            List<Exception> failures = new(4);
 
-        try
-        {
-            _device.ContextProvider.SetPresentMode(copy.PresentMode);
-        }
-        catch (Exception modeFailure)
-        {
-            failures.Add(modeFailure);
-            bool restored = TryRestorePresentMode(previousMode, failures);
-            CleanupImageSetUnderContext(context.Gl, replacement, failures);
-            if (!restored)
+            try
             {
-                Volatile.Write(
-                    ref _faulted,
-                    new AggregateException("The provider could not restore the previous present mode after a failed resize.", failures));
+                _device.ContextProvider.SetPresentMode(copy.PresentMode);
             }
-
-            throw new AggregateException(
-                "The swap-chain present mode could not be changed; the original image ring was preserved.",
-                failures);
-        }
-
-        try
-        {
-            // No previous sync or framebuffer is released until the driver confirms all work is idle.
-            context.Gl.Finish();
-        }
-        catch (Exception waitFailure)
-        {
-            failures.Clear();
-            failures.Add(waitFailure);
-            bool restored = TryRestorePresentMode(previousMode, failures);
-            CleanupImageSetUnderContext(context.Gl, replacement, failures);
-            if (!restored)
+            catch (Exception modeFailure)
             {
-                Volatile.Write(
-                    ref _faulted,
-                    new AggregateException("The provider could not restore the previous present mode after a failed GPU wait.", failures));
-            }
+                failures.Add(modeFailure);
+                bool restored = TryRestorePresentMode(previousMode, failures);
+                CleanupImageSetUnderContext(context.Gl, replacement, failures);
+                if (!restored)
+                {
+                    Volatile.Write(
+                        ref _faulted,
+                        new AggregateException("The provider could not restore the previous present mode after a failed resize.", failures));
+                }
 
-            throw new AggregateException(
-                "The previous swap-chain resources were not retired because waiting for GPU completion failed.",
-                failures);
-        }
-
-        // From this point onward retirement has begun. Every release is attempted. If any release
-        // fails, the previous ring may be partially destroyed and this swap chain is permanently
-        // faulted rather than continuing to return potentially disposed images.
-        failures.Clear();
-        try
-        {
-            ReleaseImageNative(context.Gl, previousImages);
-        }
-        catch (Exception retirementFailure)
-        {
-            failures.Add(retirementFailure);
-        }
-
-        for (int i = 0; i < previousImages.Length; i++)
-        {
-            OpenGLSwapChainImage image = previousImages[i];
-            if (image.PresentSync != 0 || image.Framebuffer != 0)
-            {
-                failures.Add(new GraphicsException(
-                    "A previous swap-chain image still owns native synchronization or framebuffer resources; its texture cannot be retired safely."));
-                continue;
+                throw new AggregateException(
+                    "The swap-chain present mode could not be changed; the original image ring was preserved.",
+                    failures);
             }
 
             try
             {
-                image.Texture.Dispose();
+                // No previous sync or framebuffer is released until the driver confirms all work is idle.
+                context.Gl.Finish();
+            }
+            catch (Exception waitFailure)
+            {
+                failures.Clear();
+                failures.Add(waitFailure);
+                bool restored = TryRestorePresentMode(previousMode, failures);
+                CleanupImageSetUnderContext(context.Gl, replacement, failures);
+                if (!restored)
+                {
+                    Volatile.Write(
+                        ref _faulted,
+                        new AggregateException("The provider could not restore the previous present mode after a failed GPU wait.", failures));
+                }
+
+                throw new AggregateException(
+                    "The previous swap-chain resources were not retired because waiting for GPU completion failed.",
+                    failures);
+            }
+
+            // From this point onward retirement has begun. Every release is attempted. If any release
+            // fails, the previous ring may be partially destroyed and this swap chain is permanently
+            // faulted rather than continuing to return potentially disposed images.
+            failures.Clear();
+            try
+            {
+                ReleaseImageNative(context.Gl, previousImages);
             }
             catch (Exception retirementFailure)
             {
                 failures.Add(retirementFailure);
             }
-        }
 
-        if (failures.Count != 0)
-        {
-            TryRestorePresentMode(previousMode, failures);
-            AggregateException retirementError = new(
-                "The previous swap-chain image ring could not be retired completely.",
-                failures);
-            Volatile.Write(ref _faulted, retirementError);
+            for (int i = 0; i < previousImages.Length; i++)
+            {
+                OpenGLSwapChainImage image = previousImages[i];
+                if (image.PresentSync != 0 || image.Framebuffer != 0)
+                {
+                    failures.Add(new GraphicsException(
+                        "A previous swap-chain image still owns native synchronization or framebuffer resources; its texture cannot be retired safely."));
+                    continue;
+                }
 
-            List<Exception> allFailures = new(failures);
-            CleanupImageSetUnderContext(context.Gl, replacement, allFailures);
-            throw new AggregateException(
-                "Swap-chain resize failed during resource retirement. The swap chain is faulted and cannot be used again.",
-                allFailures);
-        }
+                try
+                {
+                    image.Texture.Dispose();
+                }
+                catch (Exception retirementFailure)
+                {
+                    failures.Add(retirementFailure);
+                }
+            }
 
-        // Publish the replacement as one state transition while holding the device context gate.
-        // Public description/generation readers take _stateGate so they cannot observe half a commit.
-        lock (_stateGate)
-        {
-            _images = replacement;
-            _description = copy;
-            _surfaceRevision = snapshot.Revision;
-            _nextImage = 0;
-            Volatile.Write(ref _generation, nextGeneration);
-        }
+            if (failures.Count != 0)
+            {
+                TryRestorePresentMode(previousMode, failures);
+                AggregateException retirementError = new(
+                    "The previous swap-chain image ring could not be retired completely.",
+                    failures);
+                Volatile.Write(ref _faulted, retirementError);
+
+                List<Exception> allFailures = new(failures);
+                CleanupImageSetUnderContext(context.Gl, replacement, allFailures);
+                throw new AggregateException(
+                    "Swap-chain resize failed during resource retirement. The swap chain is faulted and cannot be used again.",
+                    allFailures);
+            }
+
+            // Publish the replacement as one state transition while holding the device context gate.
+            // Public description/generation readers take _stateGate so they cannot observe half a commit.
+            lock (_stateGate)
+            {
+                _images = replacement;
+                _description = copy;
+                _surfaceRevision = snapshot.Revision;
+                _nextImage = 0;
+                Volatile.Write(ref _generation, nextGeneration);
+            }
 
         }
     }
