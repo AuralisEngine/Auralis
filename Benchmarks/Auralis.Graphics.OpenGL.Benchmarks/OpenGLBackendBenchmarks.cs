@@ -36,6 +36,7 @@ public class OpenGLBackendBenchmarks
     private ulong _fenceValue;
 
     [GlobalSetup]
+    /// Creates the hidden hardware context and device, allocates and initializes the 4 KiB source/destination buffers, creates a reusable command list and fence, validates a real copy, and prepares the pre-recorded list. These operations are outside benchmark measurements. Results are specific to the desktop OpenGL driver and test system.
     public void Setup()
     {
         try
@@ -95,6 +96,7 @@ public class OpenGLBackendBenchmarks
     }
 
     [Benchmark(Baseline = true, Description = "Command recording: empty reusable list")]
+    /// Measures CPU-side Begin/End recording of an empty reusable command list. No GPU command is submitted and no GPU completion is measured. Results are specific to the desktop OpenGL driver and test system.
     public int RecordEmptyCommandList()
     {
         PrepareList();
@@ -103,6 +105,7 @@ public class OpenGLBackendBenchmarks
     }
 
     [Benchmark(Description = "Command recording: one 4 KiB buffer copy with native resource retention")]
+    /// Measures CPU-side recording of one 4 KiB buffer-copy command, including validation and retention of the referenced native resources. It does not execute or submit the copy to the GPU. Results are specific to the desktop OpenGL driver and test system.
     public int RecordCopyCommand()
     {
         RecordCopy();
@@ -110,6 +113,7 @@ public class OpenGLBackendBenchmarks
     }
 
     [Benchmark(Description = "Command submission plus GPU fence wait")]
+    /// Measures recording one 4 KiB copy, submitting it, and waiting for the GPU timeline fence. The result includes both managed/backend submission overhead and GPU completion latency. Results are specific to the desktop OpenGL driver and test system.
     public int SubmitAndWait()
     {
         RecordCopy();
@@ -122,6 +126,7 @@ public class OpenGLBackendBenchmarks
     }
 
     [Benchmark(Description = "Submission: pre-recorded reusable command list plus fence wait")]
+    /// Measures submitting a command list that was recorded during setup and waiting for its GPU fence. It excludes command recording but still includes submission, completion synchronization, and the follow-up state observation. Results are specific to the desktop OpenGL driver and test system.
     public int SubmitPreRecordedCommandList()
     {
         ulong value = checked(++_fenceValue);
@@ -133,9 +138,11 @@ public class OpenGLBackendBenchmarks
     }
 
     [Benchmark(Description = "Read an already-completed fence value")]
+    /// Measures reading an already-completed fence value. The getter may still acquire the context gate and poll native sync state; it is not a pure managed-field read. Results are specific to the desktop OpenGL driver and test system.
     public ulong ReadCompletedFenceValue() => Fence.CompletedValue;
 
     [Benchmark(Description = "Submit and poll fence until GPU completion")]
+    /// Measures recording and submitting one 4 KiB copy, then repeatedly polling the timeline fence on the CPU until GPU completion. It also observes command-list retirement; polling cadence contributes to the measured CPU overhead. Results are specific to the desktop OpenGL driver and test system.
     public ulong SubmitAndPoll()
     {
         RecordCopy();
@@ -161,6 +168,7 @@ public class OpenGLBackendBenchmarks
     }
 
     [Benchmark(Description = "Create and dispose a 4 KiB buffer")]
+    /// Measures allocation and disposal of a 4 KiB GPU-only buffer, including backend validation and native object creation/destruction under the device context. Results are specific to the desktop OpenGL driver and test system.
     public void CreateAndDisposeBuffer()
     {
         using IGraphicsBuffer buffer = _device.CreateBuffer(new GraphicsBufferDescription(
@@ -170,6 +178,7 @@ public class OpenGLBackendBenchmarks
     }
 
     [Benchmark(Description = "Create and dispose a 256x256 RGBA8 texture")]
+    /// Measures allocation and disposal of a 256×256 RGBA8 texture, including backend validation and native texture storage creation/destruction. Results are specific to the desktop OpenGL driver and test system.
     public void CreateAndDisposeTexture()
     {
         using IGraphicsTexture texture = _device.CreateTexture(new GraphicsTextureDescription(
@@ -180,6 +189,7 @@ public class OpenGLBackendBenchmarks
     }
 
     [GlobalCleanup]
+    /// Waits for pending work when possible, falls back to device shutdown to drain the command stream when bounded waiting cannot establish completion, then disposes the command list, fence, buffers, and hardware session. Results are specific to the desktop OpenGL driver and test system.
     public void Cleanup()
     {
         List<Exception> failures = [];
