@@ -622,4 +622,68 @@ public sealed partial class OpenGLESIntegrationTests
         }
     }
 
+
+    [Fact]
+    public void PresentBlitsTheOffscreenImageIntoTheDefaultDrawable() =>
+        RunHardwareTest(ExercisePresentationReadback);
+
+    private static unsafe void ExercisePresentationReadback(
+        IGraphicsDevice graphicsDevice,
+        GlfwOpenGLESContextProvider provider)
+    {
+        OpenGLESGraphicsDevice device = (OpenGLESGraphicsDevice)graphicsDevice;
+        GlfwPresentationTarget target = provider.CreatePresentationTarget();
+        OpenGLESSwapChainTestHooks hooks = new()
+        {
+            AfterFramebufferInitialized = (gl, framebuffer) =>
+            {
+                gl.BindFramebuffer(FramebufferTarget.Framebuffer, framebuffer);
+                gl.ClearColor(1f, 0f, 0f, 1f);
+                gl.Clear((uint)GLEnum.ColorBufferBit);
+                gl.BindFramebuffer(FramebufferTarget.Framebuffer, 0);
+            }
+        };
+
+        device.SwapChainTestHooks = hooks;
+        int readbacks = 0;
+        provider.BeforeSwapBuffers = () =>
+        {
+            using OpenGLESContextScope context = device.AcquireContext();
+            GL gl = context.Gl;
+            gl.BindFramebuffer(FramebufferTarget.ReadFramebuffer, 0);
+            gl.ReadBuffer(GLEnum.Back);
+
+            byte* pixel = stackalloc byte[4];
+            gl.ReadPixels(0, 0, 1, 1, GLEnum.Rgba, GLEnum.UnsignedByte, pixel);
+            Assert.Equal((byte)255, pixel[0]);
+            Assert.Equal((byte)0, pixel[1]);
+            Assert.Equal((byte)0, pixel[2]);
+            Assert.Equal((byte)255, pixel[3]);
+            readbacks++;
+        };
+
+        try
+        {
+            using IGraphicsPresentationSurface surface = device.CreatePresentationSurface(target);
+            using IGraphicsSwapChain swapChain = surface.CreateSwapChain(
+                device.GetPresentationQueue(),
+                new GraphicsSwapChainDescription(
+                    target.GetSnapshot().Extent.Width,
+                    target.GetSnapshot().Extent.Height,
+                    GraphicsFormat.RGBA8UNorm,
+                    2,
+                    GraphicsPresentMode.Immediate));
+
+            GraphicsAcquireResult acquired = swapChain.AcquireNextImage(TimeSpan.FromSeconds(5));
+            Assert.Equal(GraphicsAcquireStatus.Success, acquired.Status);
+            Assert.Equal(GraphicsPresentStatus.Presented, swapChain.Present(acquired.Image));
+            Assert.Equal(1, readbacks);
+        }
+        finally
+        {
+            provider.BeforeSwapBuffers = null;
+            device.SwapChainTestHooks = null;
+        }
+    }
+
 }
