@@ -5,15 +5,21 @@ using Silk.NET.OpenGL;
 
 namespace Auralis.Graphics.Backends.OpenGL;
 
+/// <summary>Internal contract for GL objects whose native handles outlive their public owner while retained by commands or views.</summary>
 internal interface IOpenGLNativeResource
 {
+    /// <summary>Attempts to acquire a command/dependency reference while the owner is open.</summary>
     bool TryRetain();
+    /// <summary>Releases one previously acquired reference and schedules native release when it was the last.</summary>
     void ReleaseReference();
+    /// <summary>Deletes or releases the native object with its owning GL context current.</summary>
     void ReleaseNative(GL gl);
 }
 
+/// <summary>Optional pre-release hook for resources that must quiesce mapped or pinned memory before native deletion.</summary>
 internal interface IOpenGLNativeResourcePreparation
 {
+    /// <summary>Invalidates new mapped-memory access and waits for existing pins to end before GL storage is released.</summary>
     void PrepareForNativeRelease();
 }
 
@@ -110,7 +116,13 @@ internal abstract class OpenGLNativeDeviceObject : GraphicsDeviceObject, IOpenGL
     public abstract void ReleaseNative(GL gl);
 }
 
-/// <summary>Native OpenGL buffer with directly mapped driver memory.</summary>
+/// <summary>Owns immutable desktop GL buffer storage and exposes CPU access through native mapped ranges.</summary>
+/// <remarks>
+/// A successful map is exclusive per buffer and holds the device context gate while the native
+/// mapping is established or removed. Public disposal closes new references immediately, but the
+/// GL name may remain alive while recorded or submitted commands retain it; release also waits for
+/// outstanding <see cref="MemoryHandle" /> pins before unmapping and deleting the name.
+/// </remarks>
 internal sealed unsafe class OpenGLGraphicsBuffer : OpenGLNativeDeviceObject, IGraphicsBuffer, IOpenGLNativeResourcePreparation
 {
     private readonly OpenGLGraphicsDevice _device;
@@ -140,6 +152,15 @@ internal sealed unsafe class OpenGLGraphicsBuffer : OpenGLNativeDeviceObject, IG
         }
     }
 
+    /// <summary>Maps a validated byte range of the native buffer into CPU memory.</summary>
+    /// <param name="mode">Read, write, or read/write access; the requested direction must match the buffer's creation-time memory-access flags.</param>
+    /// <param name="offset">Byte offset from the start of the buffer.</param>
+    /// <param name="size">Number of bytes to map, or <see cref="ulong.MaxValue" /> for the remaining range.</param>
+    /// <returns>A memory view valid until <see cref="Unmap" /> or resource disposal; its active pins must be released before unmapping.</returns>
+    /// <exception cref="ArgumentOutOfRangeException">The mode is invalid or the range is empty, too large, or outside the buffer.</exception>
+    /// <exception cref="GraphicsValidationException">The buffer was not created with the CPU access required by <paramref name="mode" />.</exception>
+    /// <exception cref="InvalidOperationException">The buffer is already mapped.</exception>
+    /// <exception cref="GraphicsException">The driver fails to map the requested range.</exception>
     public Memory<byte> Map(GraphicsMapMode mode, ulong offset = 0, ulong size = ulong.MaxValue)
     {
         ThrowIfDisposed();
@@ -190,6 +211,10 @@ internal sealed unsafe class OpenGLGraphicsBuffer : OpenGLNativeDeviceObject, IG
         }
     }
 
+    /// <summary>Ends the active native mapping and invalidates its returned memory view.</summary>
+    /// <remarks>Unmapping is rejected while a <see cref="MemoryHandle" /> pin remains active. The driver may report that mapped contents became corrupted.</remarks>
+    /// <exception cref="InvalidOperationException">The buffer is not mapped or the mapped memory is still pinned.</exception>
+    /// <exception cref="GraphicsException">The GL unmap operation reports invalid contents.</exception>
     public void Unmap()
     {
         ThrowIfDisposed();
