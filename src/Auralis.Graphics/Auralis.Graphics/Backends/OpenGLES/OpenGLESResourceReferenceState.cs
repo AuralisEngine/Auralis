@@ -8,14 +8,19 @@ internal sealed class OpenGLESResourceReferenceState
 {
     private int _state = 1;
 
+    /// <summary>Gets the current owner-plus-dependent reference count, excluding the closed-state flag.</summary>
     internal int ReferenceCount => Volatile.Read(ref _state) & int.MaxValue;
 
+    /// <summary>Gets whether public owner retention has been closed.</summary>
     internal bool IsClosed => Volatile.Read(ref _state) < 0;
 
+    /// <summary>Attempts to acquire a new public/command reference while the owner remains open.</summary>
     internal bool TryRetain() => TryRetain(allowClosed: false);
 
+    /// <summary>Attempts to acquire a dependency reference, even after owner disposal, while an existing reference keeps storage alive.</summary>
     internal bool TryRetainDependency() => TryRetain(allowClosed: true);
 
+    /// <summary>Atomically increments the count, subject to the owner-close policy selected by the caller.</summary>
     private bool TryRetain(bool allowClosed)
     {
         while (true)
