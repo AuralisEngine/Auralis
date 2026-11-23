@@ -18,6 +18,7 @@ internal static class OpenGLPipelineMapping
 {
     /// <summary>Maps an Auralis primitive topology to the corresponding GL draw mode.</summary>
     /// <exception cref="ArgumentOutOfRangeException">The topology has no supported desktop GL mapping.</exception>
+    internal static PrimitiveType ToPrimitiveType(GraphicsPrimitiveTopology topology) => topology switch
     {
         GraphicsPrimitiveTopology.PointList => PrimitiveType.Points,
         GraphicsPrimitiveTopology.LineList => PrimitiveType.Lines,
@@ -35,6 +36,7 @@ internal static class OpenGLPipelineMapping
 
     /// <summary>Maps a depth/stencil comparison operation to its GL comparison function.</summary>
     /// <exception cref="ArgumentOutOfRangeException">The operation is undefined.</exception>
+    internal static DepthFunction ToDepthFunction(GraphicsCompareOperation operation) => operation switch
     {
         GraphicsCompareOperation.Never => DepthFunction.Never,
         GraphicsCompareOperation.Less => DepthFunction.Less,
@@ -49,6 +51,7 @@ internal static class OpenGLPipelineMapping
 
     /// <summary>Maps a stencil operation, including saturating and wrapping increment/decrement variants.</summary>
     /// <exception cref="ArgumentOutOfRangeException">The operation is undefined.</exception>
+    internal static StencilOp ToStencilOperation(GraphicsStencilOperation operation) => operation switch
     {
         GraphicsStencilOperation.Keep => StencilOp.Keep,
         GraphicsStencilOperation.Zero => StencilOp.Zero,
@@ -63,6 +66,7 @@ internal static class OpenGLPipelineMapping
 
     /// <summary>Maps a backend-neutral source/destination blend factor to the matching GL factor.</summary>
     /// <exception cref="ArgumentOutOfRangeException">The factor is undefined or has no desktop GL mapping.</exception>
+    internal static BlendingFactor ToBlendFactor(GraphicsBlendFactor factor) => factor switch
     {
         GraphicsBlendFactor.Zero => BlendingFactor.Zero,
         GraphicsBlendFactor.One => BlendingFactor.One,
@@ -84,6 +88,7 @@ internal static class OpenGLPipelineMapping
 
     /// <summary>Maps a blend equation to the desktop GL blend-equation token.</summary>
     /// <exception cref="ArgumentOutOfRangeException">The operation is undefined.</exception>
+    internal static BlendEquationModeEXT ToBlendEquation(GraphicsBlendOperation operation) => operation switch
     {
         GraphicsBlendOperation.Add => BlendEquationModeEXT.FuncAdd,
         GraphicsBlendOperation.Subtract => BlendEquationModeEXT.FuncSubtract,
@@ -95,6 +100,7 @@ internal static class OpenGLPipelineMapping
 
     /// <summary>Returns the packed byte size of a format supported by the vertex-input mapping.</summary>
     /// <returns>Bytes per attribute element, or zero when the format is not supported for vertex input.</returns>
+    internal static uint GetVertexFormatByteSize(GraphicsFormat format) => format switch
     {
         GraphicsFormat.R8UNorm or GraphicsFormat.R8SNorm or GraphicsFormat.R8UInt or GraphicsFormat.R8SInt => 1,
         GraphicsFormat.RG8UNorm or GraphicsFormat.RG8SNorm or GraphicsFormat.RG8UInt or GraphicsFormat.RG8SInt => 2,
@@ -114,6 +120,7 @@ internal static class OpenGLPipelineMapping
     /// <param name="format">Auralis vertex attribute format.</param>
     /// <param name="result">Receives the native representation, or the default value when unsupported.</param>
     /// <returns><see langword="true" /> when the format can be supplied to a GL vertex attribute.</returns>
+    internal static bool TryGetVertexFormat(GraphicsFormat format, out OpenGLVertexFormat result)
     {
         result = format switch
         {
