@@ -86,6 +86,7 @@ internal sealed class OpenGLESGraphicsPresentationSurface : GraphicsDeviceObject
     /// <exception cref="ArgumentNullException"><paramref name="presentationQueue" /> is <see langword="null" />.</exception>
     /// <exception cref="GraphicsValidationException">The queue is incompatible, the target is suspended, or the requested extent differs from the current drawable.</exception>
     /// <exception cref="NotSupportedException">The host provider cannot honor the requested presentation mode.</exception>
+    public IGraphicsSwapChain CreateSwapChain(
         IGraphicsQueue presentationQueue,
         in GraphicsSwapChainDescription description)
     {
