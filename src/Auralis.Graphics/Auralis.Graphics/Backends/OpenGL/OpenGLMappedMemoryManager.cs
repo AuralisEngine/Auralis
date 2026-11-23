@@ -30,6 +30,8 @@ internal sealed unsafe class OpenGLMappedMemoryManager : MemoryManager<byte>
         _length = length;
     }
 
+    /// <summary>Returns the mapped range while it is valid.</summary>
+    /// <exception cref="ObjectDisposedException">The native mapping has been invalidated.</exception>
     public override Span<byte> GetSpan()
     {
         lock (_gate)
@@ -41,6 +43,10 @@ internal sealed unsafe class OpenGLMappedMemoryManager : MemoryManager<byte>
         }
     }
 
+    /// <summary>Pins the mapped native pointer until the returned handle is unpinned.</summary>
+    /// <param name="elementIndex">Zero-based byte offset within the mapped range.</param>
+    /// <exception cref="ArgumentOutOfRangeException">The index exceeds the mapped range.</exception>
+    /// <exception cref="ObjectDisposedException">The mapping has been invalidated.</exception>
     public override MemoryHandle Pin(int elementIndex = 0)
     {
         if ((uint)elementIndex > (uint)_length)
@@ -56,6 +62,8 @@ internal sealed unsafe class OpenGLMappedMemoryManager : MemoryManager<byte>
         }
     }
 
+    /// <summary>Releases a pin previously created by <see cref="Pin" />.</summary>
+    /// <exception cref="InvalidOperationException">No outstanding pin exists.</exception>
     public override void Unpin()
     {
         lock (_gate)
@@ -69,6 +77,9 @@ internal sealed unsafe class OpenGLMappedMemoryManager : MemoryManager<byte>
         }
     }
 
+    /// <summary>Ensures the native mapping can be unmapped without invalidating an active pin.</summary>
+    /// <exception cref="InvalidOperationException">One or more memory handles are still pinned.</exception>
+    /// <exception cref="ObjectDisposedException">The mapping is already invalid.</exception>
     internal void ValidateCanUnmap()
     {
         lock (_gate)
@@ -84,6 +95,8 @@ internal sealed unsafe class OpenGLMappedMemoryManager : MemoryManager<byte>
     /// <summary>Invalidates future Memory/Span/Pin operations but leaves existing native pins valid.</summary>
     internal void Invalidate() => Dispose(disposing: true);
 
+    /// <summary>Checks that no caller still holds a pointer into the mapping before native release.</summary>
+    /// <exception cref="InvalidOperationException">One or more memory handles remain pinned.</exception>
     internal void ValidateNoPins()
     {
         lock (_gate)
