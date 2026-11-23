@@ -773,7 +773,7 @@ internal sealed class OpenGLESGraphicsSwapChain : OpenGLESNativeDeviceObject, IG
         }
     }
 
-    private static void ReleaseImageNative(GL gl, OpenGLESSwapChainImage[] images)
+    private void ReleaseImageNative(GL gl, OpenGLESSwapChainImage[] images)
     {
         List<Exception>? failures = null;
         for (int i = 0; i < images.Length; i++)
