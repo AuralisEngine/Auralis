@@ -167,7 +167,7 @@ internal sealed class OpenGLESGraphicsSwapChain : OpenGLESNativeDeviceObject, IG
     /// <param name="timeout">Maximum CPU wait for an image to become reusable, or <see cref="Timeout.InfiniteTimeSpan" />.</param>
     /// <returns>An acquired image, or a timeout, suspended, or out-of-date status without an image.</returns>
     /// <exception cref="ArgumentOutOfRangeException"><paramref name="timeout" /> is negative and is not infinite.</exception>
-    /// <exception cref="GraphicsBackendUnavailableException">The host drawable is no longer compatible with the injected context.</exception>
+    /// <exception cref="GraphicsValidationException">The current host snapshot no longer matches the injected GLES drawable.</exception>
     /// <exception cref="GraphicsException">GLES reports a failed client wait.</exception>
     {
         ThrowIfDisposed();
