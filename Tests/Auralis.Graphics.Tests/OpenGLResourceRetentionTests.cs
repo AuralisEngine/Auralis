@@ -124,6 +124,7 @@ public sealed class OpenGLResourceRetentionTests
         Assert.Equal(1, resource.NativeReleaseCount);
     }
 
+    /// <summary>Verifies a failed submission can be marked complete after issued GL work is finished and its retained references released on reset.</summary>
     [Fact]
     public void FailedSubmissionCanCompleteAndReleaseResourcesOnSubsequentReset()
     {
@@ -193,6 +194,7 @@ public sealed class OpenGLResourceRetentionTests
         Assert.Throws<InvalidOperationException>(resource.ReleaseReference);
     }
 
+    /// <summary>Verifies closing the public owner prevents subsequent command-list retains and immediately reclaims an otherwise unreferenced object.</summary>
     [Fact]
     public void ClosedResourceRejectsNewRetains()
     {
@@ -236,6 +238,7 @@ public sealed class OpenGLResourceRetentionTests
         Assert.Equal(1, resource.NativeReleaseCount);
     }
 
+    /// <summary>Verifies one failing native-reference release does not prevent other retained resources from being released.</summary>
     [Fact]
     public void ReleaseAllContinuesAfterAnIndividualReferenceReleaseThrows()
     {
@@ -296,6 +299,7 @@ public sealed class OpenGLResourceRetentionTests
 
         public void ReleaseNative(GL gl) => Interlocked.Increment(ref _nativeReleaseCount);
     }
+    /// <summary>Verifies queue retirement releases resources for a completed submission without waiting for an unrelated pending submission.</summary>
     [Fact]
     public void CompletedResourceIsReclaimedWhileAnUnrelatedSubmissionRemainsPending()
     {
