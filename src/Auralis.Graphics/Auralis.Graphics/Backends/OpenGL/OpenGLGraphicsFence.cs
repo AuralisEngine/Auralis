@@ -242,5 +242,6 @@ internal sealed class OpenGLGraphicsFence : OpenGLNativeDeviceObject, IGraphicsF
         }
     }
 
+    /// <summary>Associates a monotonic fence value with the GL sync handle inserted after its GPU work.</summary>
     private readonly record struct SyncPoint(ulong Value, nint Handle);
 }
