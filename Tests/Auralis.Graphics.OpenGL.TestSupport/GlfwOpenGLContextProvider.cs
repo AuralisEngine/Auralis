@@ -24,6 +24,9 @@ public sealed unsafe class GlfwOpenGLContextProvider : IOpenGLContextProvider
         _window = window;
     }
 
+    /// <summary>Creates a hidden GLFW window and a desktop OpenGL 4.5 Core Profile context for hardware tests and benchmarks.</summary>
+    /// <returns>An owned provider with exclusive context-state ownership and no presentation drawable.</returns>
+    /// <exception cref="HardwareContextUnavailableException">The GLFW native library, display, context creation, or required OpenGL context is unavailable.</exception>
     public static GlfwOpenGLContextProvider Create()
     {
         Glfw glfw;
@@ -85,20 +88,30 @@ public sealed unsafe class GlfwOpenGLContextProvider : IOpenGLContextProvider
         }
     }
 
+    /// <inheritdoc />
     public object ContextIdentity => _contextIdentity;
+    /// <inheritdoc />
     public OpenGLContextOwnership Ownership => OpenGLContextOwnership.Owned;
+    /// <inheritdoc />
     public OpenGLContextStateOwnership StateOwnership => OpenGLContextStateOwnership.Exclusive;
+    /// <inheritdoc />
     public bool IsAvailable => Volatile.Read(ref _disposed) == 0;
+    /// <inheritdoc />
     public string? UnavailableReason => IsAvailable ? null : "The GLFW context provider has been disposed.";
+    /// <inheritdoc />
     public bool SupportsPresentation => false;
 
+    /// <inheritdoc />
     public bool IsPresentationTargetCompatible(in GraphicsPresentationTargetSnapshot target) => false;
 
+    /// <inheritdoc />
     public bool SupportsPresentMode(GraphicsPresentMode presentMode) => false;
 
+    /// <inheritdoc />
     public void SetPresentMode(GraphicsPresentMode presentMode) =>
         throw new NotSupportedException("The test context is hidden and has no presentation drawable.");
 
+    /// <inheritdoc />
     public void MakeCurrent()
     {
         ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
@@ -117,6 +130,7 @@ public sealed unsafe class GlfwOpenGLContextProvider : IOpenGLContextProvider
         _currentDepth.Value = 1;
     }
 
+    /// <inheritdoc />
     public void ReleaseCurrent()
     {
         if (Volatile.Read(ref _disposed) != 0)
@@ -135,6 +149,7 @@ public sealed unsafe class GlfwOpenGLContextProvider : IOpenGLContextProvider
         _glfw.MakeContextCurrent(null);
     }
 
+    /// <inheritdoc />
     public nint GetProcAddress(string name)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
@@ -169,9 +184,11 @@ public sealed unsafe class GlfwOpenGLContextProvider : IOpenGLContextProvider
         }
     }
 
+    /// <inheritdoc />
     public void SwapBuffers() =>
         throw new NotSupportedException("The test context is hidden and has no presentation drawable.");
 
+    /// <inheritdoc />
     public void Dispose()
     {
         if (Interlocked.Exchange(ref _disposed, 1) != 0)
