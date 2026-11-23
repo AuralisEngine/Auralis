@@ -76,6 +76,7 @@ internal sealed class OpenGLGraphicsSwapChain : OpenGLNativeDeviceObject, IGraph
     /// <returns>An acquired image on success, or a timeout, suspended, or out-of-date status without an image.</returns>
     /// <exception cref="ArgumentOutOfRangeException"><paramref name="timeout" /> is negative and is not infinite.</exception>
     /// <exception cref="GraphicsException">The driver fails while waiting on a presentation sync object.</exception>
+    public GraphicsAcquireResult AcquireNextImage(TimeSpan timeout)
     {
         ThrowIfDisposed();
         if (timeout < TimeSpan.Zero && timeout != Timeout.InfiniteTimeSpan)
