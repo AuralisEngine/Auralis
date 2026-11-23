@@ -153,6 +153,9 @@ internal sealed class OpenGLGraphicsSwapChain : OpenGLNativeDeviceObject, IGraph
 
                         _device.SyncApi.DeleteSync(image.PresentSync);
                         image.PresentSync = 0;
+                        if (!allowImmediatePoll && deadline.IsExpired)
+                            return new GraphicsAcquireResult(GraphicsAcquireStatus.Timeout, default);
+
                         return AcquireImage(index, image);
                     }
 
