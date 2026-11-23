@@ -681,6 +681,7 @@ internal sealed class OpenGLGraphicsSwapChain : OpenGLNativeDeviceObject, IGraph
 
                 OpenGLSwapChainImage image = new() { Texture = texture };
                 images[i] = image;
+                hooks?.AfterTextureCreated?.Invoke(texture);
                 hooks?.AfterTextureCreation?.Invoke(texture);
 
                 using (OpenGLContextScope context = _device.AcquireContext())

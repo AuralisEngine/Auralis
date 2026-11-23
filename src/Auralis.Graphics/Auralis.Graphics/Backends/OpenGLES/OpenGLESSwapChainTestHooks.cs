@@ -32,6 +32,9 @@ internal sealed class OpenGLESSwapChainTestHooks
     /// <summary>Runs immediately before native framebuffer creation.</summary>
     internal Action<GL>? BeforeFramebufferCreation { get; set; }
 
+    /// <summary>Runs after a newly created framebuffer handle has been stored in its image slot.</summary>
+    internal Action<uint>? AfterFramebufferCreated { get; set; }
+
     /// <summary>Runs after the image framebuffer is complete, while the owning context is current.</summary>
     internal Action<GL, uint>? AfterFramebufferInitialized { get; set; }
 

@@ -729,6 +729,7 @@ internal sealed class OpenGLESGraphicsSwapChain : OpenGLESNativeDeviceObject, IG
                 OpenGLESGraphicsTexture texture = (OpenGLESGraphicsTexture)_device.CreateTexture(textureDescription);
                 OpenGLESSwapChainImage image = new() { Texture = texture };
                 images[i] = image;
+                hooks?.AfterTextureCreated?.Invoke(texture);
                 hooks?.AfterTextureCreation?.Invoke(texture);
 
                 using (OpenGLESContextScope context = _device.AcquireContext())
