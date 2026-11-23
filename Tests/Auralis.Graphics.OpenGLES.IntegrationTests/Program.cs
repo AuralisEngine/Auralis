@@ -86,7 +86,7 @@ public sealed partial class OpenGLESIntegrationTests : IClassFixture<OpenGLESHar
 
     /// <summary>Drains pending GLES errors and reports them with the phase that produced them.</summary>
     /// <param name="device">Device whose context should be current while checking errors.</param>
-    /// <param name="phase">Description of initialization, setup, execution, or cleanup phase.</param>
+    /// <param name="operation">Description of initialization, setup, execution, or cleanup phase.</param>
     private static void CheckGlesErrors(IGraphicsDevice device, string operation)
     {
         OpenGLESGraphicsDevice gles = (OpenGLESGraphicsDevice)device;
@@ -107,6 +107,7 @@ public sealed partial class OpenGLESIntegrationTests : IClassFixture<OpenGLESHar
     [Fact] public void ReusableCommandListResubmissionWorks() => RunHardwareTest(device => RunReusableCommandListAfterOwnerDisposal(device));
     [Fact] public void OffscreenGraphicsPipelineWorks() => RunHardwareTest((device, context) => RunOffscreenGraphicsPipeline(device, context));
 
+    /// <summary>Verifies a GLES render pass writes multiple color attachments in the declared attachment order.</summary>
     [Fact]
     public void MrtRenderingAndAttachmentOrderingWork() =>
         RunHardwareTest((device, context) =>
@@ -117,6 +118,7 @@ public sealed partial class OpenGLESIntegrationTests : IClassFixture<OpenGLESHar
             RunMrtRendering(device, context);
         });
 
+    /// <summary>Verifies per-attachment color write masks remain independent when MRT attachments are cleared and rendered.</summary>
     [Fact]
     public void MrtIndependentWriteMasksSurviveClearOperations() =>
         RunHardwareTest((device, context) =>
@@ -128,6 +130,7 @@ public sealed partial class OpenGLESIntegrationTests : IClassFixture<OpenGLESHar
             RunMrtIndependentWriteMasks(device, context);
         });
 
+    /// <summary>Verifies GLES uses correctly typed clear operations for signed and unsigned integer color attachments.</summary>
     [Fact]
     public void TypedSignedAndUnsignedIntegerColorClearsWork() =>
         RunHardwareTest((device, context) =>
@@ -143,14 +146,17 @@ public sealed partial class OpenGLESIntegrationTests : IClassFixture<OpenGLESHar
             RunIntegerColorClears(device, context);
         });
 
+    /// <summary>Exercises multi-draw array and indexed-indirect command paths using GPU-resident argument records.</summary>
     [Fact]
     public void MultiCommandArrayAndIndexedIndirectDrawingWorks() =>
         RunHardwareTest((device, context) => RunMultiDrawIndirect(device, context));
 
+    /// <summary>Verifies identity views require no texture-view extension and keep their parent texture storage alive.</summary>
     [Fact]
     public void IdentityTextureViewAndParentRetentionWork() =>
         RunHardwareTest((device, context) => RunIdentityTextureViewRendering(device, context));
 
+    /// <summary>Exercises native subresource texture views when the extension and matching entry point exist, otherwise tests the restricted framebuffer-only alias fallback.</summary>
     [Fact]
     public void SubresourceTextureViewRenderingWorks() =>
         RunHardwareTest((device, context) =>
@@ -196,6 +202,7 @@ public sealed partial class OpenGLESIntegrationTests : IClassFixture<OpenGLESHar
             RunTextureViewSubresourceRendering(device, context);
         });
 
+    /// <summary>Verifies the native EXT/OES image-copy path when its extension and callable entry point are available.</summary>
     [Fact]
     public void NativeFullResourceImageCopyWorksWhenAvailable() =>
         RunHardwareTest((device, context) =>
@@ -205,6 +212,7 @@ public sealed partial class OpenGLESIntegrationTests : IClassFixture<OpenGLESHar
             RunNativeImageCopy(device, context);
         });
 
+    /// <summary>Verifies the framebuffer-blit image-copy fallback restores the previously active render-target state before subsequent drawing.</summary>
     [Fact]
     public void FramebufferBlitCopyRestoresTheActiveRenderTargetWhenFallbackIsUsed() =>
         RunHardwareTest((device, context) =>
@@ -222,6 +230,7 @@ public sealed partial class OpenGLESIntegrationTests : IClassFixture<OpenGLESHar
             }
         });
 
+    /// <summary>Verifies multisample framebuffer allocation, typed clear, shader sampling, and readback at a supported sample count.</summary>
     [Fact]
     public void MultisampleFramebufferClearAndShaderSampleReadbackWork() =>
         RunHardwareTest((device, context) =>
