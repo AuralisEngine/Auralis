@@ -11,6 +11,11 @@ internal sealed class OpenGLESContextLease : IDisposable
 
     private OpenGLESContextLease(IOpenGLESContextProvider provider) => _provider = provider;
 
+    /// <summary>Makes the provider's existing GLES context current and returns a lease for its release.</summary>
+    /// <param name="provider">Host-supplied provider for the GLES context.</param>
+    /// <returns>A lease that releases the context once when disposed on the acquiring thread.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="provider" /> is <see langword="null" />.</exception>
+    /// <exception cref="InvalidOperationException">The provider cannot activate its context on this thread.</exception>
     internal static OpenGLESContextLease Acquire(IOpenGLESContextProvider provider)
     {
         ArgumentNullException.ThrowIfNull(provider);
