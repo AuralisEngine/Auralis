@@ -96,6 +96,11 @@ internal sealed class OpenGLESGraphicsTexture : OpenGLESNativeDeviceObject, IGra
         }
     }
 
+    /// <summary>Creates a native texture view or a restricted framebuffer-only alias for a supported subresource.</summary>
+    /// <param name="description">View target, format, and parent mip/layer range.</param>
+    /// <returns>A view that retains its parent native texture until the view itself is released.</returns>
+    /// <exception cref="ObjectDisposedException">The parent texture or device has been disposed.</exception>
+    /// <exception cref="GraphicsValidationException">The requested view is unsupported by native texture-view entry points and the framebuffer-only alias rules.</exception>
     public IGraphicsTextureView CreateView(in GraphicsTextureViewDescription description)
     {
         ThrowIfDisposed();
@@ -184,6 +189,14 @@ internal sealed class OpenGLESGraphicsTexture : OpenGLESNativeDeviceObject, IGra
         };
 }
 
+/// <summary>Represents an OpenGL ES texture view while retaining the parent texture's native storage.</summary>
+/// <remarks>
+/// Identity views reuse the parent's texture name and never delete it. When native EXT/OES texture
+/// views are available, a subresource view owns a separate texture name. Without those extensions,
+/// only a narrowly validated same-format 2D or 2D-array subresource may be represented as a
+/// framebuffer-only alias; that alias can be attached to an FBO but is not sampleable or image-bindable.
+/// Every view retains the parent object until release.
+/// </remarks>
 internal sealed class OpenGLESGraphicsTextureView : OpenGLESNativeDeviceObject, IGraphicsTextureView
 {
     private readonly OpenGLESGraphicsTexture _texture;
@@ -223,6 +236,11 @@ internal sealed class OpenGLESGraphicsTextureView : OpenGLESNativeDeviceObject, 
     /// </summary>
     internal bool IsFramebufferSubresourceAlias => _isFramebufferSubresourceAlias;
 
+    /// <summary>Attaches this view to a framebuffer, selecting the parent mip/layer when it is a fallback alias.</summary>
+    /// <param name="gl">Current GLES dispatch object.</param>
+    /// <param name="framebufferTarget">Read, draw, or combined framebuffer target.</param>
+    /// <param name="attachment">Color, depth, or stencil attachment point.</param>
+    /// <exception cref="GraphicsValidationException">A framebuffer-only alias has an unsupported parent texture target.</exception>
     internal void AttachToFramebuffer(GL gl, FramebufferTarget framebufferTarget, GLEnum attachment)
     {
         ArgumentNullException.ThrowIfNull(gl);
@@ -397,6 +415,7 @@ internal sealed class OpenGLESGraphicsTextureView : OpenGLESNativeDeviceObject, 
 /// </summary>
 internal static class OpenGLESTextureViewValidation
 {
+    /// <summary>Determines whether a view selects the complete parent storage with the same target and format.</summary>
     internal static bool IsIdentity(
         in GraphicsTextureDescription textureDescription,
         TextureTarget textureTarget,
@@ -415,6 +434,8 @@ internal static class OpenGLESTextureViewValidation
     /// glTextureView: one mip of a 2D texture, or one layer/mip of a 2D-array texture.
     /// It must preserve the parent's format and storage; this is not a sampleable view.
     /// </summary>
+    /// <summary>Determines whether a subresource can be attached directly from its parent without creating a native texture-view object.</summary>
+    /// <remarks>The result is a framebuffer-only compatibility path, not a claim of general GLES texture-view support.</remarks>
     internal static bool CanUseFramebufferOnlyAlias(
         in GraphicsTextureDescription textureDescription,
         TextureTarget textureTarget,
