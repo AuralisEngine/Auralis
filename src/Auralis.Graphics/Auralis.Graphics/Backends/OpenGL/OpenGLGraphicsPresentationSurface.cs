@@ -107,6 +107,7 @@ internal sealed class OpenGLGraphicsPresentationSurface : GraphicsDeviceObject, 
         return new OpenGLGraphicsSwapChain(this, (OpenGLGraphicsCommandQueue)presentationQueue, copy, snapshot);
     }
 
+    /// <summary>Releases only the Auralis surface wrapper; the host retains ownership of the target, drawable, and context provider.</summary>
     protected override void DisposeCore()
     {
         // The target, native window/layer, and context provider remain owned by the host.
