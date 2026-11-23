@@ -11,9 +11,12 @@ namespace Auralis.Graphics.Tests;
 /// Deterministic tests for the same native-reference state machine used by OpenGL device objects
 /// and by command-list recording. These tests intentionally do not require a GL context or timing.
 /// </summary>
+/// <summary>Verifies desktop OpenGL native objects remain alive while command lists retain them, even after public owner disposal.</summary>
+/// <remarks>The suite exercises recorded references, multiple independent lists, submission completion, device shutdown, duplicate disposal/release, and cleanup failure aggregation.</remarks>
 public sealed class OpenGLResourceRetentionTests
 {
     [Fact]
+    /// <summary>Verifies disposing a buffer owner does not delete its GL storage while a recorded command still retains it.</summary>
     public void DisposedBufferRemainsAliveUntilRecordedReferencesAreReleased()
     {
         var retention = new OpenGLResourceRetention();
@@ -28,6 +31,7 @@ public sealed class OpenGLResourceRetentionTests
     }
 
     [Fact]
+    /// <summary>Verifies texture storage remains alive while a command-list reference exists after owner disposal.</summary>
     public void DisposedTextureRemainsAliveUntilRecordedReferencesAreReleased()
     {
         var retention = new OpenGLResourceRetention();
@@ -42,6 +46,7 @@ public sealed class OpenGLResourceRetentionTests
     }
 
     [Fact]
+    /// <summary>Verifies Reset releases resources retained during the previous recording.</summary>
     public void ResettingCommandListReleasesItsRecordedNativeReferences()
     {
         var retention = new OpenGLResourceRetention();
@@ -59,6 +64,7 @@ public sealed class OpenGLResourceRetentionTests
     }
 
     [Fact]
+    /// <summary>Verifies disposing a never-submitted list releases its recorded references.</summary>
     public void DisposingUnsubmittedCommandListReleasesItsRecordedNativeReferences()
     {
         var retention = new OpenGLResourceRetention();
@@ -75,6 +81,7 @@ public sealed class OpenGLResourceRetentionTests
     }
 
     [Fact]
+    /// <summary>Verifies submission retains disposed resources until the GPU completes and the command list is reset or reclaimed.</summary>
     public void SubmittedCommandListKeepsDisposedResourcesUntilCompletionAndReset()
     {
         var lifecycle = new GraphicsCommandListLifecycle(GraphicsQueueType.Graphics);
@@ -99,6 +106,7 @@ public sealed class OpenGLResourceRetentionTests
     }
 
     [Fact]
+    /// <summary>Verifies each list owns an independent retain on a shared native resource.</summary>
     public void MultipleCommandListsRetainSharedResourceIndependently()
     {
         var firstList = new OpenGLResourceRetention();
@@ -139,6 +147,7 @@ public sealed class OpenGLResourceRetentionTests
     }
 
     [Fact]
+    /// <summary>Verifies device shutdown drains pending work and releases native storage even when a submitted list retains a managed reference.</summary>
     public void DeviceShutdownReleasesNativeObjectWhileSubmittedListStillRetainsIt()
     {
         var lifecycle = new GraphicsCommandListLifecycle(GraphicsQueueType.Graphics);
@@ -165,6 +174,7 @@ public sealed class OpenGLResourceRetentionTests
     }
 
     [Fact]
+    /// <summary>Verifies disposal and reference-release races cannot trigger duplicate native deletion.</summary>
     public void RepeatedDisposalAndDuplicateReleaseCannotDeleteNativeResourceTwice()
     {
         var retention = new OpenGLResourceRetention();
@@ -194,6 +204,7 @@ public sealed class OpenGLResourceRetentionTests
     }
 
     [Fact]
+    /// <summary>Verifies racing retain and owner-close operations preserve exact-once native reclamation.</summary>
     public async Task ConcurrentRetainsRacingOwnerDisposalReleaseExactlyOnce()
     {
         var resource = new InstrumentedNativeResource();
@@ -244,6 +255,7 @@ public sealed class OpenGLResourceRetentionTests
         Assert.Equal(0, retention.Count);
     }
 
+    /// <summary>Synthetic native resource whose managed release path deliberately throws to test best-effort cleanup.</summary>
     private sealed class ThrowingReleaseResource(string message) : IOpenGLNativeResource
     {
         public bool TryRetain() => true;
@@ -251,6 +263,7 @@ public sealed class OpenGLResourceRetentionTests
         public void ReleaseNative(GL gl) { }
     }
 
+    /// <summary>Tracks reference acquisition and native release count to assert exact-once reclamation.</summary>
     private sealed class InstrumentedNativeResource : IOpenGLNativeResource
     {
         private OpenGLNativeResourceReferenceState _references = new(1);
