@@ -594,7 +594,16 @@ internal sealed class OpenGLGraphicsSwapChain : OpenGLNativeDeviceObject, IGraph
             try
             {
                 using OpenGLContextScope context = _device.AcquireContext();
-                ReleaseImageNative(context.Gl, images);
+                try
+                {
+                    ReleaseImageNative(context.Gl, images);
+                }
+                catch (Exception cleanupFailure)
+                {
+                    cleanupFailures.Add(cleanupFailure);
+                }
+
+                // Attempt every texture release even when framebuffer/sync retirement failed.
                 for (int i = 0; i < images.Length; i++)
                 {
                     OpenGLSwapChainImage? image = images[i];
