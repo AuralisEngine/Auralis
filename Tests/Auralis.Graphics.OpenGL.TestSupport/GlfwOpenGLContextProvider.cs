@@ -132,6 +132,9 @@ public sealed unsafe class GlfwOpenGLContextProvider : IOpenGLContextProvider
         set => Volatile.Write(ref _failNextSwapBuffers, value ? 1 : 0);
     }
 
+    /// <summary>Runs on the current context immediately before GLFW swaps the host drawable.</summary>
+    public Action? BeforeSwapBuffers { get; set; }
+
     /// <summary>Creates a target adapter for this provider's own GLFW drawable.</summary>
     public GlfwPresentationTarget CreatePresentationTarget()
     {
@@ -273,6 +276,7 @@ public sealed unsafe class GlfwOpenGLContextProvider : IOpenGLContextProvider
 
         try
         {
+            BeforeSwapBuffers?.Invoke();
             _glfw.SwapBuffers(_window);
         }
         finally
