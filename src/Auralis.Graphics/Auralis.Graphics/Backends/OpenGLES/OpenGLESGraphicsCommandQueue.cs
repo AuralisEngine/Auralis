@@ -29,6 +29,8 @@ internal sealed class OpenGLESGraphicsCommandQueue : IGraphicsCommandQueue
     public uint Index => 0;
     public GraphicsQueueType QueueType { get; }
 
+    /// <inheritdoc />
+    /// <remarks>Recording is CPU-side; the GLES context is acquired when commands are submitted or when queue state is polled.</remarks>
     public IGraphicsCommandList CreateCommandList(GraphicsCommandListUsage usage = GraphicsCommandListUsage.Reusable)
     {
         ObjectDisposedException.ThrowIf(_device.IsDisposed, _device);
@@ -38,6 +40,13 @@ internal sealed class OpenGLESGraphicsCommandQueue : IGraphicsCommandQueue
         return new OpenGLESGraphicsCommandList(this, usage);
     }
 
+    /// <inheritdoc />
+    /// <remarks>
+    /// The complete batch is validated before command lists become pending. Commands execute on
+    /// the device's one serialized GLES context stream; pending submission records retain command
+    /// lists and their native resources until the associated GLES sync is observed complete.
+    /// The optional signal fence is inserted after the submitted commands.
+    /// </remarks>
     public void Submit(
         ReadOnlySpan<IGraphicsCommandList> commandLists,
         IGraphicsFence? signalFence = null,
@@ -167,6 +176,8 @@ internal sealed class OpenGLESGraphicsCommandQueue : IGraphicsCommandQueue
         }
     }
 
+    /// <inheritdoc />
+    /// <remarks>A server-side wait can target only a known submitted sync or an already completed value; GLES cannot wait on a not-yet-created future sync object.</remarks>
     public void Wait(IGraphicsFence fence, ulong value)
     {
         ObjectDisposedException.ThrowIf(_device.IsDisposed, _device);
