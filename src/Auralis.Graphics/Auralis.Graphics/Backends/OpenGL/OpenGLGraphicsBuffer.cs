@@ -242,6 +242,7 @@ internal sealed unsafe class OpenGLGraphicsBuffer : OpenGLNativeDeviceObject, IG
             throw new GraphicsException("OpenGL reported that the mapped buffer contents became corrupted during Unmap.");
     }
 
+    /// <inheritdoc />
     protected override void DisposeCore()
     {
         // Invalidate new Memory/Span/Pin access immediately, but retain the manager object until
