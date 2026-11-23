@@ -12,8 +12,8 @@ namespace Auralis.Graphics.Tests;
 /// <remarks>Coverage checks buffer byte ranges, texture mip/layer ranges and aspects, whole-resource barriers, supported resource kinds, and consumer-stage/access compatibility.</remarks>
 public sealed class GraphicsBarrierValidationTests
 {
-    [Fact]
     /// <summary>Verifies the AllGraphics stage mask expands to the graphics stages supported by the shared abstraction.</summary>
+    [Fact]
     public void AllGraphicsIncludesEverySupportedGraphicsStage()
     {
         GraphicsPipelineStage expected =
@@ -40,8 +40,8 @@ public sealed class GraphicsBarrierValidationTests
              GraphicsPipelineStage.AllCommands));
     }
 
-    [Fact]
     /// <summary>Verifies buffer barrier byte ranges accept valid intervals and reject zero, overflowed, or out-of-bounds ranges.</summary>
+    [Fact]
     public void BufferRangeAcceptsValidByteRangeAndRejectsInvalidBounds()
     {
         var description = new GraphicsBufferDescription(1024, GraphicsBufferUsage.Storage);
@@ -57,8 +57,8 @@ public sealed class GraphicsBarrierValidationTests
             new GraphicsBufferRange(ulong.MaxValue, 2).Validate(description));
     }
 
-    [Fact]
     /// <summary>Verifies texture barrier subresource ranges stay within the texture's mip and layer counts.</summary>
+    [Fact]
     public void TextureRangeValidatesMipLevelsAndArrayLayers()
     {
         var description = new GraphicsTextureDescription(
@@ -81,8 +81,8 @@ public sealed class GraphicsBarrierValidationTests
             new GraphicsTextureSubresourceRange(GraphicsTextureAspect.Color, 0, 0, 0, 1).Validate(description));
     }
 
-    [Fact]
     /// <summary>Verifies barrier aspects are compatible with the texture's color or depth/stencil format.</summary>
+    [Fact]
     public void TextureRangeValidatesFormatAspects()
     {
         var depthOnly = new GraphicsTextureDescription(
