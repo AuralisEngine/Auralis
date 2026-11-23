@@ -16,8 +16,8 @@ namespace Auralis.Graphics.Tests;
 public sealed class GraphicsReviewRegressionTests
 {
 
-    [Fact]
     /// <summary>Verifies nested activation on one thread invokes the native make-current callback only at depth zero and releases only after the outermost exit.</summary>
+    [Fact]
     public void ContextActivationOnlyMakesCurrentAtOutermostDepth()
     {
         int activations = 0;
@@ -40,8 +40,8 @@ public sealed class GraphicsReviewRegressionTests
         Assert.Equal(1, releases);
     }
 
-    [Fact]
     /// <summary>Verifies an object-monitor context gate respects a finite timeout while another thread owns it.</summary>
+    [Fact]
     public void ContextGateAcquisitionTimesOutWhenAnotherThreadHoldsTheGate()
     {
         object gate = new();
@@ -55,8 +55,8 @@ public sealed class GraphicsReviewRegressionTests
         Monitor.Exit(gate);
     }
 
-    [Fact]
     /// <summary>Verifies the System.Threading.Lock context-gate overload also respects a finite timeout under contention.</summary>
+    [Fact]
     public void ContextGateLockAcquisitionTimesOutWhenAnotherThreadHoldsTheGate()
     {
         Lock gate = new();
@@ -93,8 +93,8 @@ public sealed class GraphicsReviewRegressionTests
         Monitor.Exit(monitorGate);
     }
 
-    [Fact]
     /// <summary>Verifies infinite waits remain cancelable for both supported gate primitives.</summary>
+    [Fact]
     public void ContextGateInfiniteAcquisitionHonorsCancellationForBothGateTypes()
     {
         object monitorGate = new();
@@ -110,8 +110,8 @@ public sealed class GraphicsReviewRegressionTests
             lockGate.Exit);
     }
 
-    [Fact]
     /// <summary>Verifies repeated contention does not leak monitor or lock ownership after successful and timed-out attempts.</summary>
+    [Fact]
     public void ContextGateAcquisitionSurvivesRepeatedContentionWithoutLeakingOwnership()
     {
         object monitorGate = new();
@@ -223,8 +223,8 @@ public sealed class GraphicsReviewRegressionTests
     }
 
 
-    [Fact]
     /// <summary>Verifies a live texture view remains a valid render target after its public parent owner is disposed because the view retains the backing storage.</summary>
+    [Fact]
     public void RenderTargetValidationAcceptsDisposedParentOwnerWhileLiveViewRetainsBackingStorage()
     {
         var colorCapabilities = new GraphicsFormatCapabilities(
@@ -850,8 +850,8 @@ public sealed class GraphicsReviewRegressionTests
         Assert.Throws<ArgumentException>(() => incompatibleView.Validate(mutable));
     }
 
-    [Fact]
     /// <summary>Verifies a CPU timeline signal cannot advance beyond an earlier pending GPU completion point.</summary>
+    [Fact]
     public void CpuFenceSignalsCannotOvertakePendingGpuSignals()
     {
         GraphicsCommandValidation.ValidateCpuFenceSignalDoesNotOvertakeGpu(4, 5);
@@ -884,8 +884,8 @@ public sealed class GraphicsReviewRegressionTests
             GraphicsCommandValidation.ValidateTextureCopyNotAliased(texture, texture));
     }
 
-    [Fact]
     /// <summary>Verifies failed GLES submission recovery completes or safely retires submitted lists before the context gate is released to a concurrent disposer.</summary>
+    [Fact]
     public void GlesFailedSubmissionRecoveryCompletesListsBeforeContextGateIsReleased()
     {
         var lifecycle = new GraphicsCommandListLifecycle(GraphicsQueueType.Graphics);
@@ -916,8 +916,8 @@ public sealed class GraphicsReviewRegressionTests
         Assert.Equal(GraphicsCommandListState.Executable, stateObservedByDisposer);
     }
 
-    [Fact]
     /// <summary>Verifies command lists remain pending when GLES recovery cannot prove completion with Finish.</summary>
+    [Fact]
     public void GlesFailedSubmissionRecoveryLeavesListsPendingWhenFinishFails()
     {
         var lifecycle = new GraphicsCommandListLifecycle(GraphicsQueueType.Graphics);
@@ -937,8 +937,8 @@ public sealed class GraphicsReviewRegressionTests
     }
 
 
-    [Fact]
     /// <summary>Verifies racing completion paths cannot transition or release the same submitted command-list resources twice.</summary>
+    [Fact]
     public void ConcurrentCompletionRecoveryIsIdempotent()
     {
         var lifecycle = new GraphicsCommandListLifecycle(GraphicsQueueType.Graphics);
