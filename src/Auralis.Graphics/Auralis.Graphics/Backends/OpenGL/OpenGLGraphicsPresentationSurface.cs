@@ -85,6 +85,7 @@ internal sealed class OpenGLGraphicsPresentationSurface : GraphicsDeviceObject, 
     /// <exception cref="ArgumentNullException"><paramref name="presentationQueue" /> is <see langword="null" />.</exception>
     /// <exception cref="GraphicsValidationException">The queue cannot present, the present mode is unsupported, or the target is suspended.</exception>
     /// <exception cref="GraphicsBackendUnavailableException">The host drawable is no longer compatible with the injected context.</exception>
+    public IGraphicsSwapChain CreateSwapChain(
         IGraphicsQueue presentationQueue,
         in GraphicsSwapChainDescription description)
     {
