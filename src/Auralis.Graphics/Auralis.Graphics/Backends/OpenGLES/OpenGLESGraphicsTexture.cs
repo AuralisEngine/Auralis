@@ -123,7 +123,7 @@ internal sealed class OpenGLESGraphicsTexture : OpenGLESNativeDeviceObject, IGra
         if (handle != 0)
         {
             gl.DeleteTexture(handle);
-            _device.SwapChainTestHooks?.AfterTextureDeleted?.Invoke(handle);
+            NativeDevice.SwapChainTestHooks?.AfterTextureDeleted?.Invoke(handle);
         }
     }
 

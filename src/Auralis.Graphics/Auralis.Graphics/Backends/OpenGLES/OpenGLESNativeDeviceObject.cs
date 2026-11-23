@@ -28,6 +28,9 @@ internal abstract class OpenGLESNativeDeviceObject : GraphicsDeviceObject, IOpen
     protected OpenGLESNativeDeviceObject(OpenGLESGraphicsDevice device) : base(device) =>
         _device = device;
 
+    /// <summary>Gets the owning device for derived native-handle lifecycle instrumentation.</summary>
+    protected OpenGLESGraphicsDevice NativeDevice => _device;
+
     /// <inheritdoc />
     public bool TryRetain() => _references.TryRetain();
 
