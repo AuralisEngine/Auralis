@@ -208,8 +208,10 @@ internal sealed class OpenGLESGraphicsFence : OpenGLESNativeDeviceObject, IGraph
                 $"Fence values must increase monotonically. Last signal: {_lastSignaledValue}; requested: {value}.");
     }
 
+    /// <inheritdoc />
     protected override void DisposeCore() => ReleaseOwnerReference();
 
+    /// <inheritdoc />
     public override void ReleaseNative(GL gl)
     {
         lock (_gate)
