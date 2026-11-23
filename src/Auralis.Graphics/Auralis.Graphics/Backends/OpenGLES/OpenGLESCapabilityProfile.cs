@@ -6,11 +6,14 @@ namespace Auralis.Graphics.Backends.OpenGLES;
 /// <summary>A parsed OpenGL ES major/minor version pair.</summary>
 public readonly record struct OpenGLESVersion(int Major, int Minor) : IComparable<OpenGLESVersion>
 {
+    /// <summary>Gets the minimum GLES API version required by this backend.</summary>
     public static OpenGLESVersion RequiredBaseline { get; } = new(3, 1);
 
+    /// <summary>Determines whether this version is at least the specified major/minor version.</summary>
     public bool IsAtLeast(int major, int minor) =>
         Major > major || (Major == major && Minor >= minor);
 
+    /// <summary>Compares this version lexicographically by major and then minor version.</summary>
     public int CompareTo(OpenGLESVersion other)
     {
         int majorComparison = Major.CompareTo(other.Major);
@@ -78,6 +81,11 @@ public readonly record struct OpenGLESVersion(int Major, int Minor) : IComparabl
         return true;
     }
 
+    /// <summary>Parses a recognized OpenGL ES API version or throws when the string is not a GLES version.</summary>
+    /// <param name="versionString">Driver-provided GL_VERSION string.</param>
+    /// <returns>The parsed major/minor API version.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="versionString" /> is <see langword="null" />.</exception>
+    /// <exception cref="FormatException">The string does not contain a recognized OpenGL ES version prefix and numeric version.</exception>
     public static OpenGLESVersion Parse(string versionString)
     {
         ArgumentNullException.ThrowIfNull(versionString);
@@ -86,6 +94,7 @@ public readonly record struct OpenGLESVersion(int Major, int Minor) : IComparabl
             : throw new FormatException($"'{versionString}' is not a recognized OpenGL ES version string.");
     }
 
+    /// <summary>Formats the version as <c>major.minor</c>.</summary>
     public override string ToString() => $"{Major}.{Minor}";
 }
 
@@ -99,12 +108,16 @@ public sealed class OpenGLESCapabilityProfile
 {
     private readonly string[] _extensions;
 
+    /// <summary>Gets the parsed API version of the supplied context.</summary>
     public OpenGLESVersion Version { get; }
 
+    /// <summary>Gets features promoted by the core version or enabled by the exact advertised extensions and resolved entry points.</summary>
     public GraphicsFeatureSet Features { get; }
 
+    /// <summary>Gets the logical queue roles exposed for the context, including presentation only when a drawable is available.</summary>
     public GraphicsQueueCapabilities QueueCapabilities { get; }
 
+    /// <summary>Gets whether the context meets the GLES 3.1 minimum baseline.</summary>
     public bool MeetsRequiredBaseline => Version.CompareTo(OpenGLESVersion.RequiredBaseline) >= 0;
 
     private OpenGLESCapabilityProfile(
@@ -119,6 +132,10 @@ public sealed class OpenGLESCapabilityProfile
         QueueCapabilities = queueCapabilities;
     }
 
+    /// <summary>Checks for an exact, case-sensitive extension token in the profile.</summary>
+    /// <param name="extension">Extension name without surrounding whitespace.</param>
+    /// <returns><see langword="true" /> when the exact extension was advertised.</returns>
+    /// <exception cref="ArgumentException"><paramref name="extension" /> is empty or whitespace.</exception>
     public bool HasExtension(string extension)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(extension);
@@ -131,6 +148,8 @@ public sealed class OpenGLESCapabilityProfile
         return false;
     }
 
+    /// <summary>Throws when the supplied context is older than the backend's GLES 3.1 baseline.</summary>
+    /// <exception cref="NotSupportedException">The API version is below GLES 3.1.</exception>
     public void EnsureRequiredBaseline()
     {
         if (!MeetsRequiredBaseline)
@@ -138,6 +157,17 @@ public sealed class OpenGLESCapabilityProfile
                 $"OpenGL ES {OpenGLESVersion.RequiredBaseline} or newer is required; the context reports {Version}.");
     }
 
+    /// <summary>Creates an immutable profile from a GLES version, advertised extension list, and entry-point availability.</summary>
+    /// <param name="version">Parsed GLES API version.</param>
+    /// <param name="extensions">Exact extension tokens reported by the active context; the input is copied.</param>
+    /// <param name="supportsPresentation">Whether the provider has a presentable host drawable.</param>
+    /// <param name="multiDrawIndirectEntryPointsAvailable">Whether required native multi-draw indirect functions resolved.</param>
+    /// <param name="indexedBlendEntryPointsAvailable">Whether indexed blend-state functions resolved.</param>
+    /// <param name="baseVertexEntryPointsAvailable">Whether base-vertex draw functions resolved.</param>
+    /// <param name="baseInstanceEntryPointsAvailable">Whether base-instance draw functions resolved.</param>
+    /// <param name="textureViewEntryPointAvailable">Whether the matching native texture-view function resolved.</param>
+    /// <param name="meshShaderEntryPointsAvailable">Whether the required mesh/task dispatch functions resolved.</param>
+    /// <returns>A capability profile; device limits and format usage still require separate driver queries.</returns>
     public static OpenGLESCapabilityProfile Create(
         OpenGLESVersion version,
         ReadOnlySpan<string> extensions,
