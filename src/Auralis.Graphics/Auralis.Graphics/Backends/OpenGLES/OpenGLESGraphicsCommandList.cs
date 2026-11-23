@@ -11,6 +11,7 @@ using Silk.NET.OpenGLES.Extensions.EXT;
 
 namespace Auralis.Graphics.Backends.OpenGLES;
 
+/// <summary>Compact opcode identifying a recorded OpenGL ES command.</summary>
 internal enum OpenGLESCmdKind : byte
 {
     Barrier,
@@ -38,6 +39,7 @@ internal enum OpenGLESCmdKind : byte
     DispatchIndirect
 }
 
+/// <summary>Managed payload for one deferred GLES command, including references captured for replay.</summary>
 internal struct OpenGLESCmd
 {
     internal OpenGLESCmdKind Kind;
@@ -83,6 +85,13 @@ internal struct OpenGLESCmd
     internal uint GroupsZ;
 }
 
+/// <summary>Records OpenGL ES commands on the CPU for later execution by the owning GLES queue.</summary>
+/// <remarks>
+/// Recording does not acquire the native context. Command data and descriptor snapshots are held
+/// until reset or disposal, while resource references remain retained through in-flight submission
+/// completion. A list's recording lifecycle is caller-thread-owned; separate lists may be recorded
+/// concurrently because execution is serialized later by the device context gate.
+/// </remarks>
 internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject, IGraphicsCommandList
 {
     private static readonly TextureTarget[] s_textureTargets =
@@ -149,6 +158,7 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
     internal ReadOnlySpan<IGraphicsTextureView> RenderTargetViews => CollectionsMarshal.AsSpan(_renderTargetViews);
     internal ReadOnlySpan<OpenGLESBindingValue> BindingValues => CollectionsMarshal.AsSpan(_bindingValues);
 
+    /// <inheritdoc />
     public void Begin()
     {
         ThrowIfDisposed();
@@ -156,6 +166,7 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
         _recordingThreadId = Environment.CurrentManagedThreadId;
     }
 
+    /// <inheritdoc />
     public void End()
     {
         EnsureRecording();
@@ -163,6 +174,7 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
         _recordingThreadId = 0;
     }
 
+    /// <inheritdoc />
     public void Reset()
     {
         ThrowIfDisposed();
@@ -170,6 +182,7 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
         ClearRecordedState();
     }
 
+    /// <inheritdoc />
     public void MemoryBarrier(ReadOnlySpan<GraphicsResourceBarrier> barriers)
     {
         EnsureRecording();
@@ -188,6 +201,7 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
         _commands.Add(new OpenGLESCmd { Kind = OpenGLESCmdKind.Barrier });
     }
 
+    /// <inheritdoc />
     public void SetRenderTargets(
         ReadOnlySpan<IGraphicsTextureView> colorTargets,
         IGraphicsTextureView? depthStencilTarget = null)
@@ -240,6 +254,7 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
         _depthFormat = depthStencilTarget is null ? GraphicsFormat.Unknown : GetViewFormat(depthStencilTarget);
     }
 
+    /// <inheritdoc />
     public void SetViewport(in GraphicsViewport viewport)
     {
         EnsureRecording();
@@ -250,6 +265,7 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
         _commands.Add(new OpenGLESCmd { Kind = OpenGLESCmdKind.Viewport, Viewport = copy });
     }
 
+    /// <inheritdoc />
     public void SetScissor(in GraphicsScissorRect scissor)
     {
         EnsureRecording();
@@ -259,6 +275,7 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
         _commands.Add(new OpenGLESCmd { Kind = OpenGLESCmdKind.Scissor, Scissor = copy });
     }
 
+    /// <inheritdoc />
     public void ClearColor(uint attachmentIndex, in GraphicsClearColor color)
     {
         EnsureRecording();
@@ -278,6 +295,7 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
         });
     }
 
+    /// <inheritdoc />
     public void ClearColorUInt(uint attachmentIndex, in GraphicsClearColorUInt color)
     {
         EnsureRecording();
@@ -295,6 +313,7 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
         });
     }
 
+    /// <inheritdoc />
     public void ClearColorSInt(uint attachmentIndex, in GraphicsClearColorSInt color)
     {
         EnsureRecording();
@@ -312,6 +331,7 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
         });
     }
 
+    /// <inheritdoc />
     public void ClearDepthStencil(
         float depth,
         uint stencil,
@@ -340,6 +360,7 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
         });
     }
 
+    /// <inheritdoc />
     public void SetRenderPipeline(IGraphicsRenderPipeline pipeline)
     {
         EnsureRecording();
@@ -358,6 +379,7 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
         _commands.Add(new OpenGLESCmd { Kind = OpenGLESCmdKind.RenderPipeline, RenderPipeline = glesPipeline });
     }
 
+    /// <inheritdoc />
     public void SetComputePipeline(IGraphicsComputePipeline pipeline)
     {
         EnsureRecording();
@@ -375,6 +397,7 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
         _commands.Add(new OpenGLESCmd { Kind = OpenGLESCmdKind.ComputePipeline, ComputePipeline = glesPipeline });
     }
 
+    /// <inheritdoc />
     public void SetBindingSet(uint setIndex, IGraphicsBindingSet bindingSet)
     {
         EnsureRecording();
@@ -412,6 +435,7 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
         });
     }
 
+    /// <inheritdoc />
     public void SetVertexBuffer(uint binding, IGraphicsBuffer buffer, ulong offset = 0)
     {
         EnsureRecording();
@@ -440,6 +464,7 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
         });
     }
 
+    /// <inheritdoc />
     public void SetIndexBuffer(IGraphicsBuffer buffer, GraphicsIndexFormat format, ulong offset = 0)
     {
         EnsureRecording();
@@ -467,6 +492,7 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
         });
     }
 
+    /// <inheritdoc />
     public void Draw(uint vertexCount, uint instanceCount = 1, uint firstVertex = 0, uint firstInstance = 0)
     {
         EnsureRecording();
@@ -490,6 +516,7 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
         });
     }
 
+    /// <inheritdoc />
     public void DrawIndexed(
         uint indexCount,
         uint instanceCount = 1,
@@ -532,6 +559,7 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
         });
     }
 
+    /// <inheritdoc />
     public void DrawIndirect(IGraphicsBuffer arguments, ulong offset, uint drawCount = 1, uint stride = 0)
     {
         EnsureRecording();
@@ -548,6 +576,7 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
         });
     }
 
+    /// <inheritdoc />
     public void DrawIndexedIndirect(IGraphicsBuffer arguments, ulong offset, uint drawCount = 1, uint stride = 0)
     {
         EnsureRecording();
@@ -569,6 +598,7 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
         });
     }
 
+    /// <inheritdoc />
     public void DrawMeshTasks(uint groupCountX, uint groupCountY = 1, uint groupCountZ = 1)
     {
         EnsureRecording();
@@ -594,6 +624,7 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
         });
     }
 
+    /// <inheritdoc />
     public void DrawMeshTasksIndirect(IGraphicsBuffer arguments, ulong offset, uint drawCount = 1, uint stride = 0)
     {
         EnsureRecording();
@@ -638,6 +669,7 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
         return true;
     }
 
+    /// <inheritdoc />
     public void Dispatch(uint groupCountX, uint groupCountY = 1, uint groupCountZ = 1)
     {
         EnsureRecording();
@@ -653,6 +685,7 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
         }
     }
 
+    /// <inheritdoc />
     public void DispatchIndirect(IGraphicsBuffer arguments, ulong offset)
     {
         EnsureRecording();
@@ -672,6 +705,7 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
         });
     }
 
+    /// <inheritdoc />
     public void CopyBuffer(
         IGraphicsBuffer source,
         ulong sourceOffset,
@@ -702,6 +736,7 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
         });
     }
 
+    /// <inheritdoc />
     public void CopyTexture(IGraphicsTexture source, IGraphicsTexture destination)
     {
         EnsureRecording();
