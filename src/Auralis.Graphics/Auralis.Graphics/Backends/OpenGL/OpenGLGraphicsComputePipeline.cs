@@ -76,8 +76,10 @@ internal sealed class OpenGLGraphicsComputePipeline : OpenGLNativeDeviceObject, 
         }
     }
 
+    /// <inheritdoc />
     protected override void DisposeCore() => ReleaseOwnerReference();
 
+    /// <inheritdoc />
     public override void ReleaseNative(GL gl)
     {
         uint program = Interlocked.Exchange(ref _program, 0);
