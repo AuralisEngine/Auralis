@@ -84,11 +84,18 @@ public enum GraphicsFeature : ulong
 /// <summary>A strongly typed set of optional graphics features reported by a device.</summary>
 public readonly record struct GraphicsFeatureSet(GraphicsFeature Enabled)
 {
+    /// <summary>Determines whether every bit in <paramref name="feature" /> is enabled.</summary>
+    /// <param name="feature">Feature or feature combination to test.</param>
+    /// <returns><see langword="false" /> for <see cref="GraphicsFeature.None" /> or when any requested bit is absent.</returns>
     public bool Supports(GraphicsFeature feature) =>
         feature != GraphicsFeature.None && (Enabled & feature) == feature;
 
+    /// <summary>Determines whether all requested feature bits are present; unlike <see cref="Supports" />, an empty set is contained.</summary>
+    /// <param name="features">Feature combination to test.</param>
     public bool ContainsAll(GraphicsFeature features) => (Enabled & features) == features;
 
+    /// <summary>Returns the subset of <paramref name="requested" /> features that this set does not enable.</summary>
+    /// <param name="requested">Required features to compare with this snapshot.</param>
     public GraphicsFeature MissingFrom(GraphicsFeature requested) => requested & ~Enabled;
 }
 
