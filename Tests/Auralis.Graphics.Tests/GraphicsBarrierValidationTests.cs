@@ -8,9 +8,12 @@ using Xunit;
 
 namespace Auralis.Graphics.Tests;
 
+/// <summary>Tests validation of resource barriers before backend translation or command recording.</summary>
+/// <remarks>Coverage checks buffer byte ranges, texture mip/layer ranges and aspects, whole-resource barriers, supported resource kinds, and consumer-stage/access compatibility.</remarks>
 public sealed class GraphicsBarrierValidationTests
 {
     [Fact]
+    /// <summary>Verifies the AllGraphics stage mask expands to the graphics stages supported by the shared abstraction.</summary>
     public void AllGraphicsIncludesEverySupportedGraphicsStage()
     {
         GraphicsPipelineStage expected =
@@ -38,6 +41,7 @@ public sealed class GraphicsBarrierValidationTests
     }
 
     [Fact]
+    /// <summary>Verifies buffer barrier byte ranges accept valid intervals and reject zero, overflowed, or out-of-bounds ranges.</summary>
     public void BufferRangeAcceptsValidByteRangeAndRejectsInvalidBounds()
     {
         var description = new GraphicsBufferDescription(1024, GraphicsBufferUsage.Storage);
@@ -54,6 +58,7 @@ public sealed class GraphicsBarrierValidationTests
     }
 
     [Fact]
+    /// <summary>Verifies texture barrier subresource ranges stay within the texture's mip and layer counts.</summary>
     public void TextureRangeValidatesMipLevelsAndArrayLayers()
     {
         var description = new GraphicsTextureDescription(
@@ -77,6 +82,7 @@ public sealed class GraphicsBarrierValidationTests
     }
 
     [Fact]
+    /// <summary>Verifies barrier aspects are compatible with the texture's color or depth/stencil format.</summary>
     public void TextureRangeValidatesFormatAspects()
     {
         var depthOnly = new GraphicsTextureDescription(
