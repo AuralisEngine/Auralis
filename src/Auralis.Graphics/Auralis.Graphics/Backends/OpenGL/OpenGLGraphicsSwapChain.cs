@@ -712,6 +712,8 @@ internal sealed class OpenGLGraphicsSwapChain : OpenGLNativeDeviceObject, IGraph
                         FramebufferTarget.Framebuffer);
                     if (status != ARB.FramebufferComplete)
                         throw new GraphicsException($"Swapchain framebuffer is incomplete: {status}.");
+
+                    hooks?.AfterFramebufferInitialized?.Invoke(gl, framebuffer);
                 }
             }
 

@@ -753,6 +753,8 @@ internal sealed class OpenGLESGraphicsSwapChain : OpenGLESNativeDeviceObject, IG
                         GLEnum status = gl.CheckFramebufferStatus(FramebufferTarget.Framebuffer);
                         if (status != GLEnum.FramebufferComplete)
                             throw new GraphicsException($"GLES swapchain framebuffer is incomplete: {status}.");
+
+                        hooks?.AfterFramebufferInitialized?.Invoke(gl, framebuffer);
                     }
                     finally
                     {
