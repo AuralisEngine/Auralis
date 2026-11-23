@@ -14,6 +14,7 @@ public sealed class OpenGLESHardwareFixture : IDisposable
     private readonly IGraphicsDevice? _device;
     private readonly string? _unavailableReason;
 
+    /// <summary>Creates one hidden GLFW GLES context and initializes the shared graphics device; expected context-unavailable conditions are deferred as test skips.</summary>
     public OpenGLESHardwareFixture()
     {
         GlfwOpenGLESContextProvider? context = null;
