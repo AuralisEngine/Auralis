@@ -29,6 +29,8 @@ internal sealed class OpenGLGraphicsCommandQueue : IGraphicsCommandQueue
     public uint Index => 0;
     public GraphicsQueueType QueueType { get; }
 
+    /// <inheritdoc />
+    /// <remarks>The returned list records commands on the CPU; it does not make the GL context current until submission or another device operation.</remarks>
     public IGraphicsCommandList CreateCommandList(GraphicsCommandListUsage usage = GraphicsCommandListUsage.Reusable)
     {
         ObjectDisposedException.ThrowIf(_device.IsDisposed, _device);
@@ -38,6 +40,13 @@ internal sealed class OpenGLGraphicsCommandQueue : IGraphicsCommandQueue
         return new OpenGLGraphicsCommandList(this, usage);
     }
 
+    /// <inheritdoc />
+    /// <remarks>
+    /// Lists are validated as an entire batch before they are marked pending. Execution occurs on
+    /// the device's single serialized context stream. The queue retains each list and its recorded
+    /// resources until its submission sync is observed complete and queue retirement runs.
+    /// A signal fence is optional; its GPU signal is inserted after the batch's recorded commands.
+    /// </remarks>
     public void Submit(
         ReadOnlySpan<IGraphicsCommandList> commandLists,
         IGraphicsFence? signalFence = null,
@@ -267,6 +276,8 @@ internal sealed class OpenGLGraphicsCommandQueue : IGraphicsCommandQueue
         }
     }
 
+    /// <inheritdoc />
+    /// <remarks>Enqueues a server-side wait only for a value already represented by a known GL sync or already completed CPU signal; an unknown future sync value is rejected.</remarks>
     public void Wait(IGraphicsFence fence, ulong value)
     {
         ObjectDisposedException.ThrowIf(_device.IsDisposed, _device);
