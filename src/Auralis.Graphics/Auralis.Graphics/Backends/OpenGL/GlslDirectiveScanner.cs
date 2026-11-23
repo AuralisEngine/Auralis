@@ -2,15 +2,20 @@ using System.Buffers;
 
 namespace Auralis.Graphics.Backends.OpenGL;
 
-/// <summary>
-/// Small GLSL preprocessor scanner for mesh-shader extension directives. It removes comments and
-/// evaluates only literal #if 0/#if 1 conditions. Extension directives in any other conditional
-/// branch are rejected as ambiguous rather than pretending to implement the complete GLSL preprocessor.
-/// </summary>
+/// <summary>Scans GLSL source for one named <c>#extension</c> directive using a deliberately limited lexical model.</summary>
+/// <remarks>
+/// This is not a GLSL preprocessor and does not expand macros or evaluate general expressions.
+/// It strips line and block comments, recognizes literal <c>#if 0</c>/<c>#if 1</c> (including
+/// the supported simple negation/parentheses forms), and treats other conditional expressions as
+/// ambiguous. A matching directive in an ambiguous branch is reported as ambiguous so callers do
+/// not silently select an EXT or NV dialect based on a guess.
+/// </remarks>
 internal static class GlslDirectiveScanner
 {
+    /// <summary>Effective visibility of a directive under the scanner's supported conditional subset.</summary>
     private enum BranchState : byte { Active, Inactive, Ambiguous }
 
+    /// <summary>Tracks the parent branch and earlier branch outcomes for one conditional block.</summary>
     private struct ConditionalFrame
     {
         internal BranchState ParentState;
@@ -25,11 +30,22 @@ internal static class GlslDirectiveScanner
         }
     }
 
+    /// <summary>Result of scanning for a specific extension directive.</summary>
+    /// <param name="Found">Whether a matching directive occurs in a branch known to be active.</param>
+    /// <param name="Enabled">Whether the last unambiguous active directive enables the extension.</param>
+    /// <param name="Ambiguous">Whether a matching directive or repeated behavior cannot be resolved by the supported conditional model.</param>
+    /// <param name="Behavior">The parsed behavior token, when a matching active directive was found.</param>
     internal readonly record struct ExtensionResult(bool Found, bool Enabled, bool Ambiguous, string? Behavior);
 
     private const int InitialConditionalCapacity = 16;
     private const int StackLineBufferCapacity = 512;
 
+    /// <summary>Finds active directives for the requested extension without performing full preprocessing.</summary>
+    /// <param name="source">GLSL source text to scan.</param>
+    /// <param name="extensionName">Exact extension token, such as <c>GL_EXT_mesh_shader</c>.</param>
+    /// <returns>Presence, enablement, behavior, and ambiguity information for the matching directive.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="source" /> is <see langword="null" />.</exception>
+    /// <exception cref="ArgumentException"><paramref name="extensionName" /> is empty or whitespace.</exception>
     internal static ExtensionResult FindExtension(string source, string extensionName)
     {
         ArgumentNullException.ThrowIfNull(source);
