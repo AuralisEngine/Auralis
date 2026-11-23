@@ -171,6 +171,7 @@ internal sealed class OpenGLESGraphicsSwapChain : OpenGLESNativeDeviceObject, IG
     /// <exception cref="ArgumentOutOfRangeException"><paramref name="timeout" /> is negative and is not infinite.</exception>
     /// <exception cref="GraphicsValidationException">The current host snapshot no longer matches the injected GLES drawable.</exception>
     /// <exception cref="GraphicsException">GLES reports a failed client wait.</exception>
+    public GraphicsAcquireResult AcquireNextImage(TimeSpan timeout)
     {
         ThrowIfDisposed();
         if (timeout < TimeSpan.Zero && timeout != Timeout.InfiniteTimeSpan)
@@ -250,6 +251,7 @@ internal sealed class OpenGLESGraphicsSwapChain : OpenGLESNativeDeviceObject, IG
     /// <exception cref="ArgumentException">A non-zero wait value is supplied without a fence.</exception>
     /// <exception cref="GraphicsValidationException">The acquired image is stale/foreign or the wait fence belongs to another device.</exception>
     /// <exception cref="GraphicsException">GLES fails to create the presentation sync.</exception>
+    public GraphicsPresentStatus Present(
         in GraphicsAcquiredImage image,
         IGraphicsFence? waitFence = null,
         ulong waitValue = 0)
@@ -323,6 +325,7 @@ internal sealed class OpenGLESGraphicsSwapChain : OpenGLESNativeDeviceObject, IG
     /// <exception cref="GraphicsValidationException">The description or target extent is invalid, or the queue can no longer present.</exception>
     /// <exception cref="NotSupportedException">The host provider cannot honor the requested present mode.</exception>
     /// <exception cref="GraphicsException">Creating or releasing the native replacement image set fails.</exception>
+    public void Resize(in GraphicsSwapChainDescription description)
     {
         ThrowIfDisposed();
         GraphicsSwapChainDescription copy = description;
