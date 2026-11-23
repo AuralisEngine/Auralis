@@ -434,6 +434,7 @@ internal sealed class OpenGLESGraphicsCommandQueue : IGraphicsCommandQueue
             ExceptionDispatchInfo.Capture(failure).Throw();
     }
 
+    /// <summary>Retains one submitted GLES batch and its sync object until completion polling retires the submission.</summary>
     private readonly record struct PendingSubmission(
         OpenGLESGraphicsCommandList[] CommandLists,
         int Count,
