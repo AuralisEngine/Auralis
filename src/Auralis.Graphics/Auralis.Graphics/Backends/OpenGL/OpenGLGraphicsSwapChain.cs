@@ -267,6 +267,7 @@ internal sealed class OpenGLGraphicsSwapChain : OpenGLNativeDeviceObject, IGraph
     /// <remarks>The device waits for pending GL work before deleting old framebuffers/textures. A successful resize increments <see cref="Generation" /> so stale acquired-image values can be rejected.</remarks>
     /// <exception cref="GraphicsValidationException">The description is invalid, the host target is suspended, or the queue/target is no longer compatible.</exception>
     /// <exception cref="NotSupportedException">The provider cannot honor the requested present mode.</exception>
+    public void Resize(in GraphicsSwapChainDescription description)
     {
         ThrowIfDisposed();
         GraphicsSwapChainDescription copy = description;
