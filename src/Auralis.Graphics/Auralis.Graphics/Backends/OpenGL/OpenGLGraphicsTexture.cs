@@ -130,8 +130,10 @@ internal sealed class OpenGLGraphicsTexture : OpenGLNativeDeviceObject, IGraphic
             _device, context.Gl, _device.DirectStateAccess, _device.TextureViewApi, this, viewDescription);
     }
 
+    /// <inheritdoc />
     protected override void DisposeCore() => ReleaseOwnerReference();
 
+    /// <inheritdoc />
     public override void ReleaseNative(GL gl)
     {
         uint handle = Interlocked.Exchange(ref _handle, 0);
@@ -226,8 +228,10 @@ internal sealed class OpenGLGraphicsTextureView : OpenGLNativeDeviceObject, IGra
         }
     }
 
+    /// <inheritdoc />
     protected override void DisposeCore() => ReleaseOwnerReference();
 
+    /// <inheritdoc />
     public override void ReleaseNative(GL gl)
     {
         uint handle = Interlocked.Exchange(ref _handle, 0);
