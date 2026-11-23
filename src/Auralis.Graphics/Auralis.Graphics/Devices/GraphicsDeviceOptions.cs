@@ -31,6 +31,8 @@ public sealed record GraphicsDeviceOptions
 
     public string? ApplicationName { get; init; }
 
+    /// <summary>Validates enum flags, required feature bits, queue requirements, and the optional backend identifier.</summary>
+    /// <exception cref="ArgumentOutOfRangeException">A requested enum or flag combination contains unsupported bits.</exception>
     public void Validate()
     {
         const GraphicsFeature allFeatures =
