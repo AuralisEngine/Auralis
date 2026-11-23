@@ -10,13 +10,15 @@ internal ref struct OpenGLESContextScope
 {
     private OpenGLESGraphicsDevice? _device;
 
-    internal OpenGLESContextScope(OpenGLESGraphicsDevice device, GL gl)
+    /// <summary>Creates a stack-only scope for a GLES context gate and activation already acquired by the device.</summary>
+    /// <param name="device">Device whose gate and activation this scope releases.</param>
+    /// <param name="gl">GLES dispatch object valid while the activation remains held.</param>
     {
         _device = device;
         Gl = gl;
     }
 
-    internal GL Gl { get; }
+    /// <summary>Gets the GLES dispatch object for the lifetime of this scope.</summary>
 
     /// <summary>Releases one GLES context activation depth and the device context gate exactly once.</summary>
     /// <remarks>Must be called on the acquiring thread, including while unwinding an exception.</remarks>
