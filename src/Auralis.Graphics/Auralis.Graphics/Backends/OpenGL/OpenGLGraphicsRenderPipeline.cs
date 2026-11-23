@@ -69,6 +69,14 @@ internal sealed class OpenGLGraphicsRenderPipeline : OpenGLNativeDeviceObject, I
     internal bool IsTaskPipeline => _isTaskPipeline;
     internal OpenGLMeshShaderDialect MeshShaderDialect { get; }
 
+    /// <summary>Validates pipeline state and links its shaders into a native GL program and vertex-array object.</summary>
+    /// <param name="device">Owning OpenGL device, context, queried limits, and extension capability snapshot.</param>
+    /// <param name="description">Shader stages, descriptor layout, vertex input, attachment formats, and fixed-function state.</param>
+    /// <returns>A device-registered render pipeline; mesh/task pipelines retain their selected EXT or NV dialect.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="description" /> is <see langword="null" />.</exception>
+    /// <exception cref="GraphicsFeatureNotSupportedException">A required shader stage or optional pipeline feature is unavailable.</exception>
+    /// <exception cref="GraphicsValidationException">Shader ownership/stages, mesh dialect, format usage, vertex input, limits, or fixed-function state are incompatible.</exception>
+    /// <exception cref="GraphicsException">Program linking or native vertex-array creation fails.</exception>
     internal static OpenGLGraphicsRenderPipeline Create(
         OpenGLGraphicsDevice device,
         GraphicsRenderPipelineDescription description)
