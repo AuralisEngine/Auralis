@@ -17,6 +17,7 @@ public sealed unsafe class GlfwOpenGLContextProvider : IOpenGLContextProvider
     private readonly object _contextIdentity = new();
     private readonly ThreadLocal<int> _currentDepth = new();
     private int _disposed;
+    private int _presentMode = (int)GraphicsPresentMode.Fifo;
     private int _failNextSwapBuffers;
 
     private GlfwOpenGLContextProvider(Glfw glfw, WindowHandle* window)
@@ -117,6 +118,10 @@ public sealed unsafe class GlfwOpenGLContextProvider : IOpenGLContextProvider
     public bool SupportsPresentMode(GraphicsPresentMode presentMode) =>
         presentMode is GraphicsPresentMode.Fifo or GraphicsPresentMode.Immediate;
 
+    /// <summary>Gets the last presentation mode successfully applied to the GLFW drawable.</summary>
+    public GraphicsPresentMode CurrentPresentMode =>
+        (GraphicsPresentMode)Volatile.Read(ref _presentMode);
+
     /// <summary>
     /// Requests a one-shot SwapBuffers failure after the backend has already submitted its blit and
     /// presentation fence. This exercises the real Present ownership transition in hardware tests.
@@ -175,6 +180,7 @@ public sealed unsafe class GlfwOpenGLContextProvider : IOpenGLContextProvider
         try
         {
             _glfw.SwapInterval(presentMode == GraphicsPresentMode.Fifo ? 1 : 0);
+            Volatile.Write(ref _presentMode, (int)presentMode);
         }
         finally
         {

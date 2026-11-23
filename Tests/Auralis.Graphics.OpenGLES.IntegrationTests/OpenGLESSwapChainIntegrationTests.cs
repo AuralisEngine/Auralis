@@ -86,10 +86,12 @@ public sealed partial class OpenGLESIntegrationTests
         {
             Width = resizedTarget.Extent.Width,
             Height = resizedTarget.Extent.Height,
-            BufferCount = 3
+            BufferCount = 3,
+            PresentMode = GraphicsPresentMode.Fifo
         };
 
         swapChain.Resize(resizedDescription);
+        Assert.Equal(GraphicsPresentMode.Fifo, provider.CurrentPresentMode);
         Assert.Equal(2UL, swapChain.Generation);
         Assert.Equal(resizedDescription, swapChain.Description);
         Assert.Equal(GraphicsPresentStatus.OutOfDate, swapChain.Present(staleAfterResize.Image));
@@ -156,7 +158,11 @@ public sealed partial class OpenGLESIntegrationTests
         OpenGLESSwapChainTestHooks hooks = new();
         device.SwapChainTestHooks = hooks;
         GraphicsSwapChainDescription original = swapChain.Description;
-        GraphicsSwapChainDescription replacement = original with { BufferCount = 3 };
+        GraphicsSwapChainDescription replacement = original with
+        {
+            BufferCount = 3,
+            PresentMode = GraphicsPresentMode.Fifo
+        };
 
         try
         {
@@ -168,6 +174,7 @@ public sealed partial class OpenGLESIntegrationTests
             Assert.Throws<InvalidOperationException>(() => swapChain.Resize(replacement));
             Assert.Equal(1UL, swapChain.Generation);
             Assert.Equal(original, swapChain.Description);
+            Assert.Equal(original.PresentMode, provider.CurrentPresentMode);
             AcquireAndPresent(swapChain);
 
             hooks.AfterFramebufferCreated = _ =>
@@ -228,7 +235,12 @@ public sealed partial class OpenGLESIntegrationTests
             };
 
             Assert.Throws<AggregateException>(() =>
-                swapChain.Resize(swapChain.Description with { BufferCount = 3 }));
+                swapChain.Resize(swapChain.Description with
+                {
+                    BufferCount = 3,
+                    PresentMode = GraphicsPresentMode.Fifo
+                }));
+            Assert.Equal(GraphicsPresentMode.Immediate, provider.CurrentPresentMode);
 
             Assert.Throws<GraphicsException>(() => swapChain.AcquireNextImage(TimeSpan.Zero));
             Assert.Throws<GraphicsException>(() => _ = swapChain.Description);
