@@ -15,6 +15,7 @@ internal static class OpenGLProgramLinker
     /// <returns>The linked program name, owned by the caller.</returns>
     /// <exception cref="GraphicsValidationException">The shader is not a live OpenGL shader object.</exception>
     /// <exception cref="GraphicsException">Program creation or linking fails; the temporary program is deleted.</exception>
+    internal static uint Link(GL gl, IGraphicsShader shader) =>
         Link(gl, MemoryMarshal.CreateReadOnlySpan(ref shader, 1));
 
     /// <summary>Links an ordered collection of live backend-owned shader stages into one native GL program.</summary>
@@ -23,6 +24,7 @@ internal static class OpenGLProgramLinker
     /// <returns>The linked program name, owned by the caller.</returns>
     /// <exception cref="GraphicsValidationException">A shader is not a live OpenGL shader object.</exception>
     /// <exception cref="GraphicsException">Program creation or linking fails; the temporary program is deleted.</exception>
+    internal static uint Link(GL gl, ReadOnlySpan<IGraphicsShader> shaders)
     {
         uint program = gl.CreateProgram();
         if (program == 0)
