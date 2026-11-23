@@ -21,10 +21,19 @@ public sealed class GlfwOpenGLESHardwareSession : IDisposable
         Device = device;
     }
 
+    /// <summary>Gets the GLFW provider for the session's host-created GLES context.</summary>
     public GlfwOpenGLESContextProvider ContextProvider { get; }
 
+    /// <summary>Gets the Auralis device initialized over <see cref="ContextProvider" />.</summary>
     public IGraphicsDevice Device { get; }
 
+    /// <summary>Creates a hidden GLFW OpenGL ES 3.1-or-newer context and initializes an Auralis device.</summary>
+    /// <param name="cancellationToken">Token passed to backend device creation.</param>
+    /// <returns>A session owning the device and its host context provider.</returns>
+    /// <exception cref="HardwareContextUnavailableException">GLFW or a suitable GLES context is unavailable.</exception>
+    /// <exception cref="GraphicsBackendUnavailableException">The context does not meet backend requirements.</exception>
+    /// <exception cref="AggregateException">Initialization failed and cleanup of the context provider also failed.</exception>
+    /// <exception cref="OperationCanceledException">Device creation was canceled.</exception>
     public static async ValueTask<GlfwOpenGLESHardwareSession> CreateAsync(
         CancellationToken cancellationToken = default)
     {
@@ -72,6 +81,7 @@ public sealed class GlfwOpenGLESHardwareSession : IDisposable
         }
     }
 
+    /// <summary>Shuts down the device once; the device drains its command stream and disposes the owned provider.</summary>
     public void Dispose()
     {
         if (Interlocked.Exchange(ref _disposed, 1) != 0)
