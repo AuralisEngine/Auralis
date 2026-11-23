@@ -34,6 +34,7 @@ internal abstract class OpenGLESGraphicsPipeline : OpenGLESNativeDeviceObject, I
         }
     }
 
+    /// <inheritdoc />
     public override void ReleaseNative(GL gl)
     {
         uint program = Interlocked.Exchange(ref _program, 0);
@@ -42,8 +43,11 @@ internal abstract class OpenGLESGraphicsPipeline : OpenGLESNativeDeviceObject, I
         ReleaseAdditionalNative(gl);
     }
 
+    /// <summary>Releases native objects owned by a concrete pipeline after the linked program is deleted.</summary>
+    /// <param name="gl">Current GLES dispatch object.</param>
     protected virtual void ReleaseAdditionalNative(GL gl) { }
 
+    /// <inheritdoc />
     protected override void DisposeCore() => ReleaseOwnerReference();
 
     /// <summary>Links one shader belonging to the specified GLES device into a native program.</summary>
@@ -418,6 +422,7 @@ internal sealed unsafe class OpenGLESGraphicsRenderPipeline : OpenGLESGraphicsPi
         gl.BindBuffer(BufferTargetARB.ArrayBuffer, 0);
     }
 
+    /// <inheritdoc />
     protected override void ReleaseAdditionalNative(GL gl)
     {
         uint vao = Interlocked.Exchange(ref _vertexArray, 0);
