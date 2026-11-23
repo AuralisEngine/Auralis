@@ -9,10 +9,10 @@ namespace Auralis.Graphics.Tests;
 
 /// <summary>
 /// Deterministic tests for the same native-reference state machine used by OpenGL device objects
-/// and by command-list recording. These tests intentionally do not require a GL context or timing.
+/// and command-list recording. The suite covers recorded references, multiple lists, submission
+/// completion, device shutdown, duplicate release, and cleanup failure aggregation without requiring
+/// a GL context or timing-sensitive hardware execution.
 /// </summary>
-/// <summary>Verifies desktop OpenGL native objects remain alive while command lists retain them, even after public owner disposal.</summary>
-/// <remarks>The suite exercises recorded references, multiple independent lists, submission completion, device shutdown, duplicate disposal/release, and cleanup failure aggregation.</remarks>
 public sealed class OpenGLResourceRetentionTests
 {
     /// <summary>Verifies disposing a buffer owner does not delete its GL storage while a recorded command still retains it.</summary>
