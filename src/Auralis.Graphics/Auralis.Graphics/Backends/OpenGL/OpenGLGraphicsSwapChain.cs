@@ -822,26 +822,26 @@ internal sealed class OpenGLGraphicsSwapChain : OpenGLNativeDeviceObject, IGraph
     {
         lock (_resizeGate)
         {
-        List<Exception>? failures = null;
-        try
-        {
-            // Enqueue framebuffer/sync deletion before dropping texture owner references.
-            ReleaseOwnerReference();
-        }
-        catch (Exception exception)
-        {
-            (failures ??= new List<Exception>(4)).Add(exception);
-        }
+            List<Exception>? failures = null;
+            try
+            {
+                // Enqueue framebuffer/sync deletion before dropping texture owner references.
+                ReleaseOwnerReference();
+            }
+            catch (Exception exception)
+            {
+                (failures ??= new List<Exception>(4)).Add(exception);
+            }
 
-        DisposeImageTextures(_images, ref failures);
-        if (_retainedImageSets is not null)
-        {
-            for (int i = 0; i < _retainedImageSets.Count; i++)
-                DisposeImageTextures(_retainedImageSets[i], ref failures);
-        }
+            DisposeImageTextures(_images, ref failures);
+            if (_retainedImageSets is not null)
+            {
+                for (int i = 0; i < _retainedImageSets.Count; i++)
+                    DisposeImageTextures(_retainedImageSets[i], ref failures);
+            }
 
-        if (failures is { Count: > 0 })
-            throw new AggregateException("OpenGL swap-chain disposal encountered one or more cleanup failures.", failures);
+            if (failures is { Count: > 0 })
+                throw new AggregateException("OpenGL swap-chain disposal encountered one or more cleanup failures.", failures);
         }
     }
 
