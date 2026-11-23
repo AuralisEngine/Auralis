@@ -1083,10 +1083,19 @@ public sealed class OpenGLBackendTests
             MemoryHandle pin = manager.Memory.Pin();
             Task preparation = Task.Run(manager.WaitForPins);
 
-            await Task.Delay(TimeSpan.FromMilliseconds(25));
-            Assert.False(preparation.IsCompleted);
-            pin.Dispose();
-            await preparation.WaitAsync(TimeSpan.FromSeconds(1));
+            try
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(25), TestContext.Current.CancellationToken);
+                Assert.False(preparation.IsCompleted);
+            }
+            finally
+            {
+                pin.Dispose();
+            }
+
+            await preparation.WaitAsync(
+                TimeSpan.FromSeconds(1),
+                TestContext.Current.CancellationToken);
             manager.Invalidate();
             Assert.Throws<ObjectDisposedException>(() => _ = manager.Memory.Span[0]);
         }
