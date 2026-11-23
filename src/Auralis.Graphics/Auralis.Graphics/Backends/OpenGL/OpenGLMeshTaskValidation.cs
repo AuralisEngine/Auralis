@@ -5,6 +5,13 @@ namespace Auralis.Graphics.Backends.OpenGL;
 /// <summary>Validates mesh/task work-group counts against the active extension's driver-reported limits.</summary>
 internal static class OpenGLMeshTaskValidation
 {
+    /// <summary>Returns whether an advertised mesh/task API has complete, non-zero dispatch limits.</summary>
+    /// <param name="extensionAvailable">Whether the exact extension API is advertised and available for use.</param>
+    /// <param name="maximumX">Maximum work-group count on the X axis.</param>
+    /// <param name="maximumY">Maximum work-group count on the Y axis.</param>
+    /// <param name="maximumZ">Maximum work-group count on the Z axis.</param>
+    /// <param name="maximumTotalCount">Maximum product of the three work-group dimensions.</param>
+    /// <returns><see langword="true" /> only when the extension and every required limit are usable.</returns>
     internal static bool IsSupported(
         bool extensionAvailable,
         uint maximumX,
@@ -15,6 +22,17 @@ internal static class OpenGLMeshTaskValidation
         maximumX != 0 && maximumY != 0 && maximumZ != 0 &&
         maximumTotalCount != 0;
 
+    /// <summary>Validates a non-zero mesh/task dispatch against per-axis and total driver limits.</summary>
+    /// <param name="groupCountX">Requested work-group count on X.</param>
+    /// <param name="groupCountY">Requested work-group count on Y.</param>
+    /// <param name="groupCountZ">Requested work-group count on Z.</param>
+    /// <param name="maximumX">Driver-reported X-axis limit.</param>
+    /// <param name="maximumY">Driver-reported Y-axis limit.</param>
+    /// <param name="maximumZ">Driver-reported Z-axis limit.</param>
+    /// <param name="maximumTotalCount">Driver-reported maximum total work-group count.</param>
+    /// <param name="requiredFeature">Feature to report when usable limits are absent.</param>
+    /// <exception cref="GraphicsValidationException">A requested dimension is zero, exceeds an axis limit, or the total group count exceeds the driver limit.</exception>
+    /// <exception cref="GraphicsFeatureNotSupportedException">One or more required driver limits are unavailable.</exception>
     internal static void Validate(
         uint groupCountX,
         uint groupCountY,
@@ -50,6 +68,7 @@ internal static class OpenGLMeshTaskValidation
     }
 }
 
+/// <summary>Identifies the GLSL mesh/task shader dialect whose source and dispatch contract are in use.</summary>
 internal enum OpenGLMeshShaderDialect : byte
 {
     None,
@@ -64,6 +83,14 @@ internal enum OpenGLMeshShaderDialect : byte
 /// </summary>
 internal static class OpenGLMeshShaderDialectValidation
 {
+    /// <summary>Requires exactly one enabled EXT or NV mesh-shader directive and verifies that dialect is available.</summary>
+    /// <param name="source">GLSL source to inspect.</param>
+    /// <param name="extAvailable">Whether the EXT extension and usable dispatch API are available.</param>
+    /// <param name="nvAvailable">Whether the NV extension and usable dispatch API are available.</param>
+    /// <param name="requiredFeature">Feature reported when the selected dialect is unsupported.</param>
+    /// <returns>The selected dialect, which determines shader and indirect-command semantics.</returns>
+    /// <exception cref="GraphicsValidationException">The directives are ambiguous or do not enable exactly one dialect.</exception>
+    /// <exception cref="GraphicsFeatureNotSupportedException">The selected dialect is not supported by the active context.</exception>
     internal static OpenGLMeshShaderDialect ValidateGlslSource(
         string source,
         bool extAvailable,
