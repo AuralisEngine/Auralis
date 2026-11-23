@@ -1780,6 +1780,8 @@ internal sealed unsafe class OpenGLESGraphicsCommandList : GraphicsDeviceObject,
         }
     }
 
+    /// <summary>Waits for pending work when possible and releases retained resources once their native use is safe.</summary>
+    /// <remarks>If device shutdown cannot prove GPU idleness, native resources remain protected by device teardown rather than being deleted while commands may still execute.</remarks>
     protected override void DisposeCore()
     {
         if (_lifecycle.State == GraphicsCommandListState.Pending)
