@@ -1111,7 +1111,7 @@ internal sealed class OpenGLGraphicsDevice : IGraphicsDevice
     /// The provider is disposed only when its ownership policy assigns context lifetime to the device.
     /// Cleanup failures are propagated after the backend has attempted the remaining release steps.
     /// </remarks>
-    /// <exception cref="AggregateException">One or more queue, resource, context-release, or provider-disposal operations fail during teardown.</exception>
+    /// <exception cref="Exception">Resource preparation or a teardown operation fails; the first failure is propagated after the remaining cleanup steps are attempted where possible.</exception>
     public void Dispose()
     {
         IOpenGLNativeResource[]? resourcesToPrepare = null;
