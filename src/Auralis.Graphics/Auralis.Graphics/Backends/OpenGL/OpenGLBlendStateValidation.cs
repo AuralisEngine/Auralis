@@ -6,6 +6,11 @@ namespace Auralis.Graphics.Backends.OpenGL;
 /// <summary>Validates blend-state differences that need indexed OpenGL draw-buffer state.</summary>
 internal static class OpenGLBlendStateValidation
 {
+    /// <summary>Checks whether per-attachment blend-enable or color-write-mask differences can be represented by the context.</summary>
+    /// <param name="attachments">Blend states in color-attachment order.</param>
+    /// <param name="colorTargetCount">Number of active color targets.</param>
+    /// <param name="supportsIndependentBlend">Whether indexed draw-buffer blend state is available.</param>
+    /// <exception cref="GraphicsFeatureNotSupportedException">A later attachment differs in blend enablement or write mask and independent blend is unavailable.</exception>
     internal static void Validate(
         ReadOnlySpan<GraphicsBlendAttachmentState> attachments,
         int colorTargetCount,
