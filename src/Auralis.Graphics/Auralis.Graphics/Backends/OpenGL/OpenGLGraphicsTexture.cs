@@ -6,7 +6,8 @@ using Silk.NET.OpenGL.Extensions.ARB;
 
 namespace Auralis.Graphics.Backends.OpenGL;
 
-/// <summary>Immutable-storage OpenGL texture. Its GL name and all views are device-owned.</summary>
+/// <summary>Owns desktop GL immutable texture storage and exposes validated views over that storage.</summary>
+/// <remarks>Disposing the public texture owner closes new references; the native texture name and backing storage remain alive while a view or recorded/submitted command retains them.</remarks>
 internal sealed class OpenGLGraphicsTexture : OpenGLNativeDeviceObject, IGraphicsTexture
 {
     private readonly OpenGLGraphicsDevice _device;
@@ -113,6 +114,11 @@ internal sealed class OpenGLGraphicsTexture : OpenGLNativeDeviceObject, IGraphic
         }
     }
 
+    /// <summary>Creates a native texture object that views a compatible mip/layer range of this texture.</summary>
+    /// <param name="description">Subresource range, view type, and optional compatible format reinterpretation.</param>
+    /// <returns>A separate GL texture name referencing the parent's immutable data store.</returns>
+    /// <exception cref="ObjectDisposedException">The parent texture or device has been disposed.</exception>
+    /// <exception cref="GraphicsValidationException">The view description or requested format is unsupported.</exception>
     public IGraphicsTextureView CreateView(in GraphicsTextureViewDescription description)
     {
         ThrowIfDisposed();
@@ -134,7 +140,12 @@ internal sealed class OpenGLGraphicsTexture : OpenGLNativeDeviceObject, IGraphic
     }
 }
 
-/// <summary>Immutable-storage OpenGL texture view, retaining its parent resource identity.</summary>
+/// <summary>Owns a distinct desktop GL texture name that references a parent's immutable data store.</summary>
+/// <remarks>
+/// The view retains the parent Auralis resource reference for its lifetime. OpenGL's shared data
+/// store remains allocated while the view name exists, even after the public parent owner is disposed;
+/// disposing the view deletes its own texture name and releases that parent reference.
+/// </remarks>
 internal sealed class OpenGLGraphicsTextureView : OpenGLNativeDeviceObject, IGraphicsTextureView
 {
     private readonly OpenGLGraphicsDevice _device;
