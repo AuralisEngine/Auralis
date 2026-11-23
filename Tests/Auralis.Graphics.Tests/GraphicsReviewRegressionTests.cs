@@ -1272,8 +1272,7 @@ public sealed class GraphicsReviewRegressionTests
         protected override void DisposeCore() { }
     }
 
-    /// <summary>A hardware-independent texture whose backing storage is retained by each live view.</summary>
-    /// <summary>Texture test double with explicit owner/view reference counting and an observable native-release count.</summary>
+    /// <summary>Hardware-independent texture test double whose live views retain backing storage through explicit reference counting.</summary>
     private sealed class RetainedTestTexture(
         IGraphicsDevice device,
         GraphicsTextureDescription description) : GraphicsDeviceObject(device), IGraphicsTexture
