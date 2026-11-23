@@ -60,12 +60,10 @@ public interface IOpenGLESContextProvider : IDisposable
     /// <summary>Applies the requested swap policy through the host/platform integration.</summary>
     void SetPresentMode(GraphicsPresentMode presentMode);
 
-    /// <summary>Makes this exact GLES context current on the calling thread.</summary>
     /// <summary>Makes the exact supplied OpenGL ES context current on the calling thread.</summary>
     /// <exception cref="InvalidOperationException">The host cannot activate the context on this thread.</exception>
     void MakeCurrent();
 
-    /// <summary>Releases this context from the calling thread without destroying it.</summary>
     /// <summary>Releases the current GLES context from this thread without destroying it.</summary>
     void ReleaseCurrent();
 
