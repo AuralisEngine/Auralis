@@ -111,6 +111,7 @@ internal sealed class OpenGLESGraphicsPresentationSurface : GraphicsDeviceObject
     protected override void DisposeCore() { }
 }
 
+/// <summary>Tracks one GLES swap-chain color texture, framebuffer, presentation sync, and acquisition state.</summary>
 internal sealed class OpenGLESSwapChainImage
 {
     internal required OpenGLESGraphicsTexture Texture;
@@ -162,7 +163,12 @@ internal sealed class OpenGLESGraphicsSwapChain : OpenGLESNativeDeviceObject, IG
         get { ThrowIfDisposed(); return Volatile.Read(ref _generation); }
     }
 
-    public GraphicsAcquireResult AcquireNextImage(TimeSpan timeout)
+    /// <summary>Acquires the next reusable GLES offscreen image, polling its previous presentation sync as needed.</summary>
+    /// <param name="timeout">Maximum CPU wait for an image to become reusable, or <see cref="Timeout.InfiniteTimeSpan" />.</param>
+    /// <returns>An acquired image, or a timeout, suspended, or out-of-date status without an image.</returns>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="timeout" /> is negative and is not infinite.</exception>
+    /// <exception cref="GraphicsBackendUnavailableException">The host drawable is no longer compatible with the injected context.</exception>
+    /// <exception cref="GraphicsException">GLES reports a failed client wait.</exception>
     {
         ThrowIfDisposed();
         if (timeout < TimeSpan.Zero && timeout != Timeout.InfiniteTimeSpan)
@@ -234,7 +240,14 @@ internal sealed class OpenGLESGraphicsSwapChain : OpenGLESNativeDeviceObject, IG
         }
     }
 
-    public GraphicsPresentStatus Present(
+    /// <summary>Blits an acquired image to framebuffer zero, inserts a GLES sync, flushes, and asks the host provider to swap buffers.</summary>
+    /// <param name="image">Image previously acquired from this swap chain and not yet presented.</param>
+    /// <param name="waitFence">Optional same-device timeline fence whose submitted commands must precede the blit.</param>
+    /// <param name="waitValue">Timeline value to wait for when <paramref name="waitFence" /> is supplied.</param>
+    /// <returns><see cref="GraphicsPresentStatus.Presented" />, or suspended/out-of-date when the drawable changed.</returns>
+    /// <exception cref="ArgumentException">A non-zero wait value is supplied without a fence.</exception>
+    /// <exception cref="GraphicsValidationException">The acquired image is stale/foreign or the wait fence belongs to another device.</exception>
+    /// <exception cref="GraphicsException">GLES fails to create the presentation sync.</exception>
         in GraphicsAcquiredImage image,
         IGraphicsFence? waitFence = null,
         ulong waitValue = 0)
@@ -302,7 +315,12 @@ internal sealed class OpenGLESGraphicsSwapChain : OpenGLESNativeDeviceObject, IG
         return GraphicsPresentStatus.Presented;
     }
 
-    public void Resize(in GraphicsSwapChainDescription description)
+    /// <summary>Replaces the offscreen image ring for a new description and invalidates all earlier acquired-image handles.</summary>
+    /// <param name="description">New image count, extent, format, and present mode.</param>
+    /// <remarks>The replacement images are allocated before old images are released, so allocation failure leaves the old swap chain intact. Successful resize waits for old work and increments <see cref="Generation" />.</remarks>
+    /// <exception cref="GraphicsValidationException">The description or target extent is invalid, or the queue can no longer present.</exception>
+    /// <exception cref="NotSupportedException">The host provider cannot honor the requested present mode.</exception>
+    /// <exception cref="GraphicsException">Creating or releasing the native replacement image set fails.</exception>
     {
         ThrowIfDisposed();
         GraphicsSwapChainDescription copy = description;
@@ -441,6 +459,7 @@ internal sealed class OpenGLESGraphicsSwapChain : OpenGLESNativeDeviceObject, IG
         }
     }
 
+    /// <summary>Closes the public swap-chain owner; native image resources are released under the GLES context.</summary>
     protected override void DisposeCore()
     {
         Exception? failure = null;
@@ -469,5 +488,7 @@ internal sealed class OpenGLESGraphicsSwapChain : OpenGLESNativeDeviceObject, IG
             throw new GraphicsException("GLES swapchain disposal encountered a native cleanup failure.", failure);
     }
 
+    /// <summary>Deletes all image framebuffers and sync objects while the owning GLES context is current.</summary>
+    /// <param name="gl">Current GLES dispatch object used for native deletion.</param>
     public override void ReleaseNative(GL gl) => ReleaseImageNative(gl, _images);
 }
