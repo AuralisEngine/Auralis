@@ -196,6 +196,7 @@ public sealed class GraphicsBarrierValidationTests
         Assert.Throws<ArgumentException>(viewBarrier.Validate);
     }
 
+    /// <summary>Metadata-only buffer double used to exercise shared barrier range and CPU-access validation.</summary>
     private sealed class TestBuffer(
         IGraphicsDevice device,
         GraphicsBufferDescription description) : GraphicsDeviceObject(device), IGraphicsBuffer
@@ -208,6 +209,7 @@ public sealed class GraphicsBarrierValidationTests
         protected override void DisposeCore() { }
     }
 
+    /// <summary>Texture metadata double used by texture barrier validation tests.</summary>
     private sealed class TestTexture(
         IGraphicsDevice device,
         GraphicsTextureDescription description) : GraphicsDeviceObject(device), IGraphicsTexture
@@ -219,6 +221,7 @@ public sealed class GraphicsBarrierValidationTests
         protected override void DisposeCore() { }
     }
 
+    /// <summary>Texture-view double exposing a fixed one-mip, one-layer subresource for barrier tests.</summary>
     private sealed class TestTextureView(
         IGraphicsDevice device,
         IGraphicsTexture texture) : GraphicsDeviceObject(device), IGraphicsTextureView
@@ -230,6 +233,7 @@ public sealed class GraphicsBarrierValidationTests
         protected override void DisposeCore() { }
     }
 
+    /// <summary>Non-buffer, non-texture resource used to verify unsupported barrier resource kinds are rejected.</summary>
     private sealed class TestUnsupportedResource(IGraphicsDevice device)
         : GraphicsDeviceObject(device), IGraphicsResource
     {
