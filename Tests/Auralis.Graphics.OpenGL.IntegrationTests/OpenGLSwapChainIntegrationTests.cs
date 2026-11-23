@@ -1,5 +1,6 @@
 using Auralis.Graphics.Abstractions;
 using Auralis.Graphics.Commands;
+using Auralis.Graphics.Backends.OpenGL;
 using Auralis.Graphics.OpenGL.TestSupport;
 using Auralis.Graphics.Presentation;
 using Auralis.Graphics.Resources;
