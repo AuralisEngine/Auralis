@@ -19,7 +19,7 @@ namespace Auralis.Graphics.OpenGL.Benchmarks;
 /// </summary>
 [MemoryDiagnoser]
 [ShortRunJob]
-public sealed unsafe class OpenGLApiComparisonBenchmarks
+public unsafe class OpenGLApiComparisonBenchmarks
 {
     private const int BufferSize = 4096;
     private static readonly ulong FenceTimeoutNanoseconds = 15_000_000_000;
