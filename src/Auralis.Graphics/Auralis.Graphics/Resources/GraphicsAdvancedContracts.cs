@@ -315,11 +315,36 @@ public interface IGraphicsRayTracingPipeline : IGraphicsPipeline
     GraphicsRayTracingPipelineDescription Description { get; }
 }
 
+/// <summary>One shader artifact and its ray-tracing execution stage. Entry-point names are supplied by the shader artifact.</summary>
+public readonly record struct GraphicsRayTracingShaderEntry(
+    IGraphicsShader Shader,
+    GraphicsRayTracingShaderStage Stage,
+    string EntryPoint);
+
+public enum GraphicsRayTracingShaderGroupType
+{
+    General,
+    TrianglesHitGroup,
+    ProceduralHitGroup
+}
+
+/// <summary>
+/// Shader-group composition for a ray-tracing pipeline. Shader indices refer to the Stages array;
+/// -1 means that a hit-group stage is absent.
+/// </summary>
+public readonly record struct GraphicsRayTracingShaderGroup(
+    GraphicsRayTracingShaderGroupType Type,
+    int GeneralShaderIndex,
+    int ClosestHitShaderIndex,
+    int AnyHitShaderIndex,
+    int IntersectionShaderIndex);
+
 /// <summary>Ray tracing pipeline stage and shader-group description; no shader compiler is implied.</summary>
 public sealed record GraphicsRayTracingPipelineDescription
 {
     public required IGraphicsPipelineLayout Layout { get; init; }
-    public required ReadOnlyMemory<IGraphicsShader> Shaders { get; init; }
+    public required ReadOnlyMemory<GraphicsRayTracingShaderEntry> Stages { get; init; }
+    public required ReadOnlyMemory<GraphicsRayTracingShaderGroup> Groups { get; init; }
     public required uint MaximumRecursionDepth { get; init; }
     public required uint MaximumPayloadSizeInBytes { get; init; }
     public required uint MaximumAttributeSizeInBytes { get; init; }
@@ -327,8 +352,66 @@ public sealed record GraphicsRayTracingPipelineDescription
     public void Validate()
     {
         ArgumentNullException.ThrowIfNull(Layout);
-        if (Shaders.IsEmpty) throw new ArgumentException("A ray-tracing pipeline requires at least one shader.");
+        if (Stages.IsEmpty || Groups.IsEmpty)
+            throw new ArgumentException("A ray-tracing pipeline requires shader stages and shader groups.");
         if (MaximumRecursionDepth == 0) throw new ArgumentOutOfRangeException(nameof(MaximumRecursionDepth));
+
+        ReadOnlySpan<GraphicsRayTracingShaderEntry> stages = Stages.Span;
+        for (int i = 0; i < stages.Length; i++)
+        {
+            if (stages[i].Shader is null || !Enum.IsDefined(stages[i].Stage) ||
+                string.IsNullOrWhiteSpace(stages[i].EntryPoint))
+                throw new ArgumentException($"Ray-tracing shader stage {i} is invalid.");
+        }
+
+        ReadOnlySpan<GraphicsRayTracingShaderGroup> groups = Groups.Span;
+        for (int i = 0; i < groups.Length; i++)
+        {
+            GraphicsRayTracingShaderGroup group = groups[i];
+            if (!Enum.IsDefined(group.Type))
+                throw new ArgumentOutOfRangeException(nameof(Groups));
+
+            if (group.Type == GraphicsRayTracingShaderGroupType.General)
+            {
+                ValidateShaderIndex(group.GeneralShaderIndex, stages.Length, nameof(Groups));
+                if (group.ClosestHitShaderIndex != -1 || group.AnyHitShaderIndex != -1 ||
+                    group.IntersectionShaderIndex != -1)
+                    throw new ArgumentException("General shader groups cannot contain hit-group shader indices.");
+                if (stages[group.GeneralShaderIndex].Stage is not
+                    (GraphicsRayTracingShaderStage.RayGeneration or GraphicsRayTracingShaderStage.Miss or GraphicsRayTracingShaderStage.Callable))
+                    throw new ArgumentException("General groups require ray-generation, miss, or callable shaders.");
+            }
+            else
+            {
+                if (group.GeneralShaderIndex != -1)
+                    throw new ArgumentException("Hit groups cannot specify a general shader.");
+                ValidateOptionalShaderIndex(group.ClosestHitShaderIndex, stages.Length, GraphicsRayTracingShaderStage.ClosestHit, stages);
+                ValidateOptionalShaderIndex(group.AnyHitShaderIndex, stages.Length, GraphicsRayTracingShaderStage.AnyHit, stages);
+                ValidateOptionalShaderIndex(group.IntersectionShaderIndex, stages.Length, GraphicsRayTracingShaderStage.Intersection, stages);
+                if (group.Type == GraphicsRayTracingShaderGroupType.TrianglesHitGroup && group.IntersectionShaderIndex != -1)
+                    throw new ArgumentException("Triangle hit groups cannot specify an intersection shader.");
+                if (group.Type == GraphicsRayTracingShaderGroupType.ProceduralHitGroup && group.IntersectionShaderIndex < 0)
+                    throw new ArgumentException("Procedural hit groups require an intersection shader.");
+                if (group.ClosestHitShaderIndex == -1 && group.AnyHitShaderIndex == -1)
+                    throw new ArgumentException("A hit group must contain a closest-hit or any-hit shader.");
+            }
+        }
+    }
+
+    private static void ValidateShaderIndex(int index, int count, string parameterName)
+    {
+        if ((uint)index >= (uint)count)
+            throw new ArgumentOutOfRangeException(parameterName, "Shader group index is outside the shader stage array.");
+    }
+
+    private static void ValidateOptionalShaderIndex(
+        int index, int count, GraphicsRayTracingShaderStage expected,
+        ReadOnlySpan<GraphicsRayTracingShaderEntry> stages)
+    {
+        if (index == -1) return;
+        ValidateShaderIndex(index, count, nameof(Stages));
+        if (stages[index].Stage != expected)
+            throw new ArgumentException($"Shader index {index} must reference the {expected} stage.");
     }
 }
 
