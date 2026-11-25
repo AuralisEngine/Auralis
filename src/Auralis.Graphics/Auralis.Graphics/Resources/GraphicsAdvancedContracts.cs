@@ -42,8 +42,7 @@ public readonly record struct GraphicsMemoryHeapInfo(
 public readonly record struct GraphicsMemoryTypeInfo(
     uint Index,
     uint HeapIndex,
-    GraphicsMemoryProperty Properties,
-    ulong MinimumAlignment);
+    GraphicsMemoryProperty Properties);
 
 /// <summary>Immutable memory allocation request. Zero alignment means use the resource's natural requirement.</summary>
 public readonly record struct GraphicsMemoryAllocationDescription(
