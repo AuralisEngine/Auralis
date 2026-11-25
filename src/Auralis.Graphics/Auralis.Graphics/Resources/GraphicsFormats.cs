@@ -48,7 +48,6 @@ public enum GraphicsFormat
     RGBA32UInt,
     RGBA32SInt,
     D16UNorm,
-    D24UNorm,
     D24UNormS8UInt,
     S8UInt,
     D32Float,
