@@ -92,7 +92,9 @@ public enum GraphicsFormatSupport
     CopySource = 1 << 6,
     CopyDestination = 1 << 7,
     LinearFiltering = 1 << 8,
-    ShadingRateAttachment = 1 << 9
+    ShadingRateAttachment = 1 << 9,
+    /// <summary>Usable as a position vertex format for acceleration-structure triangle geometry.</summary>
+    AccelerationStructureVertex = 1 << 10
 }
 
 /// <summary>Supported sample counts, represented as flags so a format can advertise multiple counts.</summary>
