@@ -69,6 +69,8 @@ public readonly record struct GraphicsShaderBindingTableRegion(
             SizeInBytes % StrideInBytes != 0)
             throw new ArgumentOutOfRangeException(nameof(SizeInBytes));
         ulong deviceAddress = checked(address.DeviceAddress + OffsetInBytes);
+        if (deviceAddress == 0)
+            throw new ArgumentException("A non-empty shader table region must have a non-zero GPU address.");
         if (deviceAddress % properties.ShaderGroupBaseAlignment != 0)
             throw new ArgumentException("The resulting GPU address does not satisfy shader-group base alignment.");
     }
@@ -147,8 +149,6 @@ public static class GraphicsShaderBindingTableWriter
         uint maximumLocalDataSize = 0;
         for (int i = 0; i < records.Length; i++)
         {
-            if (records[i].LocalData.Length > uint.MaxValue)
-                throw new ArgumentOutOfRangeException(nameof(records));
             maximumLocalDataSize = Math.Max(maximumLocalDataSize, (uint)records[i].LocalData.Length);
         }
 
@@ -167,14 +167,14 @@ public static class GraphicsShaderBindingTableWriter
         IGraphicsRayTracingPipeline pipeline,
         ReadOnlySpan<GraphicsShaderBindingTableRecord> records,
         Span<byte> destination,
-        Span<byte> handleScratch,
-        in GraphicsShaderBindingTableProperties properties)
+        Span<byte> handleScratch)
     {
         ArgumentNullException.ThrowIfNull(device);
         ArgumentNullException.ThrowIfNull(pipeline);
         if (!ReferenceEquals(pipeline.Device, device.Device))
             throw new ArgumentException("The pipeline and shader-table device must belong to the same graphics device.");
 
+        GraphicsShaderBindingTableProperties properties = device.ShaderBindingTableProperties;
         GraphicsShaderBindingTableLayout layout = GetLayout(records, properties);
         if (handleScratch.Length < properties.ShaderGroupHandleSize)
             throw new ArgumentException("Handle scratch storage is smaller than one shader-group handle.", nameof(handleScratch));
@@ -183,12 +183,16 @@ public static class GraphicsShaderBindingTableWriter
 
         int handleSize = checked((int)properties.ShaderGroupHandleSize);
         int stride = checked((int)layout.StrideInBytes);
+        for (int i = 0; i < records.Length; i++)
+        {
+            if (records[i].ShaderGroupIndex >= pipeline.Description.Groups.Length)
+                throw new ArgumentOutOfRangeException(nameof(records), "A record references a shader group outside the pipeline.");
+        }
+
         Span<byte> handle = handleScratch[..handleSize];
         for (int i = 0; i < records.Length; i++)
         {
             GraphicsShaderBindingTableRecord record = records[i];
-            if (record.ShaderGroupIndex >= pipeline.Description.Groups.Length)
-                throw new ArgumentOutOfRangeException(nameof(records), "A record references a shader group outside the pipeline.");
             Span<byte> destinationRecord = destination.Slice(checked(i * stride), stride);
             destinationRecord.Clear();
             device.GetShaderGroupHandles(pipeline, record.ShaderGroupIndex, handle);

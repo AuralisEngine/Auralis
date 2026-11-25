@@ -146,7 +146,7 @@ public readonly record struct GraphicsSparseBufferRequirements(ulong TileSizeInB
     {
         buffer.Validate();
         if (TileSizeInBytes == 0 || Alignment == 0 ||
-            (Alignment & (Alignment - 1)) != 0 || Alignment > TileSizeInBytes)
+            (Alignment & (Alignment - 1)) != 0)
             throw new ArgumentException("Sparse buffer tile size and alignment are invalid.");
     }
 }

@@ -35,8 +35,8 @@ public enum GraphicsPeerMemoryAccess
     GenericWrite = 1 << 3
 }
 
-/// <summary>Optional capabilities and device membership for explicit multi-GPU operation.</summary>
-public interface IGraphicsDeviceGroup : IDisposable
+/// <summary>Logical graphics device representing an explicit multi-GPU group and its physical member devices.</summary>
+public interface IGraphicsDeviceGroup : IGraphicsDevice
 {
     uint DeviceCount { get; }
     IGraphicsDevice GetDevice(uint index);
@@ -55,7 +55,7 @@ public interface IGraphicsDeviceGroupProvider
 public interface IGraphicsDeviceGroupCommandQueue : IGraphicsCommandQueue
 {
     IGraphicsDeviceGroup DeviceGroup { get; }
-    /// <summary>Submits lists whose device ownership is valid for every selected device in the mask.</summary>
+    /// <summary>Submits command lists created by the group device to the selected physical-device mask.</summary>
     void SubmitToDevices(
         ReadOnlySpan<IGraphicsCommandList> commandLists,
         GraphicsDeviceGroupMask deviceMask,

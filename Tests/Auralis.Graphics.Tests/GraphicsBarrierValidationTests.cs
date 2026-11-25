@@ -22,11 +22,12 @@ public sealed class GraphicsBarrierValidationTests
             GraphicsPipelineStage.GeometryShader |
             GraphicsPipelineStage.TaskShader |
             GraphicsPipelineStage.MeshShader |
+            GraphicsPipelineStage.FragmentShadingRate |
             GraphicsPipelineStage.FragmentShader |
             GraphicsPipelineStage.DepthStencil |
             GraphicsPipelineStage.ColorAttachmentOutput;
 
-        Assert.Equal(expected, GraphicsPipelineStage.AllGraphics);
+        Assert.Equal(GraphicsPipelineStage.AllGraphics, expected);
         Assert.Equal(GraphicsPipelineStage.None,
             GraphicsPipelineStage.AllGraphics &
             (GraphicsPipelineStage.ComputeShader |
