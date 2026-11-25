@@ -427,9 +427,12 @@ public readonly record struct GraphicsRayTracingInstance(
             throw new ObjectDisposedException(nameof(BottomLevel));
         if (!ReferenceEquals(BottomLevel.Device, device) || BottomLevel.IsTopLevel || BottomLevel.DeviceAddress == 0)
             throw new ArgumentException("A TLAS instance must reference a live, device-addressable BLAS from the same device.");
-        if (InstanceCustomIndex > 0x00FF_FFFF || ShaderBindingTableRecordOffset > 0x00FF_FFFF)
+        if (InstanceCustomIndex > 0x00FF_FFFF)
             throw new ArgumentOutOfRangeException(nameof(InstanceCustomIndex),
-                "Instance custom indices and shader-binding-table offsets are limited to 24 bits.");
+                "Instance custom indices are limited to 24 bits.");
+        if (ShaderBindingTableRecordOffset > 0x00FF_FFFF)
+            throw new ArgumentOutOfRangeException(nameof(ShaderBindingTableRecordOffset),
+                "Shader-binding-table record offsets are limited to 24 bits.");
         const GraphicsRayTracingInstanceFlags allFlags =
             GraphicsRayTracingInstanceFlags.TriangleFacingCullDisable |
             GraphicsRayTracingInstanceFlags.TriangleFlipFacing |
@@ -577,8 +580,12 @@ public readonly record struct GraphicsRayDispatchDescription(
 {
     public void Validate()
     {
-        if (Width == 0 || Height == 0 || Depth == 0)
-            throw new ArgumentOutOfRangeException(nameof(Width), "Ray dispatch dimensions must be non-zero.");
+        if (Width == 0)
+            throw new ArgumentOutOfRangeException(nameof(Width), "Ray dispatch width must be non-zero.");
+        if (Height == 0)
+            throw new ArgumentOutOfRangeException(nameof(Height), "Ray dispatch height must be non-zero.");
+        if (Depth == 0)
+            throw new ArgumentOutOfRangeException(nameof(Depth), "Ray dispatch depth must be non-zero.");
         RayGeneration.Validate();
         Miss.Validate();
         Hit.Validate();
