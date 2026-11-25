@@ -120,3 +120,82 @@ public readonly record struct GraphicsShaderBindingTable(
             throw new ArgumentException("The ray-generation region must contain exactly one record.");
     }
 }
+
+
+/// <summary>One shader binding table record: a shader-group index followed by application-defined local data.</summary>
+public readonly record struct GraphicsShaderBindingTableRecord(
+    uint ShaderGroupIndex,
+    ReadOnlyMemory<byte> LocalData);
+
+/// <summary>Computed record stride and total storage required for a shader binding table region.</summary>
+public readonly record struct GraphicsShaderBindingTableLayout(uint StrideInBytes, ulong SizeInBytes);
+
+/// <summary>
+/// Allocation-free record packer. The caller supplies destination storage and handle scratch space;
+/// GPU buffer allocation and mapping remain the responsibility of the application/backend.
+/// </summary>
+public static class GraphicsShaderBindingTableWriter
+{
+    public static GraphicsShaderBindingTableLayout GetLayout(
+        ReadOnlySpan<GraphicsShaderBindingTableRecord> records,
+        in GraphicsShaderBindingTableProperties properties)
+    {
+        properties.Validate();
+        if (records.IsEmpty)
+            throw new ArgumentException("A shader binding table region must contain at least one record.", nameof(records));
+
+        uint maximumLocalDataSize = 0;
+        for (int i = 0; i < records.Length; i++)
+        {
+            if (records[i].LocalData.Length > uint.MaxValue)
+                throw new ArgumentOutOfRangeException(nameof(records));
+            maximumLocalDataSize = Math.Max(maximumLocalDataSize, (uint)records[i].LocalData.Length);
+        }
+
+        uint unalignedStride = checked(properties.ShaderGroupHandleSize + maximumLocalDataSize);
+        uint alignment = properties.ShaderGroupHandleAlignment;
+        uint stride = checked((unalignedStride + alignment - 1) / alignment * alignment);
+        if (stride > properties.MaximumShaderGroupStride)
+            throw new ArgumentOutOfRangeException(nameof(records),
+                "The shader binding table record exceeds the device's maximum stride.");
+
+        return new GraphicsShaderBindingTableLayout(stride, checked((ulong)stride * (uint)records.Length));
+    }
+
+    public static GraphicsShaderBindingTableLayout WriteRecords(
+        IGraphicsRayTracingShaderTableDevice device,
+        IGraphicsRayTracingPipeline pipeline,
+        ReadOnlySpan<GraphicsShaderBindingTableRecord> records,
+        Span<byte> destination,
+        Span<byte> handleScratch,
+        in GraphicsShaderBindingTableProperties properties)
+    {
+        ArgumentNullException.ThrowIfNull(device);
+        ArgumentNullException.ThrowIfNull(pipeline);
+        if (!ReferenceEquals(pipeline.Device, device.Device))
+            throw new ArgumentException("The pipeline and shader-table device must belong to the same graphics device.");
+
+        GraphicsShaderBindingTableLayout layout = GetLayout(records, properties);
+        if (handleScratch.Length < properties.ShaderGroupHandleSize)
+            throw new ArgumentException("Handle scratch storage is smaller than one shader-group handle.", nameof(handleScratch));
+        if ((ulong)destination.Length < layout.SizeInBytes)
+            throw new ArgumentException("Destination storage is too small for the shader binding table.", nameof(destination));
+
+        int handleSize = checked((int)properties.ShaderGroupHandleSize);
+        int stride = checked((int)layout.StrideInBytes);
+        Span<byte> handle = handleScratch[..handleSize];
+        for (int i = 0; i < records.Length; i++)
+        {
+            GraphicsShaderBindingTableRecord record = records[i];
+            if (record.ShaderGroupIndex >= pipeline.Description.Groups.Length)
+                throw new ArgumentOutOfRangeException(nameof(records), "A record references a shader group outside the pipeline.");
+            Span<byte> destinationRecord = destination.Slice(checked(i * stride), stride);
+            destinationRecord.Clear();
+            device.GetShaderGroupHandles(pipeline, record.ShaderGroupIndex, handle);
+            handle.CopyTo(destinationRecord);
+            record.LocalData.Span.CopyTo(destinationRecord[handleSize..]);
+        }
+
+        return layout;
+    }
+}
