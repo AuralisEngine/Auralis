@@ -46,8 +46,12 @@ public sealed class GraphicsRenderingDescription
         uint layerCount = 1,
         uint viewMask = 0)
     {
-        if (width == 0 || height == 0 || layerCount == 0)
-            throw new ArgumentOutOfRangeException(nameof(width), "Rendering extent and layer count must be non-zero.");
+        if (width == 0)
+            throw new ArgumentOutOfRangeException(nameof(width), "Rendering width must be non-zero.");
+        if (height == 0)
+            throw new ArgumentOutOfRangeException(nameof(height), "Rendering height must be non-zero.");
+        if (layerCount == 0)
+            throw new ArgumentOutOfRangeException(nameof(layerCount), "Rendering layer count must be non-zero.");
         if (colorAttachments.IsEmpty && depthStencilAttachment is null)
             throw new ArgumentException("A rendering scope requires at least one attachment.");
         Width = width;
