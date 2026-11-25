@@ -742,6 +742,8 @@ public static class GraphicsRayTracingCommandValidation
             GraphicsAccelerationStructureBuildFlags.MinimizeMemory;
         if ((flags & ~allFlags) != 0)
             throw new ArgumentOutOfRangeException(nameof(flags));
+        if (flags != destination.Description.Flags)
+            throw new ArgumentException("Build flags must match the acceleration structure's creation description.", nameof(flags));
         if (destination.IsTopLevel != destination.Description.IsTopLevel)
             throw new ArgumentException("The destination structure kind does not match its description.", nameof(destination));
 
@@ -781,6 +783,8 @@ public static class GraphicsRayTracingCommandValidation
             GraphicsAccelerationStructureBuildFlags.MinimizeMemory;
         if ((flags & ~allFlags) != 0)
             throw new ArgumentOutOfRangeException(nameof(flags));
+        if (flags != destination.Description.Flags)
+            throw new ArgumentException("Build flags must match the acceleration structure's creation description.", nameof(flags));
         if (!destination.IsTopLevel || !destination.Description.IsTopLevel)
             throw new ArgumentException("GPU instance buffers can only be used to build a top-level acceleration structure.", nameof(destination));
         instances.Validate(destination.Device, destination.Description);
@@ -804,6 +808,8 @@ public static class GraphicsRayTracingCommandValidation
             throw new ArgumentException("Source and destination acceleration structures must have the same kind.", nameof(source));
         if ((source.Description.Flags & GraphicsAccelerationStructureBuildFlags.AllowUpdate) == 0)
             throw new ArgumentException("The source acceleration structure was not created with AllowUpdate.", nameof(source));
+        if (source.Description.Flags != destination.Description.Flags)
+            throw new ArgumentException("An update must use the same build flags as the source acceleration structure.", nameof(source));
         if (source.IsTopLevel && source.InstanceCount != instanceCount)
             throw new ArgumentException("A TLAS update must preserve the source instance count.", nameof(instanceCount));
     }
