@@ -82,7 +82,8 @@ public enum GraphicsTextureLayout
     DepthStencilAttachment,
     TransferSource,
     TransferDestination,
-    Present
+    Present,
+    ShadingRateAttachment
 }
 
 /// <summary>A byte range within a buffer. A null range on a barrier represents the entire buffer.</summary>
