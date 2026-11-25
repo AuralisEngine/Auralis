@@ -35,4 +35,18 @@ public sealed class GraphicsFormatCoverageTests
         Assert.False(capabilities.SupportsFormat(format, GraphicsFormatSupport.Storage));
         Assert.True(capabilities.SupportsSampleCount(format, 1));
     }
+
+    [Theory]
+    [InlineData(0u, 1u, 1u, "Width")]
+    [InlineData(1u, 0u, 1u, "Height")]
+    [InlineData(1u, 1u, 0u, "Depth")]
+    public void RayDispatchReportsTheInvalidDimensionParameter(
+        uint width, uint height, uint depth, string expectedParameter)
+    {
+        var description = new GraphicsRayDispatchDescription(
+            default, default, default, default, width, height, depth);
+
+        ArgumentOutOfRangeException exception = Assert.Throws<ArgumentOutOfRangeException>(description.Validate);
+        Assert.Equal(expectedParameter, exception.ParamName);
+    }
 }
