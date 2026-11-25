@@ -107,17 +107,6 @@ public interface IGraphicsQueryDevice
     IGraphicsQueryPool CreateQueryPool(in GraphicsQueryPoolDescription description);
 }
 
-/// <summary>Optional resource-binding flags for descriptor arrays and streaming updates.</summary>
-[Flags]
-public enum GraphicsBindingFlags : uint
-{
-    None = 0,
-    PartiallyBound = 1 << 0,
-    UpdateAfterBind = 1 << 1,
-    VariableDescriptorCount = 1 << 2,
-    UpdateUnusedWhilePending = 1 << 3
-}
-
 /// <summary>Query category. Query availability is retrieved only after the producing queue has completed.</summary>
 public enum GraphicsQueryType
 {
