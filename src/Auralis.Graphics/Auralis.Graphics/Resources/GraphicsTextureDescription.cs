@@ -19,7 +19,7 @@ public readonly record struct GraphicsTextureDescription(
             GraphicsTextureUsage.Sampled | GraphicsTextureUsage.Storage |
             GraphicsTextureUsage.ColorAttachment | GraphicsTextureUsage.DepthStencilAttachment |
             GraphicsTextureUsage.CopySource | GraphicsTextureUsage.CopyDestination |
-            GraphicsTextureUsage.Present;
+            GraphicsTextureUsage.Present | GraphicsTextureUsage.ShadingRateAttachment;
         const GraphicsResourceCreationOptions allOptions =
             GraphicsResourceCreationOptions.DedicatedAllocation | GraphicsResourceCreationOptions.AllowAliasing |
             GraphicsResourceCreationOptions.MutableFormat | GraphicsResourceCreationOptions.RequireExplicitMemoryBinding;
