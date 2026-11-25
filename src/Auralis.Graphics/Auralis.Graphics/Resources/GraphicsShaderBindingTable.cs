@@ -83,6 +83,11 @@ public readonly record struct GraphicsShaderBindingTableRegion(
 public interface IGraphicsRayTracingShaderTableDevice : IGraphicsRayTracingPipelineDevice
 {
     GraphicsShaderBindingTableProperties ShaderBindingTableProperties { get; }
+
+    /// <summary>
+    /// Writes contiguous opaque handles beginning at firstGroup. Destination length must be an exact
+    /// multiple of ShaderGroupHandleSize; handles are written in increasing shader-group index order.
+    /// </summary>
     void GetShaderGroupHandles(
         IGraphicsRayTracingPipeline pipeline,
         uint firstGroup,
