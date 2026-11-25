@@ -29,6 +29,11 @@ public readonly record struct GraphicsSparseTextureRequirements(
             throw new ArgumentException("A mip tail must begin before the final mip level.");
         if (SingleMipTail && MipTailStrideInBytes != 0)
             throw new ArgumentException("A single mip tail cannot declare a per-layer stride.");
+        if (!SingleMipTail && MipTailSizeInBytes != 0 && texture.ArrayLayers > 1 &&
+            MipTailStrideInBytes < MipTailSizeInBytes)
+            throw new ArgumentException("Per-layer mip-tail stride cannot be smaller than the mip-tail size.");
+        if (MipTailSizeInBytes != 0 && texture.ArrayLayers > 1 && !SingleMipTail)
+            _ = checked(MipTailOffsetInBytes + MipTailStrideInBytes * (texture.ArrayLayers - 1UL) + MipTailSizeInBytes);
     }
 }
 
@@ -108,6 +113,8 @@ public readonly record struct GraphicsSparseTextureBinding(
             throw new ArgumentException("Sparse texture and allocation must belong to the same live device.");
         if (AllocationOffsetInBytes > Allocation.SizeInBytes)
             throw new ArgumentOutOfRangeException(nameof(AllocationOffsetInBytes));
+        if (AllocationOffsetInBytes % requirements.TileSizeInBytes != 0)
+            throw new ArgumentException("Sparse mapping allocation offsets must satisfy tile-size alignment.", nameof(AllocationOffsetInBytes));
         ulong requiredSize = IsMipTail
             ? requirements.MipTailSizeInBytes
             : checked((ulong)Region.TileWidth * Region.TileHeight * Region.TileDepth * requirements.TileSizeInBytes);
