@@ -39,7 +39,7 @@ public sealed record GraphicsDeviceOptions
             GraphicsFeature.SeparateComputeQueue | GraphicsFeature.SeparateTransferQueue |
             GraphicsFeature.TimestampQueries | GraphicsFeature.SamplerAnisotropy |
             GraphicsFeature.TessellationShaders | GraphicsFeature.GeometryShaders |
-            GraphicsFeature.MeshShaders | GraphicsFeature.RayTracing |
+            GraphicsFeature.MeshShaders | GraphicsFeature.TaskShaders | GraphicsFeature.RayTracing |
             GraphicsFeature.VariableRateShading | GraphicsFeature.ConservativeRasterization |
             GraphicsFeature.TimelineSynchronization | GraphicsFeature.SparseResources |
             GraphicsFeature.MultiViewport | GraphicsFeature.DepthBoundsTest |
