@@ -248,7 +248,7 @@ public readonly record struct GraphicsRayTracingTriangleGeometry(
 {
     public void Validate()
     {
-            if (VertexCount < 3)
+        if (VertexCount < 3)
             throw new ArgumentOutOfRangeException(nameof(VertexCount));
         ulong vertexElementSize = VertexFormat switch
         {
@@ -267,7 +267,7 @@ public readonly record struct GraphicsRayTracingTriangleGeometry(
         ulong vertexDataSize = checked((ulong)(VertexCount - 1) * VertexStride + vertexElementSize);
         GraphicsRayTracingBufferValidation.Validate(
             VertexBuffer, VertexOffset, vertexDataSize, nameof(VertexBuffer));
-        GraphicsRayTracingBufferValidation.RequireAddressAlignment(VertexBuffer, VertexOffset, 4, nameof(VertexOffset));
+        GraphicsRayTracingBufferValidation.RequireAddressAlignment(VertexBuffer, VertexOffset, alignment, nameof(VertexOffset));
 
         if (IndexBuffer is null)
         {
@@ -458,6 +458,65 @@ public readonly record struct GraphicsRayTracingInstance(
             (GraphicsRayTracingInstanceFlags.ForceOpaque | GraphicsRayTracingInstanceFlags.ForceNonOpaque))
             throw new ArgumentOutOfRangeException(nameof(Flags));
         Transform.Validate();
+    }
+}
+
+
+/// <summary>
+/// Canonical 64-byte, sequential GPU instance record shared by DXR and Vulkan acceleration-structure builds.
+/// The transform is a row-major 3x4 matrix; packed index/mask and SBT-offset/flags fields use 24/8-bit packing.
+/// </summary>
+[System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential, Pack = 4)]
+public readonly struct GraphicsRayTracingInstanceData
+{
+    public const uint SizeInBytes = 64;
+
+    public readonly GraphicsTransform3x4 Transform;
+    public readonly uint InstanceCustomIndexAndMask;
+    public readonly uint ShaderBindingTableRecordOffsetAndFlags;
+    public readonly ulong BottomLevelDeviceAddress;
+
+    public GraphicsRayTracingInstanceData(in GraphicsRayTracingInstance instance)
+    {
+        Transform = instance.Transform;
+        InstanceCustomIndexAndMask = (instance.InstanceCustomIndex & 0x00FF_FFFF) | ((uint)instance.Mask << 24);
+        ShaderBindingTableRecordOffsetAndFlags =
+            (instance.ShaderBindingTableRecordOffset & 0x00FF_FFFF) | ((uint)instance.Flags << 24);
+        BottomLevelDeviceAddress = instance.BottomLevel.DeviceAddress;
+    }
+}
+
+/// <summary>A caller-owned GPU buffer containing canonical 64-byte TLAS instance records.</summary>
+public readonly record struct GraphicsRayTracingInstanceBuffer(
+    IGraphicsBuffer Buffer,
+    ulong OffsetInBytes,
+    uint InstanceCount)
+{
+    public void Validate(IGraphicsDevice device, in GraphicsAccelerationStructureDescription description)
+    {
+        ArgumentNullException.ThrowIfNull(device);
+        ArgumentNullException.ThrowIfNull(Buffer);
+        if (!description.IsTopLevel)
+            throw new ArgumentException("Instance buffers can only be used for top-level acceleration structures.", nameof(description));
+        if (Buffer.IsDisposed || Buffer.Device.IsDisposed)
+            throw new ObjectDisposedException(nameof(Buffer));
+        if (!ReferenceEquals(Buffer.Device, device))
+            throw new ArgumentException("The instance buffer and acceleration structure must belong to the same device.", nameof(Buffer));
+        if ((Buffer.Description.Usage & GraphicsBufferUsage.AccelerationStructureBuildInput) == 0)
+            throw new ArgumentException("TLAS instance buffers must declare AccelerationStructureBuildInput usage.", nameof(Buffer));
+        if (Buffer is not IGraphicsBufferDeviceAddress address || address.DeviceAddress == 0)
+            throw new ArgumentException("TLAS instance buffers must expose a non-zero GPU device address.", nameof(Buffer));
+        if ((OffsetInBytes & 15) != 0)
+            throw new ArgumentOutOfRangeException(nameof(OffsetInBytes), "TLAS instance data must be 16-byte aligned.");
+        if (InstanceCount > description.MaximumInstanceCount)
+            throw new ArgumentOutOfRangeException(nameof(InstanceCount), "Instance count exceeds the TLAS maximum.");
+        ulong byteCount = checked((ulong)InstanceCount * GraphicsRayTracingInstanceData.SizeInBytes);
+        if (OffsetInBytes > Buffer.Description.SizeInBytes ||
+            byteCount > Buffer.Description.SizeInBytes - OffsetInBytes)
+            throw new ArgumentOutOfRangeException(nameof(OffsetInBytes), "TLAS instance data exceeds the buffer bounds.");
+        ulong gpuAddress = checked(address.DeviceAddress + OffsetInBytes);
+        if (gpuAddress == 0 || (gpuAddress & 15) != 0)
+            throw new ArgumentException("The TLAS instance GPU address must be non-zero and 16-byte aligned.", nameof(OffsetInBytes));
     }
 }
 
@@ -761,6 +820,18 @@ public interface IGraphicsRayTracingCommandList : IGraphicsCommandList
         ulong scratchOffset,
         GraphicsAccelerationStructureBuildFlags flags,
         ReadOnlySpan<GraphicsRayTracingInstance> instances);
+
+    /// <summary>
+    /// Builds a TLAS from caller-owned, device-addressable 64-byte instance records. This avoids
+    /// requiring the backend to stage a managed instance span on every rebuild.
+    /// </summary>
+    void BuildAccelerationStructure(
+        IGraphicsAccelerationStructure destination,
+        IGraphicsAccelerationStructure? source,
+        IGraphicsBuffer scratchBuffer,
+        ulong scratchOffset,
+        GraphicsAccelerationStructureBuildFlags flags,
+        in GraphicsRayTracingInstanceBuffer instances);
 
     void WriteAccelerationStructureCompactedSize(
         IGraphicsAccelerationStructure accelerationStructure,
