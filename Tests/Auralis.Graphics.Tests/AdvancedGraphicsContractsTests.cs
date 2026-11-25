@@ -1,6 +1,7 @@
 using Auralis.Graphics.Resources;
 using Auralis.Graphics.Pipelines;
 using Auralis.Graphics.Devices;
+using Auralis.Graphics.Abstractions;
 using Xunit;
 
 namespace Auralis.Graphics.Tests;
@@ -231,6 +232,22 @@ public sealed class AdvancedGraphicsTests
         capabilities.Validate();
         Assert.True(capabilities.Supports(GraphicsShadingRate.Rate2x2));
         Assert.False(capabilities.Supports(GraphicsShadingRate.Rate4x4));
+    }
+
+    [Fact]
+    public void DeviceCapabilities_AcceptDeviceGroupsAndShadingRateFormatSupport()
+    {
+        var capabilities = new GraphicsDeviceCapabilities(
+            new GraphicsFeatureSet(GraphicsFeature.DeviceGroups | GraphicsFeature.VariableRateShading),
+            GraphicsQueueCapabilities.Graphics,
+            default,
+            [new GraphicsFormatCapabilities(
+                GraphicsFormat.R8UInt,
+                GraphicsFormatSupport.ShadingRateAttachment,
+                GraphicsSampleCountFlags.One)]);
+
+        Assert.True(capabilities.Features.Supports(GraphicsFeature.DeviceGroups));
+        Assert.True(capabilities.SupportsFormat(GraphicsFormat.R8UInt, GraphicsFormatSupport.ShadingRateAttachment));
     }
 
     [Fact]
