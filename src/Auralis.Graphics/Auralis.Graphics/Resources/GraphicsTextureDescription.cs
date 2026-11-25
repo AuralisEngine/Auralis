@@ -37,7 +37,8 @@ public readonly record struct GraphicsTextureDescription(
         if (Usage == GraphicsTextureUsage.None || (Usage & ~allUsage) != 0)
             throw new ArgumentOutOfRangeException(nameof(Usage));
         const GraphicsResourceCreationOptions conflictingOptions =
-            GraphicsResourceCreationOptions.DedicatedAllocation | GraphicsResourceCreationOptions.AllowAliasing;
+            GraphicsResourceCreationOptions.DedicatedAllocation | GraphicsResourceCreationOptions.AllowAliasing |
+            GraphicsResourceCreationOptions.RequireExplicitMemoryBinding | GraphicsResourceCreationOptions.Sparse;
         if ((CreationOptions & ~allOptions) != 0 ||
             (CreationOptions & conflictingOptions) == conflictingOptions)
             throw new ArgumentOutOfRangeException(nameof(CreationOptions));
