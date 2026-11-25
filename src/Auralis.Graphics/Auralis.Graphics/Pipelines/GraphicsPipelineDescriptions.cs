@@ -145,26 +145,38 @@ public sealed class GraphicsBindingLayoutDescription
         }
 
         int cursor = 0;
-        uint lastBinding = 0;
-        bool hasLastBinding = false;
-        for (int i = 0; i < _entries.Length; i++)
+        uint previousLayoutBinding = 0;
+        bool hasPreviousLayoutBinding = false;
+        for (int bindingIndex = 0; bindingIndex < _entries.Length; bindingIndex++)
         {
-            GraphicsBindingLayoutEntry entry = _entries[i];
-            if (entry.Type is not (GraphicsDescriptorType.DynamicUniformBuffer or GraphicsDescriptorType.DynamicStorageBuffer))
-                continue;
+            int selectedIndex = -1;
+            uint selectedBinding = uint.MaxValue;
+            for (int i = 0; i < _entries.Length; i++)
+            {
+                GraphicsBindingLayoutEntry candidate = _entries[i];
+                bool isDynamic = candidate.Type is GraphicsDescriptorType.DynamicUniformBuffer or GraphicsDescriptorType.DynamicStorageBuffer;
+                if (isDynamic &&
+                    (!hasPreviousLayoutBinding || candidate.Binding > previousLayoutBinding) &&
+                    candidate.Binding < selectedBinding)
+                {
+                    selectedIndex = i;
+                    selectedBinding = candidate.Binding;
+                }
+            }
 
-            if (hasLastBinding && entry.Binding < lastBinding)
-                throw new InvalidOperationException("Dynamic descriptor layout entries must be sorted by binding number before validating offsets.");
+            if (selectedIndex < 0)
+                break;
 
+            GraphicsBindingLayoutEntry entry = _entries[selectedIndex];
             for (uint element = 0; element < entry.Count; element++)
             {
                 if (dynamicOffsets[cursor].Binding != entry.Binding || dynamicOffsets[cursor].ArrayElement != element)
-                    throw new ArgumentException("Dynamic offsets must contain every dynamic descriptor in binding/array order.", nameof(dynamicOffsets));
+                    throw new ArgumentException("Dynamic offsets must contain every dynamic descriptor in ascending binding/array order.", nameof(dynamicOffsets));
                 cursor++;
             }
 
-            lastBinding = entry.Binding;
-            hasLastBinding = true;
+            previousLayoutBinding = entry.Binding;
+            hasPreviousLayoutBinding = true;
         }
     }
 
