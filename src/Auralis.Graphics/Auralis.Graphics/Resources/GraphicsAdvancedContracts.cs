@@ -65,8 +65,10 @@ public readonly record struct GraphicsMemoryAllocationDescription(
             GraphicsMemoryProperty.DeviceLocal | GraphicsMemoryProperty.HostVisible |
             GraphicsMemoryProperty.HostCoherent | GraphicsMemoryProperty.HostCached |
             GraphicsMemoryProperty.LazilyAllocated | GraphicsMemoryProperty.Protected;
-        if (((RequiredProperties | PreferredProperties) & ~allProperties) != 0)
-            throw new ArgumentOutOfRangeException(nameof(RequiredProperties), "Memory property flags contain unknown values.");
+        if ((RequiredProperties & ~allProperties) != 0)
+            throw new ArgumentOutOfRangeException(nameof(RequiredProperties), "Required memory property flags contain unknown values.");
+        if ((PreferredProperties & ~allProperties) != 0)
+            throw new ArgumentOutOfRangeException(nameof(PreferredProperties), "Preferred memory property flags contain unknown values.");
 
         ValidatePropertyCombination(RequiredProperties, nameof(RequiredProperties));
     }
