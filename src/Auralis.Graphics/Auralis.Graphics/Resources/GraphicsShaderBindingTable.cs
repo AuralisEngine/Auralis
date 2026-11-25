@@ -198,10 +198,20 @@ public static class GraphicsShaderBindingTableWriter
                 throw new ArgumentOutOfRangeException(nameof(records), "A record references a shader group outside the pipeline.");
         }
 
-        int allHandlesSize = checked(handleSize * pipeline.Description.Groups.Length);
-        if (handleScratch.Length < allHandlesSize)
-            throw new ArgumentException("Handle scratch storage must hold one handle for every pipeline shader group.", nameof(handleScratch));
-        Span<byte> handles = handleScratch[..allHandlesSize];
+        uint minimumGroupIndex = uint.MaxValue;
+        uint maximumGroupIndex = 0;
+        for (int i = 0; i < records.Length; i++)
+        {
+            uint groupIndex = records[i].ShaderGroupIndex;
+            minimumGroupIndex = Math.Min(minimumGroupIndex, groupIndex);
+            maximumGroupIndex = Math.Max(maximumGroupIndex, groupIndex);
+        }
+
+        int groupCount = checked((int)(maximumGroupIndex - minimumGroupIndex + 1));
+        int handlesSize = checked(handleSize * groupCount);
+        if (handleScratch.Length < handlesSize)
+            throw new ArgumentException("Handle scratch storage must hold handles from the lowest through highest referenced shader group.", nameof(handleScratch));
+        Span<byte> handles = handleScratch[..handlesSize];
         Span<byte> destinationSpan = destination[..checked((int)layout.SizeInBytes)];
         if (handles.Overlaps(destinationSpan))
             throw new ArgumentException("Handle scratch storage and destination storage must not overlap.");
@@ -212,13 +222,14 @@ public static class GraphicsShaderBindingTableWriter
                 throw new ArgumentException("Record local data must not overlap the destination or handle scratch storage.", nameof(records));
         }
 
-        device.GetShaderGroupHandles(pipeline, 0, handles);
+        device.GetShaderGroupHandles(pipeline, minimumGroupIndex, handles);
         for (int i = 0; i < records.Length; i++)
         {
             GraphicsShaderBindingTableRecord record = records[i];
             Span<byte> destinationRecord = destination.Slice(checked(i * stride), stride);
             destinationRecord.Clear();
-            handles.Slice(checked((int)record.ShaderGroupIndex * handleSize), handleSize).CopyTo(destinationRecord);
+            int handleOffset = checked((int)(record.ShaderGroupIndex - minimumGroupIndex) * handleSize);
+            handles.Slice(handleOffset, handleSize).CopyTo(destinationRecord);
             record.LocalData.Span.CopyTo(destinationRecord[handleSize..]);
         }
 
