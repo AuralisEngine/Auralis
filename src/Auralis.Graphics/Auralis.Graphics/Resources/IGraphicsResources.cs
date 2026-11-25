@@ -31,6 +31,11 @@ public interface IGraphicsTexture : IGraphicsResource
 {
     GraphicsTextureDescription Description { get; }
 
+    /// <summary>
+    /// Creates a view after validating the description against this device's reported format capabilities.
+    /// Implementations must call GraphicsDeviceCapabilities.ValidateTextureViewDescription (or enforce
+    /// equivalent checks) before accepting mutable-format reinterpretation.
+    /// </summary>
     IGraphicsTextureView CreateView(in GraphicsTextureViewDescription description);
 }
 
