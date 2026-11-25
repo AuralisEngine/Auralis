@@ -27,7 +27,7 @@ public readonly record struct GraphicsShaderBindingTableProperties(
 
 /// <summary>One shader binding table region backed by a device-addressable buffer.</summary>
 public readonly record struct GraphicsShaderBindingTableRegion(
-    IGraphicsBuffer Buffer,
+    IGraphicsBuffer? Buffer,
     ulong OffsetInBytes,
     ulong SizeInBytes,
     uint StrideInBytes)
@@ -54,8 +54,8 @@ public readonly record struct GraphicsShaderBindingTableRegion(
             throw new ArgumentException("Shader binding table buffers must support storage-buffer usage.");
         if (SizeInBytes == 0)
         {
-            if (OffsetInBytes != 0 || StrideInBytes != 0)
-                throw new ArgumentException("An empty shader table region must have zero offset and stride.");
+            if (Buffer is not null || OffsetInBytes != 0 || StrideInBytes != 0)
+                throw new ArgumentException("An empty shader table region must not reference a buffer and must have zero offset and stride.");
             return;
         }
         if (StrideInBytes < properties.ShaderGroupHandleSize ||
@@ -89,6 +89,24 @@ public readonly record struct GraphicsShaderBindingTable(
     GraphicsShaderBindingTableRegion Hit,
     GraphicsShaderBindingTableRegion Callable)
 {
+    public GraphicsRayDispatchDescription ToDispatchDescription(
+        in GraphicsShaderBindingTableProperties properties,
+        uint width,
+        uint height,
+        uint depth = 1)
+    {
+        Validate(properties);
+        if (width == 0 || height == 0 || depth == 0)
+            throw new ArgumentOutOfRangeException(nameof(width));
+        return new GraphicsRayDispatchDescription(
+            ToRegion(RayGeneration), ToRegion(Miss), ToRegion(Hit), ToRegion(Callable), width, height, depth);
+    }
+
+    private static GraphicsShaderTableRegion ToRegion(GraphicsShaderBindingTableRegion region) =>
+        region.SizeInBytes == 0
+            ? default
+            : new GraphicsShaderTableRegion(region.DeviceAddress, region.SizeInBytes, region.StrideInBytes);
+
     public void Validate(in GraphicsShaderBindingTableProperties properties)
     {
         RayGeneration.Validate(properties);
