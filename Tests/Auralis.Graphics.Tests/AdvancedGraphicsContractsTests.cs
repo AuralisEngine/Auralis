@@ -1,5 +1,6 @@
 using Auralis.Graphics.Resources;
 using Auralis.Graphics.Pipelines;
+using Auralis.Graphics.Devices;
 using Xunit;
 
 namespace Auralis.Graphics.Tests;
@@ -204,4 +205,56 @@ public sealed class AdvancedGraphicsTests
         Assert.Throws<ArgumentException>(requirements.Validate);
     }
 
+    [Fact]
+    public void TimestampProperties_HandleCounterWraparound()
+    {
+        var properties = new GraphicsTimestampProperties(true, 1_000_000_000, 36);
+        properties.Validate();
+
+        ulong elapsed = properties.GetElapsedTicks((1UL << 36) - 5, 7);
+
+        Assert.Equal(12UL, elapsed);
+        Assert.Equal(0.000012, properties.GetElapsedMilliseconds((1UL << 36) - 5, 7), 9);
+    }
+
+    [Fact]
+    public void TimestampProperties_RejectSupportedCounterWithoutFrequency()
+    {
+        var properties = new GraphicsTimestampProperties(true, 0, 32);
+        Assert.Throws<ArgumentException>(properties.Validate);
+    }
+
+    [Fact]
+    public void ShadingRateCapabilities_ValidateSupportedRateMask()
+    {
+        var capabilities = new GraphicsShadingRateCapabilities(16, 16, 4, 4, 1UL << (int)GraphicsShadingRate.Rate2x2);
+        capabilities.Validate();
+        Assert.True(capabilities.Supports(GraphicsShadingRate.Rate2x2));
+        Assert.False(capabilities.Supports(GraphicsShadingRate.Rate4x4));
+    }
+
+    [Fact]
+    public void DeviceGroupMask_RejectsBitsOutsideDeviceCount()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() => new GraphicsDeviceGroupMask(0b1000).Validate(3));
+        Assert.Equal(uint.MaxValue, GraphicsDeviceGroupMask.All(32).Value);
+    }
+
+    [Fact]
+    public void SparseTextureRequirements_RejectZeroTileSize()
+    {
+        var texture = new GraphicsTextureDescription(
+            GraphicsTextureDimension.Texture2D, GraphicsFormat.RGBA8UNorm,
+            256, 256, 1, 9, 1, 1, GraphicsTextureUsage.Sampled);
+        var requirements = new GraphicsSparseTextureRequirements(64, 64, 1, 0, 0, 0, 0, false);
+
+        Assert.Throws<ArgumentOutOfRangeException>(() => requirements.Validate(texture));
+    }
+
+    [Fact]
+    public void ShaderBindingTableProperties_RequirePowerOfTwoAlignment()
+    {
+        var properties = new GraphicsShaderBindingTableProperties(32, 24, 64, 4096);
+        Assert.Throws<ArgumentException>(properties.Validate);
+    }
 }
