@@ -8,6 +8,7 @@ public readonly record struct GraphicsSparseTextureRequirements(
     uint TileWidth,
     uint TileHeight,
     uint TileDepth,
+    ulong TileSizeInBytes,
     uint FirstMipTailLevel,
     ulong MipTailSizeInBytes,
     ulong MipTailOffsetInBytes,
@@ -17,7 +18,7 @@ public readonly record struct GraphicsSparseTextureRequirements(
     public void Validate(in GraphicsTextureDescription texture)
     {
         texture.Validate();
-        if (TileWidth == 0 || TileHeight == 0 || TileDepth == 0)
+        if (TileWidth == 0 || TileHeight == 0 || TileDepth == 0 || TileSizeInBytes == 0)
             throw new ArgumentOutOfRangeException(nameof(TileWidth), "Sparse tile dimensions must be non-zero.");
         if (FirstMipTailLevel > texture.MipLevels)
             throw new ArgumentOutOfRangeException(nameof(FirstMipTailLevel));
@@ -77,6 +78,8 @@ public readonly record struct GraphicsSparseTextureBinding(
                 Region.TileX != 0 || Region.TileY != 0 || Region.TileZ != 0 ||
                 Region.TileWidth != 0 || Region.TileHeight != 0 || Region.TileDepth != 0)
                 throw new ArgumentException("Mip-tail bindings identify the first tail mip and use an empty tile region.");
+            if (requirements.SingleMipTail && Region.ArrayLayer != 0)
+                throw new ArgumentOutOfRangeException(nameof(Region), "A single mip tail is bound through array layer zero.");
             if (!requirements.SingleMipTail && Region.ArrayLayer >= Texture.Description.ArrayLayers)
                 throw new ArgumentOutOfRangeException(nameof(Region));
         }
@@ -97,8 +100,11 @@ public readonly record struct GraphicsSparseTextureBinding(
             throw new ArgumentException("Sparse texture and allocation must belong to the same live device.");
         if (AllocationOffsetInBytes > Allocation.SizeInBytes)
             throw new ArgumentOutOfRangeException(nameof(AllocationOffsetInBytes));
-        if (IsMipTail && requirements.MipTailSizeInBytes > Allocation.SizeInBytes - AllocationOffsetInBytes)
-            throw new ArgumentException("The allocation does not contain the complete mip tail.");
+        ulong requiredSize = IsMipTail
+            ? requirements.MipTailSizeInBytes
+            : checked((ulong)Region.TileWidth * Region.TileHeight * Region.TileDepth * requirements.TileSizeInBytes);
+        if (requiredSize > Allocation.SizeInBytes - AllocationOffsetInBytes)
+            throw new ArgumentException("The allocation does not contain the complete sparse mapping range.");
     }
 }
 
