@@ -285,6 +285,21 @@ public sealed class GraphicsReviewRegressionTests
     }
 
     [Fact]
+    public void DeviceCapabilitiesRejectInvalidMutableViewCompatibilityEntries()
+    {
+        GraphicsFormatCapabilities BaseFormat(ReadOnlyMemory<GraphicsFormat> compatible) =>
+            new(GraphicsFormat.RGBA8UNorm, GraphicsFormatSupport.Sampled,
+                GraphicsSampleCountFlags.One, compatible);
+
+        Assert.Throws<ArgumentException>(() => CreateCapabilities(
+            GraphicsFeature.None, default, BaseFormat(new[] { GraphicsFormat.Unknown })));
+        Assert.Throws<ArgumentException>(() => CreateCapabilities(
+            GraphicsFeature.None, default, BaseFormat(new[] { GraphicsFormat.RGBA8UNormSrgb, GraphicsFormat.RGBA8UNormSrgb })));
+        Assert.Throws<ArgumentException>(() => CreateCapabilities(
+            GraphicsFeature.None, default, BaseFormat(new[] { GraphicsFormat.RGBA8UNorm })));
+    }
+
+    [Fact]
     public void RenderPipelineSupportsMeshTaskGeometryAndTessellationStageConfigurations()
     {
         var renderFormats = new GraphicsFormatCapabilities(
