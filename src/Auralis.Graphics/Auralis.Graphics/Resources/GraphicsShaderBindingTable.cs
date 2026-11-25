@@ -50,6 +50,8 @@ public readonly record struct GraphicsShaderBindingTableRegion(
             throw new ObjectDisposedException(nameof(Buffer));
         if (Buffer is not IGraphicsBufferDeviceAddress)
             throw new ArgumentException("Shader binding table buffers must expose a GPU device address.");
+        if ((Buffer.Description.Usage & GraphicsBufferUsage.Storage) == 0)
+            throw new ArgumentException("Shader binding table buffers must support storage-buffer usage.");
         if (SizeInBytes == 0)
         {
             if (OffsetInBytes != 0 || StrideInBytes != 0)
@@ -71,7 +73,7 @@ public readonly record struct GraphicsShaderBindingTableRegion(
 }
 
 /// <summary>Optional ray-tracing extension for shader group handles and SBT alignment metadata.</summary>
-public interface IGraphicsRayTracingShaderTableDevice
+public interface IGraphicsRayTracingShaderTableDevice : IGraphicsRayTracingPipelineDevice
 {
     GraphicsShaderBindingTableProperties ShaderBindingTableProperties { get; }
     void GetShaderGroupHandles(
