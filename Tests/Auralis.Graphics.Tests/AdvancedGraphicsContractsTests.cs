@@ -172,4 +172,36 @@ public sealed class AdvancedGraphicsTests
             layout.ValidateDynamicOffsets([new GraphicsDynamicBufferOffset(0, 0, 256)]));
     }
 
+    [Fact]
+    public void MemoryRequirements_AcceptAlignedResourceRequirements()
+    {
+        var requirements = new GraphicsMemoryRequirements(
+            4096, 256, 0b101, false, true);
+
+        requirements.Validate();
+    }
+
+    [Theory]
+    [InlineData(0, 256, 1)]
+    [InlineData(1024, 0, 1)]
+    [InlineData(1024, 3, 1)]
+    [InlineData(1024, 256, 0)]
+    public void MemoryRequirements_RejectInvalidSizeAlignmentOrMemoryTypes(
+        ulong size, ulong alignment, uint memoryTypeBits)
+    {
+        var requirements = new GraphicsMemoryRequirements(
+            size, alignment, memoryTypeBits, false, false);
+
+        Assert.Throws<ArgumentOutOfRangeException>(requirements.Validate);
+    }
+
+    [Fact]
+    public void MemoryRequirements_RejectRequiredButNotPreferredDedicatedAllocation()
+    {
+        var requirements = new GraphicsMemoryRequirements(
+            1024, 256, 1, true, false);
+
+        Assert.Throws<ArgumentException>(requirements.Validate);
+    }
+
 }
