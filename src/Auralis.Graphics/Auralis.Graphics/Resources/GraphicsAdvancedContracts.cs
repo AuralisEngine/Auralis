@@ -748,9 +748,50 @@ public static class GraphicsRayTracingCommandValidation
         else if (!instances.IsEmpty)
             throw new ArgumentException("BLAS builds must not provide TLAS instance data.", nameof(instances));
 
+        ValidateUpdateSource(destination, source, (uint)instances.Length);
+    }
+
+    public static void ValidateBuild(
+        IGraphicsAccelerationStructure destination,
+        IGraphicsAccelerationStructure? source,
+        IGraphicsBuffer scratchBuffer,
+        ulong scratchOffset,
+        GraphicsAccelerationStructureBuildFlags flags,
+        in GraphicsRayTracingInstanceBuffer instances)
+    {
+        ArgumentNullException.ThrowIfNull(destination);
+        ArgumentNullException.ThrowIfNull(scratchBuffer);
+        if (destination.IsDisposed || destination.Device.IsDisposed)
+            throw new ObjectDisposedException(nameof(destination));
+        if (scratchBuffer.IsDisposed || scratchBuffer.Device.IsDisposed)
+            throw new ObjectDisposedException(nameof(scratchBuffer));
+        if (!ReferenceEquals(destination.Device, scratchBuffer.Device))
+            throw new ArgumentException("The destination structure and scratch buffer must belong to the same device.", nameof(scratchBuffer));
+        if ((scratchBuffer.Description.Usage & GraphicsBufferUsage.Storage) == 0)
+            throw new ArgumentException("Acceleration-structure scratch buffers must declare Storage usage.", nameof(scratchBuffer));
+        if (scratchOffset >= scratchBuffer.Description.SizeInBytes)
+            throw new ArgumentOutOfRangeException(nameof(scratchOffset));
+        const GraphicsAccelerationStructureBuildFlags allFlags =
+            GraphicsAccelerationStructureBuildFlags.AllowUpdate |
+            GraphicsAccelerationStructureBuildFlags.AllowCompaction |
+            GraphicsAccelerationStructureBuildFlags.PreferFastTrace |
+            GraphicsAccelerationStructureBuildFlags.PreferFastBuild |
+            GraphicsAccelerationStructureBuildFlags.MinimizeMemory;
+        if ((flags & ~allFlags) != 0)
+            throw new ArgumentOutOfRangeException(nameof(flags));
+        if (!destination.IsTopLevel || !destination.Description.IsTopLevel)
+            throw new ArgumentException("GPU instance buffers can only be used to build a top-level acceleration structure.", nameof(destination));
+        instances.Validate(destination.Device, destination.Description);
+        ValidateUpdateSource(destination, source, instances.InstanceCount);
+    }
+
+    private static void ValidateUpdateSource(
+        IGraphicsAccelerationStructure destination,
+        IGraphicsAccelerationStructure? source,
+        uint instanceCount)
+    {
         if (source is null)
             return;
-
         if (source.IsDisposed || source.Device.IsDisposed)
             throw new ObjectDisposedException(nameof(source));
         if (!ReferenceEquals(source.Device, destination.Device))
@@ -761,8 +802,8 @@ public static class GraphicsRayTracingCommandValidation
             throw new ArgumentException("Source and destination acceleration structures must have the same kind.", nameof(source));
         if ((source.Description.Flags & GraphicsAccelerationStructureBuildFlags.AllowUpdate) == 0)
             throw new ArgumentException("The source acceleration structure was not created with AllowUpdate.", nameof(source));
-        if (source.IsTopLevel && source.InstanceCount != (uint)instances.Length)
-            throw new ArgumentException("A TLAS update must preserve the source instance count.", nameof(instances));
+        if (source.IsTopLevel && source.InstanceCount != instanceCount)
+            throw new ArgumentException("A TLAS update must preserve the source instance count.", nameof(instanceCount));
     }
 
     public static void ValidateCompactedSizeWrite(
