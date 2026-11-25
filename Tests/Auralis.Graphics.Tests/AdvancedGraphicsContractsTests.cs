@@ -4,7 +4,7 @@ using Xunit;
 
 namespace Auralis.Graphics.Tests;
 
-public sealed class AdvancedGraphicsContractsTests
+public sealed class AdvancedGraphicsTests
 {
     [Fact]
     public void MemoryAllocationDescription_AcceptsPowerOfTwoAlignment()
@@ -102,6 +102,7 @@ public sealed class AdvancedGraphicsContractsTests
 
         Assert.Throws<ArgumentNullException>(description.Validate);
     }
+
     [Fact]
     public void BindingLayout_ValidatesVariableDescriptorRuntimeCount()
     {
@@ -142,5 +143,4 @@ public sealed class AdvancedGraphicsContractsTests
 
         Assert.Throws<ArgumentException>(() => layout.ValidateVariableCounts([]));
     }
-
 }
