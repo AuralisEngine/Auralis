@@ -36,6 +36,24 @@ public sealed class GraphicsFormatCoverageTests
         Assert.True(capabilities.SupportsSampleCount(format, 1));
     }
 
+    [Fact]
+    public void AccelerationStructureVertexFormatSupportIsDeviceReported()
+    {
+        var capabilities = new GraphicsDeviceCapabilities(
+            new GraphicsFeatureSet(GraphicsFeature.RayTracing),
+            GraphicsQueueCapabilities.Graphics,
+            default,
+            [new GraphicsFormatCapabilities(
+                GraphicsFormat.RG16Float,
+                GraphicsFormatSupport.AccelerationStructureVertex,
+                GraphicsSampleCountFlags.One)]);
+
+        Assert.True(capabilities.SupportsFormat(
+            GraphicsFormat.RG16Float, GraphicsFormatSupport.AccelerationStructureVertex));
+        Assert.False(capabilities.SupportsFormat(
+            GraphicsFormat.RGBA16Float, GraphicsFormatSupport.AccelerationStructureVertex));
+    }
+
     [Theory]
     [InlineData(0u, 1u, 1u, "Width")]
     [InlineData(1u, 0u, 1u, "Height")]
