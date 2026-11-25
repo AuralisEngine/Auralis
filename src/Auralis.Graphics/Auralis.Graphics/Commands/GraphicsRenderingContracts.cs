@@ -184,7 +184,7 @@ public sealed class GraphicsRenderingDescription
     private static uint HighestSetBit(uint mask)
     {
         uint index = 0;
-        while (mask >>= 1) index++;
+        while ((mask >>= 1) != 0) index++;
         return index;
     }
 
