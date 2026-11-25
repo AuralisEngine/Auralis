@@ -23,8 +23,12 @@ public readonly record struct GraphicsSparseTextureRequirements(
             throw new ArgumentException("The texture must be created with SparseResidency.", nameof(texture));
         if (TileWidth == 0 || TileHeight == 0 || TileDepth == 0 || TileSizeInBytes == 0)
             throw new ArgumentOutOfRangeException(nameof(TileWidth), "Sparse tile dimensions and tile size must be non-zero.");
+        if (texture.Dimension == GraphicsTextureDimension.Texture1D || texture.SampleCount != 1)
+            throw new ArgumentException("Sparse texture requirements are valid only for non-1D, single-sample textures.");
         if (FirstMipTailLevel > texture.MipLevels)
             throw new ArgumentOutOfRangeException(nameof(FirstMipTailLevel));
+        if (MipTailSizeInBytes == 0 && FirstMipTailLevel != texture.MipLevels)
+            throw new ArgumentException("When no mip tail exists, FirstMipTailLevel must equal the texture mip count.");
         if (MipTailSizeInBytes == 0 && (MipTailOffsetInBytes != 0 || MipTailStrideInBytes != 0))
             throw new ArgumentException("Mip-tail offset and stride must be zero when no mip tail is present.");
         if (MipTailSizeInBytes != 0 && FirstMipTailLevel == texture.MipLevels)
@@ -56,8 +60,12 @@ public readonly record struct GraphicsSparseTextureRegion(
             throw new ArgumentOutOfRangeException(nameof(MipLevel), "Regular tile regions must precede the mip tail.");
         if (ArrayLayer >= texture.ArrayLayers)
             throw new ArgumentOutOfRangeException(nameof(ArrayLayer));
-        if (TileWidth == 0 || TileHeight == 0 || TileDepth == 0)
+        if (TileWidth == 0)
             throw new ArgumentOutOfRangeException(nameof(TileWidth));
+        if (TileHeight == 0)
+            throw new ArgumentOutOfRangeException(nameof(TileHeight));
+        if (TileDepth == 0)
+            throw new ArgumentOutOfRangeException(nameof(TileDepth));
         uint mipWidth = Math.Max(1u, texture.Width >> (int)MipLevel);
         uint mipHeight = Math.Max(1u, texture.Height >> (int)MipLevel);
         uint mipDepth = Math.Max(1u, texture.Depth >> (int)MipLevel);

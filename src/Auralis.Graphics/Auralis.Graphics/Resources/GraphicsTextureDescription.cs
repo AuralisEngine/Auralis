@@ -69,6 +69,18 @@ public readonly record struct GraphicsTextureDescription(
         if (SampleCount > 1 && (Dimension != GraphicsTextureDimension.Texture2D || MipLevels != 1))
             throw new ArgumentException("Multisampled textures must be 2D textures with a single mip level.");
 
+        if ((CreationOptions & GraphicsResourceCreationOptions.SparseResidency) != 0)
+        {
+            if (SampleCount != 1)
+                throw new ArgumentException("Sparse-residency textures must be single-sampled.", nameof(SampleCount));
+            if (Dimension == GraphicsTextureDimension.Texture1D)
+                throw new ArgumentException("Sparse residency is not available for 1D textures.", nameof(Dimension));
+        }
+
+        if ((Usage & GraphicsTextureUsage.ShadingRateAttachment) != 0 &&
+            (Dimension != GraphicsTextureDimension.Texture2D || SampleCount != 1))
+            throw new ArgumentException("Shading-rate attachment textures must be single-sample 2D textures.", nameof(Usage));
+
         uint maximumDimension = Dimension switch
         {
             GraphicsTextureDimension.Texture1D => Width,
@@ -105,7 +117,7 @@ public enum GraphicsTextureViewType
 
 /// <summary>
 /// Subresource and format selection for a texture view. Unknown format inherits the texture format.
-/// Reinterpretation is limited to the explicitly documented compatibility pairs and requires MutableFormat.
+/// Reinterpretation requires MutableFormat; exact compatibility is device-reported through GraphicsFormatCapabilities.
 /// </summary>
 public readonly record struct GraphicsTextureViewDescription(
     GraphicsFormat Format,
@@ -137,10 +149,8 @@ public readonly record struct GraphicsTextureViewDescription(
                 throw new ArgumentException(
                     "A texture must be created with MutableFormat before a view can reinterpret its format.",
                     nameof(Format));
-            if (!AreViewFormatsCompatible(texture.Format, viewFormat))
-                throw new ArgumentException(
-                    $"Texture format {viewFormat} is not in the view compatibility class of {texture.Format}.",
-                    nameof(Format));
+            // Exact mutable-format compatibility is backend/device specific and is checked by
+            // GraphicsDeviceCapabilities.ValidateTextureViewDescription.
         }
 
         bool compatible = ViewType switch
@@ -177,21 +187,5 @@ public readonly record struct GraphicsTextureViewDescription(
             throw new ArgumentException("Cube texture view layers must be aligned to six faces.");
     }
 
-    private static bool AreViewFormatsCompatible(GraphicsFormat source, GraphicsFormat view) =>
-        (source, view) switch
-        {
-            (GraphicsFormat.RGBA8UNorm, GraphicsFormat.RGBA8UNormSrgb) or
-            (GraphicsFormat.RGBA8UNormSrgb, GraphicsFormat.RGBA8UNorm) or
-            (GraphicsFormat.BGRA8UNorm, GraphicsFormat.BGRA8UNormSrgb) or
-            (GraphicsFormat.BGRA8UNormSrgb, GraphicsFormat.BGRA8UNorm) or
-            (GraphicsFormat.BC1UNorm, GraphicsFormat.BC1UNormSrgb) or
-            (GraphicsFormat.BC1UNormSrgb, GraphicsFormat.BC1UNorm) or
-            (GraphicsFormat.BC3UNorm, GraphicsFormat.BC3UNormSrgb) or
-            (GraphicsFormat.BC3UNormSrgb, GraphicsFormat.BC3UNorm) or
-            (GraphicsFormat.BC7UNorm, GraphicsFormat.BC7UNormSrgb) or
-            (GraphicsFormat.BC7UNormSrgb, GraphicsFormat.BC7UNorm) or
-            (GraphicsFormat.ASTC4x4UNorm, GraphicsFormat.ASTC4x4UNormSrgb) or
-            (GraphicsFormat.ASTC4x4UNormSrgb, GraphicsFormat.ASTC4x4UNorm) => true,
-            _ => false
-        };
+
 }
