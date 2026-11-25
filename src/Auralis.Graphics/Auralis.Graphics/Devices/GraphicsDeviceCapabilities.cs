@@ -80,7 +80,8 @@ public sealed class GraphicsDeviceCapabilities
             GraphicsFeature.TimelineSynchronization | GraphicsFeature.SparseResources |
             GraphicsFeature.MultiViewport | GraphicsFeature.DepthBoundsTest |
             GraphicsFeature.LogicOperations | GraphicsFeature.WideLines |
-            GraphicsFeature.DepthClamp | GraphicsFeature.FillModeNonSolid;
+            GraphicsFeature.DepthClamp | GraphicsFeature.FillModeNonSolid |
+            GraphicsFeature.DeviceGroups;
         const GraphicsQueueCapabilities allQueues =
             GraphicsQueueCapabilities.Graphics | GraphicsQueueCapabilities.Compute |
             GraphicsQueueCapabilities.Copy | GraphicsQueueCapabilities.Present;
@@ -89,7 +90,7 @@ public sealed class GraphicsDeviceCapabilities
             GraphicsFormatSupport.ColorAttachment | GraphicsFormatSupport.DepthStencilAttachment |
             GraphicsFormatSupport.Blend | GraphicsFormatSupport.VertexBuffer |
             GraphicsFormatSupport.CopySource | GraphicsFormatSupport.CopyDestination |
-            GraphicsFormatSupport.LinearFiltering;
+            GraphicsFormatSupport.LinearFiltering | GraphicsFormatSupport.ShadingRateAttachment;
         const GraphicsSampleCountFlags allSampleCounts =
             GraphicsSampleCountFlags.One | GraphicsSampleCountFlags.Two |
             GraphicsSampleCountFlags.Four | GraphicsSampleCountFlags.Eight |
@@ -267,6 +268,7 @@ public sealed class GraphicsDeviceCapabilities
         if ((usage & GraphicsTextureUsage.DepthStencilAttachment) != 0) required |= GraphicsFormatSupport.DepthStencilAttachment;
         if ((usage & GraphicsTextureUsage.CopySource) != 0) required |= GraphicsFormatSupport.CopySource;
         if ((usage & GraphicsTextureUsage.CopyDestination) != 0) required |= GraphicsFormatSupport.CopyDestination;
+        if ((usage & GraphicsTextureUsage.ShadingRateAttachment) != 0) required |= GraphicsFormatSupport.ShadingRateAttachment;
         // Presentation compatibility is surface/queue-specific, not a per-format capability.
         return required;
     }
