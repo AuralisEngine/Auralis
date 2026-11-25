@@ -458,10 +458,14 @@ public readonly record struct GraphicsResourceBarrier(
         if (SourceStages == GraphicsPipelineStage.None || DestinationStages == GraphicsPipelineStage.None ||
             (SourceStages & ~allStages) != 0 || (DestinationStages & ~allStages) != 0)
             throw new ArgumentException("Resource barriers require valid, non-empty source and destination stages.");
-        if ((SourceAccess & ~allAccess) != 0 || (DestinationAccess & ~allAccess) != 0)
-            throw new ArgumentOutOfRangeException(nameof(SourceAccess), "Resource access flags contain unknown values.");
-        if (!Enum.IsDefined(OldLayout) || !Enum.IsDefined(NewLayout))
+        if ((SourceAccess & ~allAccess) != 0)
+            throw new ArgumentOutOfRangeException(nameof(SourceAccess), "Source access flags contain unknown values.");
+        if ((DestinationAccess & ~allAccess) != 0)
+            throw new ArgumentOutOfRangeException(nameof(DestinationAccess), "Destination access flags contain unknown values.");
+        if (!Enum.IsDefined(OldLayout))
             throw new ArgumentOutOfRangeException(nameof(OldLayout));
+        if (!Enum.IsDefined(NewLayout))
+            throw new ArgumentOutOfRangeException(nameof(NewLayout));
 
         switch (Resource)
         {
