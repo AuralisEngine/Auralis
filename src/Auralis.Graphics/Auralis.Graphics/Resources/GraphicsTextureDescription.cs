@@ -22,8 +22,7 @@ public readonly record struct GraphicsTextureDescription(
             GraphicsTextureUsage.Present;
         const GraphicsResourceCreationOptions allOptions =
             GraphicsResourceCreationOptions.DedicatedAllocation | GraphicsResourceCreationOptions.AllowAliasing |
-            GraphicsResourceCreationOptions.MutableFormat | GraphicsResourceCreationOptions.RequireExplicitMemoryBinding |
-            GraphicsResourceCreationOptions.Sparse;
+            GraphicsResourceCreationOptions.MutableFormat | GraphicsResourceCreationOptions.RequireExplicitMemoryBinding;
 
         if (!Enum.IsDefined(Dimension))
             throw new ArgumentOutOfRangeException(nameof(Dimension));
@@ -42,8 +41,6 @@ public readonly record struct GraphicsTextureDescription(
         if ((CreationOptions & ~allOptions) != 0 ||
             (CreationOptions & conflictingOptions) == conflictingOptions ||
             ((CreationOptions & GraphicsResourceCreationOptions.RequireExplicitMemoryBinding) != 0 &&
-             (CreationOptions & (GraphicsResourceCreationOptions.DedicatedAllocation | GraphicsResourceCreationOptions.Sparse)) != 0) ||
-            ((CreationOptions & GraphicsResourceCreationOptions.Sparse) != 0 &&
              (CreationOptions & GraphicsResourceCreationOptions.DedicatedAllocation) != 0))
             throw new ArgumentOutOfRangeException(nameof(CreationOptions));
 
