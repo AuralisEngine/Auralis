@@ -93,8 +93,7 @@ public sealed class AdvancedGraphicsTests
     [Fact]
     public void AccelerationStructureGeometry_RejectsNonDefaultInactiveUnionMember()
     {
-        var triangleBuffer = new GraphicsDeviceFactoryTests.TestBufferForContracts();
-        var unusedAabb = new GraphicsRayTracingAabbGeometry(null!, 0, 0, 0);
+        var unusedAabb = new GraphicsRayTracingAabbGeometry(null!, 1, 0, 0);
         var geometry = new GraphicsAccelerationStructureGeometry(
             GraphicsAccelerationStructureGeometryType.Triangles,
             default,
