@@ -532,6 +532,10 @@ public interface IGraphicsAccelerationStructure : IGraphicsResource
 {
     GraphicsAccelerationStructureDescription Description { get; }
     bool IsTopLevel { get; }
+
+    /// <summary>Current built TLAS instance count; zero for BLAS resources or an unbuilt TLAS.</summary>
+    uint InstanceCount { get; }
+
     ulong DeviceAddress { get; }
 }
 
@@ -641,6 +645,113 @@ public enum GraphicsAccelerationStructureCopyMode
 /// Optional command-list extension for building, compacting, and dispatching ray-tracing structures.
 /// TLAS instance data is supplied at build time; BLAS builds pass an empty instance span.
 /// </summary>
+
+/// <summary>
+/// Shared validation helpers for ray-tracing command-list implementations. Backends should call these
+/// before recording build, compacted-size query, and copy commands.
+/// </summary>
+public static class GraphicsRayTracingCommandValidation
+{
+    public static void ValidateBuild(
+        IGraphicsAccelerationStructure destination,
+        IGraphicsAccelerationStructure? source,
+        IGraphicsBuffer scratchBuffer,
+        ulong scratchOffset,
+        GraphicsAccelerationStructureBuildFlags flags,
+        ReadOnlySpan<GraphicsRayTracingInstance> instances)
+    {
+        ArgumentNullException.ThrowIfNull(destination);
+        ArgumentNullException.ThrowIfNull(scratchBuffer);
+        if (destination.IsDisposed || destination.Device.IsDisposed)
+            throw new ObjectDisposedException(nameof(destination));
+        if (scratchBuffer.IsDisposed || scratchBuffer.Device.IsDisposed)
+            throw new ObjectDisposedException(nameof(scratchBuffer));
+        if (!ReferenceEquals(destination.Device, scratchBuffer.Device))
+            throw new ArgumentException("The destination structure and scratch buffer must belong to the same device.", nameof(scratchBuffer));
+        if ((scratchBuffer.Description.Usage & GraphicsBufferUsage.Storage) == 0)
+            throw new ArgumentException("Acceleration-structure scratch buffers must declare Storage usage.", nameof(scratchBuffer));
+        if (scratchOffset >= scratchBuffer.Description.SizeInBytes)
+            throw new ArgumentOutOfRangeException(nameof(scratchOffset));
+
+        const GraphicsAccelerationStructureBuildFlags allFlags =
+            GraphicsAccelerationStructureBuildFlags.AllowUpdate |
+            GraphicsAccelerationStructureBuildFlags.AllowCompaction |
+            GraphicsAccelerationStructureBuildFlags.PreferFastTrace |
+            GraphicsAccelerationStructureBuildFlags.PreferFastBuild |
+            GraphicsAccelerationStructureBuildFlags.MinimizeMemory;
+        if ((flags & ~allFlags) != 0)
+            throw new ArgumentOutOfRangeException(nameof(flags));
+        if (destination.IsTopLevel != destination.Description.IsTopLevel)
+            throw new ArgumentException("The destination structure kind does not match its description.", nameof(destination));
+
+        if (destination.IsTopLevel)
+            destination.Description.ValidateInstances(destination.Device, instances);
+        else if (!instances.IsEmpty)
+            throw new ArgumentException("BLAS builds must not provide TLAS instance data.", nameof(instances));
+
+        if (source is null)
+            return;
+
+        if (source.IsDisposed || source.Device.IsDisposed)
+            throw new ObjectDisposedException(nameof(source));
+        if (!ReferenceEquals(source.Device, destination.Device))
+            throw new ArgumentException("Source and destination acceleration structures must belong to the same device.", nameof(source));
+        if (ReferenceEquals(source, destination))
+            throw new ArgumentException("An acceleration structure cannot be updated in place using itself as the source.", nameof(source));
+        if (source.IsTopLevel != destination.IsTopLevel)
+            throw new ArgumentException("Source and destination acceleration structures must have the same kind.", nameof(source));
+        if ((source.Description.Flags & GraphicsAccelerationStructureBuildFlags.AllowUpdate) == 0)
+            throw new ArgumentException("The source acceleration structure was not created with AllowUpdate.", nameof(source));
+        if (source.IsTopLevel && source.InstanceCount != (uint)instances.Length)
+            throw new ArgumentException("A TLAS update must preserve the source instance count.", nameof(instances));
+    }
+
+    public static void ValidateCompactedSizeWrite(
+        IGraphicsAccelerationStructure accelerationStructure,
+        IGraphicsQueryPool queryPool,
+        uint queryIndex)
+    {
+        ArgumentNullException.ThrowIfNull(accelerationStructure);
+        ArgumentNullException.ThrowIfNull(queryPool);
+        if (accelerationStructure.IsDisposed || accelerationStructure.Device.IsDisposed)
+            throw new ObjectDisposedException(nameof(accelerationStructure));
+        if (queryPool.IsDisposed || queryPool.Device.IsDisposed)
+            throw new ObjectDisposedException(nameof(queryPool));
+        if (!ReferenceEquals(accelerationStructure.Device, queryPool.Device))
+            throw new ArgumentException("The acceleration structure and query pool must belong to the same device.", nameof(queryPool));
+        if ((accelerationStructure.Description.Flags & GraphicsAccelerationStructureBuildFlags.AllowCompaction) == 0)
+            throw new ArgumentException("The acceleration structure was not created with AllowCompaction.", nameof(accelerationStructure));
+        if (queryPool.Description.Type != GraphicsQueryType.AccelerationStructureCompactedSize)
+            throw new ArgumentException("Compacted-size writes require an acceleration-structure compacted-size query pool.", nameof(queryPool));
+        if (queryIndex >= queryPool.Description.QueryCount)
+            throw new ArgumentOutOfRangeException(nameof(queryIndex));
+    }
+
+    public static void ValidateCopy(
+        IGraphicsAccelerationStructure source,
+        IGraphicsAccelerationStructure destination,
+        GraphicsAccelerationStructureCopyMode mode)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        ArgumentNullException.ThrowIfNull(destination);
+        if (source.IsDisposed || source.Device.IsDisposed)
+            throw new ObjectDisposedException(nameof(source));
+        if (destination.IsDisposed || destination.Device.IsDisposed)
+            throw new ObjectDisposedException(nameof(destination));
+        if (!Enum.IsDefined(mode))
+            throw new ArgumentOutOfRangeException(nameof(mode));
+        if (!ReferenceEquals(source.Device, destination.Device))
+            throw new ArgumentException("Source and destination acceleration structures must belong to the same device.");
+        if (ReferenceEquals(source, destination))
+            throw new ArgumentException("An acceleration structure cannot be copied onto itself.", nameof(destination));
+        if (source.IsTopLevel != destination.IsTopLevel)
+            throw new ArgumentException("Source and destination acceleration structures must have the same kind.", nameof(destination));
+        if (mode == GraphicsAccelerationStructureCopyMode.Compact &&
+            (source.Description.Flags & GraphicsAccelerationStructureBuildFlags.AllowCompaction) == 0)
+            throw new ArgumentException("The source acceleration structure was not created with AllowCompaction.", nameof(source));
+    }
+}
+
 public interface IGraphicsRayTracingCommandList : IGraphicsCommandList
 {
     void BuildAccelerationStructure(
