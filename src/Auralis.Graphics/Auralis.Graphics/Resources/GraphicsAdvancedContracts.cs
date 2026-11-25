@@ -851,9 +851,6 @@ public static class GraphicsRayTracingCommandValidation
         if (mode == GraphicsAccelerationStructureCopyMode.Compact &&
             (source.Description.Flags & GraphicsAccelerationStructureBuildFlags.AllowCompaction) == 0)
             throw new ArgumentException("The source acceleration structure was not created with AllowCompaction.", nameof(source));
-        if (mode == GraphicsAccelerationStructureCopyMode.Compact &&
-            (destination.Description.Flags & GraphicsAccelerationStructureBuildFlags.AllowCompaction) != 0)
-            throw new ArgumentException("A compacted destination must not request another compaction capability.", nameof(destination));
     }
 }
 
