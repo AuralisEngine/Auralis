@@ -599,6 +599,7 @@ public sealed class GraphicsReviewRegressionTests
         public IGraphicsDevice Device { get; } = device;
         public GraphicsQueueType QueueType { get; } = queueType;
         public uint Index => 0;
+        public uint QueueFamilyIndex => 0;
         public IGraphicsCommandList CreateCommandList(GraphicsCommandListUsage usage = GraphicsCommandListUsage.Reusable) =>
             throw new NotSupportedException();
         public void Submit(ReadOnlySpan<IGraphicsCommandList> commandLists, IGraphicsFence? signalFence = null, ulong signalValue = 0) =>
