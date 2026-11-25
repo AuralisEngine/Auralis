@@ -10,11 +10,16 @@ public enum GraphicsDeviceStatus
     Disposed
 }
 
-/// <summary>Optional device extension for querying device-loss state and its diagnostic reason.</summary>
+/// <summary>
+/// Optional device extension for querying device-loss state and its diagnostic reason.
+/// State transitions are monotonic: Operational may become Lost, and either state may become Disposed.
+/// A lost device is not expected to recover in place; applications create a replacement device.
+/// </summary>
 public interface IGraphicsDeviceHealth
 {
     GraphicsDeviceStatus Status { get; }
     string? FailureReason { get; }
+    /// <summary>Raised after a lifecycle state transition; handlers should not block the backend notification thread.</summary>
     event Action<GraphicsDeviceStatus>? StatusChanged;
 }
 
