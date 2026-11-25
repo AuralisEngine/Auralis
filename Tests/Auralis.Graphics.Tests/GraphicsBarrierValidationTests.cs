@@ -175,8 +175,8 @@ public sealed class GraphicsBarrierValidationTests
             GraphicsResourceAccess.None, GraphicsResourceAccess.ShaderRead,
             OwnershipTransfer: new GraphicsQueueOwnershipTransfer(
                 source, destination, GraphicsQueueOwnershipTransferPhase.Acquire));
-        release.Validate();
-        acquire.Validate();
+        Assert.Throws<InvalidOperationException>(release.Validate);
+        Assert.Throws<InvalidOperationException>(acquire.Validate);
         release.Validate(source);
         acquire.Validate(destination);
         Assert.Throws<ArgumentException>(() => release.Validate(destination));
