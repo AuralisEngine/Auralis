@@ -13,8 +13,10 @@ public interface IGraphicsBuffer : IGraphicsResource
     GraphicsBufferDescription Description { get; }
 
     /// <summary>
-    /// Maps a CPU-visible buffer range. The returned memory is valid only until Unmap is called.
+    /// Maps one CPU-visible buffer window. The returned memory is valid only until Unmap is called.
     /// Mapping GPU-only memory is an error. Backends perform any required cache maintenance.
+    /// Memory&lt;byte&gt; has an Int32 length, so one window cannot exceed Int32.MaxValue bytes; larger
+    /// buffers must be mapped through multiple explicit windows.
     /// </summary>
     Memory<byte> Map(GraphicsMapMode mode, ulong offset = 0, ulong size = ulong.MaxValue);
 

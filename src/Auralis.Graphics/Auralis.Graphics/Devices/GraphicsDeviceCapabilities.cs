@@ -25,8 +25,21 @@ public readonly record struct GraphicsDeviceLimits(
 public readonly record struct GraphicsFormatCapabilities(
     GraphicsFormat Format,
     GraphicsFormatSupport Support,
-    GraphicsSampleCountFlags SampleCounts)
+    GraphicsSampleCountFlags SampleCounts,
+    ReadOnlyMemory<GraphicsFormat> ViewCompatibleFormats = default)
 {
+    public bool SupportsViewFormat(GraphicsFormat viewFormat)
+    {
+        if (viewFormat == Format)
+            return true;
+        ReadOnlySpan<GraphicsFormat> compatibleFormats = ViewCompatibleFormats.Span;
+        for (int i = 0; i < compatibleFormats.Length; i++)
+        {
+            if (compatibleFormats[i] == viewFormat)
+                return true;
+        }
+        return false;
+    }
     public bool Supports(GraphicsFormatSupport support) =>
         support != GraphicsFormatSupport.None && (Support & support) == support;
 
@@ -108,7 +121,15 @@ public sealed class GraphicsDeviceCapabilities
         Features = features;
         QueueCapabilities = queueCapabilities;
         Limits = limits;
-        _formats = formats.ToArray();
+        _formats = new GraphicsFormatCapabilities[formats.Length];
+        for (int i = 0; i < formats.Length; i++)
+        {
+            ReadOnlyMemory<GraphicsFormat> compatible = formats[i].ViewCompatibleFormats;
+            _formats[i] = formats[i] with
+            {
+                ViewCompatibleFormats = compatible.IsEmpty ? ReadOnlyMemory<GraphicsFormat>.Empty : compatible.ToArray()
+            };
+        }
 
         for (int i = 0; i < _formats.Length; i++)
         {
@@ -191,6 +212,9 @@ public sealed class GraphicsDeviceCapabilities
         view.Validate(texture);
 
         GraphicsFormat viewFormat = view.Format == GraphicsFormat.Unknown ? texture.Format : view.Format;
+        if (!TryGetFormatCapabilities(texture.Format, out GraphicsFormatCapabilities resourceFormat) ||
+            !resourceFormat.SupportsViewFormat(viewFormat))
+            throw new GraphicsException($"The device does not report {viewFormat} as a compatible view format for {texture.Format}.");
         if (!TryGetFormatCapabilities(viewFormat, out GraphicsFormatCapabilities format))
             throw new GraphicsException($"The device did not report support information for texture-view format {viewFormat}.");
 

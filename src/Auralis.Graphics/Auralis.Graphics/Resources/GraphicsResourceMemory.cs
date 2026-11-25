@@ -21,6 +21,15 @@ public readonly record struct GraphicsMemoryRequirements(
         if (RequiresDedicatedAllocation && !PrefersDedicatedAllocation)
             throw new ArgumentException("A required dedicated allocation is necessarily preferred.");
     }
+
+    public void Validate(in GraphicsBufferDescription buffer)
+    {
+        Validate();
+        buffer.Validate();
+        if (buffer.MinimumAlignment != 0 &&
+            (Alignment < buffer.MinimumAlignment || Alignment % buffer.MinimumAlignment != 0))
+            throw new ArgumentException("Resource memory alignment does not satisfy the buffer's MinimumAlignment.", nameof(Alignment));
+    }
 }
 
 /// <summary>
@@ -45,9 +54,12 @@ public readonly record struct GraphicsResourceMemoryBinding(
 {
     public void Validate(in GraphicsMemoryRequirements requirements)
     {
-        requirements.Validate();
         ArgumentNullException.ThrowIfNull(Resource);
         ArgumentNullException.ThrowIfNull(Allocation);
+        if (Resource is IGraphicsBuffer resourceBuffer)
+            requirements.Validate(resourceBuffer.Description);
+        else
+            requirements.Validate();
 
         if (Resource.IsDisposed || Resource.Device.IsDisposed)
             throw new ObjectDisposedException(nameof(Resource));

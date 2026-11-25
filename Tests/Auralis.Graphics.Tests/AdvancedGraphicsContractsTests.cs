@@ -16,7 +16,7 @@ public sealed class AdvancedGraphicsTests
             Alignment: 256,
             MemoryTypeBits: 0b101,
             RequiredProperties: GraphicsMemoryProperty.DeviceLocal,
-            PreferredProperties: GraphicsMemoryProperty.HostCached,
+            PreferredProperties: GraphicsMemoryProperty.HostVisible | GraphicsMemoryProperty.HostCached,
             Usage: GraphicsMemoryUsage.GpuOnly);
 
         description.Validate();
@@ -32,6 +32,20 @@ public sealed class AdvancedGraphicsTests
             GraphicsMemoryProperty.None, GraphicsMemoryUsage.GpuOnly);
 
         Assert.Throws<ArgumentOutOfRangeException>(description.Validate);
+    }
+
+    [Fact]
+    public void MemoryAllocationDescription_RejectsContradictoryMemoryProperties()
+    {
+        var hostCached = new GraphicsMemoryAllocationDescription(
+            1024, 256, 1, GraphicsMemoryProperty.HostCached,
+            GraphicsMemoryProperty.None, GraphicsMemoryUsage.CpuToGpu);
+        var lazyHostVisible = new GraphicsMemoryAllocationDescription(
+            1024, 256, 1, GraphicsMemoryProperty.DeviceLocal | GraphicsMemoryProperty.HostVisible |
+                GraphicsMemoryProperty.LazilyAllocated,
+            GraphicsMemoryProperty.None, GraphicsMemoryUsage.TransientAttachment);
+        Assert.Throws<ArgumentException>(hostCached.Validate);
+        Assert.Throws<ArgumentException>(lazyHostVisible.Validate);
     }
 
     [Fact]
@@ -328,6 +342,13 @@ public sealed class AdvancedGraphicsTests
     public void ShaderBindingTableProperties_RequirePowerOfTwoAlignment()
     {
         var properties = new GraphicsShaderBindingTableProperties(32, 24, 64, 4096);
+        Assert.Throws<ArgumentException>(properties.Validate);
+    }
+
+    [Fact]
+    public void ShaderBindingTableProperties_RequireBaseAlignmentAtLeastHandleAlignment()
+    {
+        var properties = new GraphicsShaderBindingTableProperties(32, 64, 32, 4096);
         Assert.Throws<ArgumentException>(properties.Validate);
     }
 }

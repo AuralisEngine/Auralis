@@ -18,7 +18,10 @@ public readonly record struct GraphicsShaderBindingTableProperties(
     public void Validate()
     {
         if (ShaderGroupHandleSize == 0 || !IsPowerOfTwo(ShaderGroupHandleAlignment) ||
-            !IsPowerOfTwo(ShaderGroupBaseAlignment) || MaximumShaderGroupStride < ShaderGroupHandleSize)
+            !IsPowerOfTwo(ShaderGroupBaseAlignment) ||
+            ShaderGroupBaseAlignment < ShaderGroupHandleAlignment ||
+            ShaderGroupBaseAlignment % ShaderGroupHandleAlignment != 0 ||
+            MaximumShaderGroupStride < ShaderGroupHandleSize)
             throw new ArgumentException("Shader binding table properties contain invalid size or alignment values.");
     }
 
@@ -171,13 +174,14 @@ public static class GraphicsShaderBindingTableWriter
     {
         ArgumentNullException.ThrowIfNull(device);
         ArgumentNullException.ThrowIfNull(pipeline);
+        if (device.Device.IsDisposed || pipeline.IsDisposed || pipeline.Device.IsDisposed)
+            throw new ObjectDisposedException(nameof(pipeline));
         if (!ReferenceEquals(pipeline.Device, device.Device))
             throw new ArgumentException("The pipeline and shader-table device must belong to the same graphics device.");
 
         GraphicsShaderBindingTableProperties properties = device.ShaderBindingTableProperties;
+        properties.Validate();
         GraphicsShaderBindingTableLayout layout = GetLayout(records, properties);
-        if (handleScratch.Length < properties.ShaderGroupHandleSize)
-            throw new ArgumentException("Handle scratch storage is smaller than one shader-group handle.", nameof(handleScratch));
         if ((ulong)destination.Length < layout.SizeInBytes)
             throw new ArgumentException("Destination storage is too small for the shader binding table.", nameof(destination));
 
@@ -189,14 +193,27 @@ public static class GraphicsShaderBindingTableWriter
                 throw new ArgumentOutOfRangeException(nameof(records), "A record references a shader group outside the pipeline.");
         }
 
-        Span<byte> handle = handleScratch[..handleSize];
+        int allHandlesSize = checked(handleSize * pipeline.Description.Groups.Length);
+        if (handleScratch.Length < allHandlesSize)
+            throw new ArgumentException("Handle scratch storage must hold one handle for every pipeline shader group.", nameof(handleScratch));
+        Span<byte> handles = handleScratch[..allHandlesSize];
+        Span<byte> destinationSpan = destination[..checked((int)layout.SizeInBytes)];
+        if (handles.Overlaps(destinationSpan))
+            throw new ArgumentException("Handle scratch storage and destination storage must not overlap.");
+        for (int i = 0; i < records.Length; i++)
+        {
+            if (records[i].LocalData.Span.Overlaps(destinationSpan) ||
+                records[i].LocalData.Span.Overlaps(handles))
+                throw new ArgumentException("Record local data must not overlap the destination or handle scratch storage.", nameof(records));
+        }
+
+        device.GetShaderGroupHandles(pipeline, 0, handles);
         for (int i = 0; i < records.Length; i++)
         {
             GraphicsShaderBindingTableRecord record = records[i];
             Span<byte> destinationRecord = destination.Slice(checked(i * stride), stride);
             destinationRecord.Clear();
-            device.GetShaderGroupHandles(pipeline, record.ShaderGroupIndex, handle);
-            handle.CopyTo(destinationRecord);
+            handles.Slice(checked((int)record.ShaderGroupIndex * handleSize), handleSize).CopyTo(destinationRecord);
             record.LocalData.Span.CopyTo(destinationRecord[handleSize..]);
         }
 
