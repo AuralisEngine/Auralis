@@ -158,7 +158,7 @@ public interface IGraphicsQueue
 {
     IGraphicsDevice Device { get; }
 
-    /// <summary>Index within the backend-reported queue family.</summary>
+    /// <summary>Queue index within QueueFamilyIndex; the pair identifies a queue on this device.</summary>
     uint Index { get; }
 
     /// <summary>Backend-reported queue-family identity. Backends without families expose one shared family identity.</summary>

@@ -354,13 +354,15 @@ internal static class GraphicsBarrierCompatibility
 }
 
 /// <summary>
-/// Identifies a queue ownership transfer for resources whose backend requires exclusive queue ownership.
-/// This describes ownership only; it does not submit a cross-queue dependency or wait automatically.
-/// The caller must order source-queue work before the release and destination-queue work after the acquire.
+/// Identifies which queue-family ownership transfer half the barrier represents.
+/// A Release barrier is recorded on SourceQueue; an Acquire barrier is recorded on DestinationQueue.
+/// The application must order those submissions using a source signal and a destination queue wait.
 /// </summary>
 public enum GraphicsQueueOwnershipTransferPhase
 {
+    /// <summary>Record the release half on SourceQueue.</summary>
     Release,
+    /// <summary>Record the acquire half on DestinationQueue.</summary>
     Acquire
 }
 
@@ -387,6 +389,27 @@ public readonly record struct GraphicsResourceBarrier(
     GraphicsTextureSubresourceRange? TextureRange = null,
     GraphicsQueueOwnershipTransfer? OwnershipTransfer = null)
 {
+    /// <summary>Validates the barrier and verifies that this queue is the queue required for its ownership-transfer phase.</summary>
+    public void Validate(IGraphicsQueue recordingQueue)
+    {
+        ArgumentNullException.ThrowIfNull(recordingQueue);
+        Validate();
+        if (!ReferenceEquals(recordingQueue.Device, Resource.Device))
+            throw new ArgumentException("The recording queue and barrier resource must belong to the same device.", nameof(recordingQueue));
+
+        if (OwnershipTransfer is { } transfer)
+        {
+            IGraphicsQueue expectedQueue = transfer.Phase == GraphicsQueueOwnershipTransferPhase.Release
+                ? transfer.SourceQueue
+                : transfer.DestinationQueue;
+            if (recordingQueue.QueueFamilyIndex != expectedQueue.QueueFamilyIndex ||
+                recordingQueue.Index != expectedQueue.Index)
+                throw new ArgumentException(
+                    $"The {transfer.Phase} ownership barrier must be recorded on the corresponding source/destination queue.",
+                    nameof(recordingQueue));
+        }
+    }
+
     public void Validate()
     {
         ArgumentNullException.ThrowIfNull(Resource);

@@ -177,7 +177,9 @@ public sealed class GraphicsBarrierValidationTests
                 source, destination, GraphicsQueueOwnershipTransferPhase.Acquire));
         release.Validate();
         acquire.Validate();
-
+        release.Validate(source);
+        acquire.Validate(destination);
+        Assert.Throws<ArgumentException>(() => release.Validate(destination));
         Assert.Throws<ArgumentException>(() =>
             (release with
             {
