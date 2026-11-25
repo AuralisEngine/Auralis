@@ -1,5 +1,6 @@
 using Auralis.Graphics.Abstractions;
 using Auralis.Graphics.Commands;
+using Auralis.Graphics.Synchronization;
 
 namespace Auralis.Graphics.Devices;
 
