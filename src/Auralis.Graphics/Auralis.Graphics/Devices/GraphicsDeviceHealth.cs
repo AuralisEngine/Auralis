@@ -1,3 +1,5 @@
+using Auralis.Graphics.Abstractions;
+
 namespace Auralis.Graphics.Devices;
 
 /// <summary>Observable lifecycle state of a graphics device.</summary>
@@ -19,8 +21,13 @@ public interface IGraphicsDeviceHealth
 /// <summary>Raised when an operation cannot proceed because the graphics device has been lost.</summary>
 public sealed class GraphicsDeviceLostException : GraphicsException
 {
-    public GraphicsDeviceLostException(string? message = null, Exception? innerException = null)
-        : base(message ?? "The graphics device has been lost.", innerException)
+    public GraphicsDeviceLostException(string? message = null)
+        : base(message ?? "The graphics device has been lost.")
+    {
+    }
+
+    public GraphicsDeviceLostException(string message, Exception innerException)
+        : base(message, innerException)
     {
     }
 }
