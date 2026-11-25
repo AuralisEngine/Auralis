@@ -234,6 +234,15 @@ public sealed class AdvancedGraphicsTests
     }
 
     [Fact]
+    public void TextureDescription_AcceptsShadingRateAttachmentUsage()
+    {
+        var description = new GraphicsTextureDescription(
+            GraphicsTextureDimension.Texture2D, GraphicsFormat.R8UInt,
+            64, 64, 1, 1, 1, 1, GraphicsTextureUsage.ShadingRateAttachment);
+        description.Validate();
+    }
+
+    [Fact]
     public void DeviceGroupMask_RejectsBitsOutsideDeviceCount()
     {
         Assert.Throws<ArgumentOutOfRangeException>(() => new GraphicsDeviceGroupMask(0b1000).Validate(3));
