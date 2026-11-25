@@ -267,11 +267,32 @@ public sealed class AdvancedGraphicsTests
     }
 
     [Fact]
+    public void SparseResidencyCreation_RejectsConflictingMemoryOptions()
+    {
+        var buffer = new GraphicsBufferDescription(
+            4096, GraphicsBufferUsage.Storage,
+            CreationOptions: GraphicsResourceCreationOptions.SparseResidency |
+                            GraphicsResourceCreationOptions.RequireExplicitMemoryBinding);
+        Assert.Throws<ArgumentOutOfRangeException>(buffer.Validate);
+    }
+
+    [Fact]
+    public void SparseResidencyCreation_AcceptsSparseTextureIntent()
+    {
+        var texture = new GraphicsTextureDescription(
+            GraphicsTextureDimension.Texture2D, GraphicsFormat.R8UInt,
+            64, 64, 1, 1, 1, 1, GraphicsTextureUsage.Sampled,
+            GraphicsResourceCreationOptions.SparseResidency);
+        texture.Validate();
+    }
+
+    [Fact]
     public void SparseTextureRequirements_RejectZeroTileSize()
     {
         var texture = new GraphicsTextureDescription(
             GraphicsTextureDimension.Texture2D, GraphicsFormat.RGBA8UNorm,
-            256, 256, 1, 9, 1, 1, GraphicsTextureUsage.Sampled);
+            256, 256, 1, 9, 1, 1, GraphicsTextureUsage.Sampled,
+            GraphicsResourceCreationOptions.SparseResidency);
         var requirements = new GraphicsSparseTextureRequirements(64, 64, 1, 0, 0, 0, 0, 0, false);
 
         Assert.Throws<ArgumentOutOfRangeException>(() => requirements.Validate(texture));

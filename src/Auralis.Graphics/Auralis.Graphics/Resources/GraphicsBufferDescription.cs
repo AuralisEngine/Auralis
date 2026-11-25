@@ -18,7 +18,8 @@ public readonly record struct GraphicsBufferDescription(
             GraphicsBufferUsage.ShaderBindingTable;
         const GraphicsResourceCreationOptions allOptions =
             GraphicsResourceCreationOptions.DedicatedAllocation | GraphicsResourceCreationOptions.AllowAliasing |
-            GraphicsResourceCreationOptions.RequireExplicitMemoryBinding;
+            GraphicsResourceCreationOptions.RequireExplicitMemoryBinding |
+            GraphicsResourceCreationOptions.SparseResidency;
 
         if (SizeInBytes == 0)
             throw new ArgumentOutOfRangeException(nameof(SizeInBytes), "Buffer size must be greater than zero.");
@@ -32,11 +33,18 @@ public readonly record struct GraphicsBufferDescription(
         if (!Enum.IsDefined(MemoryPreference))
             throw new ArgumentOutOfRangeException(nameof(MemoryPreference));
 
+        const GraphicsResourceCreationOptions sparseConflicts =
+            GraphicsResourceCreationOptions.DedicatedAllocation |
+            GraphicsResourceCreationOptions.AllowAliasing |
+            GraphicsResourceCreationOptions.RequireExplicitMemoryBinding;
+
         if ((CreationOptions & ~allOptions) != 0 ||
             (CreationOptions & (GraphicsResourceCreationOptions.DedicatedAllocation | GraphicsResourceCreationOptions.AllowAliasing)) ==
                 (GraphicsResourceCreationOptions.DedicatedAllocation | GraphicsResourceCreationOptions.AllowAliasing) ||
             ((CreationOptions & GraphicsResourceCreationOptions.RequireExplicitMemoryBinding) != 0 &&
-             (CreationOptions & GraphicsResourceCreationOptions.DedicatedAllocation) != 0))
+             (CreationOptions & GraphicsResourceCreationOptions.DedicatedAllocation) != 0) ||
+            ((CreationOptions & GraphicsResourceCreationOptions.SparseResidency) != 0 &&
+             (CreationOptions & sparseConflicts) != 0))
             throw new ArgumentOutOfRangeException(nameof(CreationOptions));
     }
 }

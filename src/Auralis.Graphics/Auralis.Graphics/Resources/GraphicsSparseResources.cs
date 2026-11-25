@@ -19,6 +19,8 @@ public readonly record struct GraphicsSparseTextureRequirements(
     public void Validate(in GraphicsTextureDescription texture)
     {
         texture.Validate();
+        if ((texture.CreationOptions & GraphicsResourceCreationOptions.SparseResidency) == 0)
+            throw new ArgumentException("The texture must be created with SparseResidency.", nameof(texture));
         if (TileWidth == 0 || TileHeight == 0 || TileDepth == 0 || TileSizeInBytes == 0)
             throw new ArgumentOutOfRangeException(nameof(TileWidth), "Sparse tile dimensions and tile size must be non-zero.");
         if (FirstMipTailLevel > texture.MipLevels)
@@ -145,6 +147,8 @@ public readonly record struct GraphicsSparseBufferRequirements(ulong TileSizeInB
     public void Validate(in GraphicsBufferDescription buffer)
     {
         buffer.Validate();
+        if ((buffer.CreationOptions & GraphicsResourceCreationOptions.SparseResidency) == 0)
+            throw new ArgumentException("The buffer must be created with SparseResidency.", nameof(buffer));
         if (TileSizeInBytes == 0 || Alignment == 0 ||
             (Alignment & (Alignment - 1)) != 0)
             throw new ArgumentException("Sparse buffer tile size and alignment are invalid.");

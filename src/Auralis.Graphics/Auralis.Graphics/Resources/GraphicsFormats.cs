@@ -95,6 +95,8 @@ public enum GraphicsResourceCreationOptions
     MutableFormat = 1 << 2,
     /// <summary>Creates the resource without backing memory; it must be bound before GPU use.</summary>
     RequireExplicitMemoryBinding = 1 << 3,
+    /// <summary>Creates a resource with sparse residency; pages/tiles must be mapped through the sparse-resource device extension.</summary>
+    SparseResidency = 1 << 4,
 }
 
 /// <summary>Texture resource dimensionality.</summary>

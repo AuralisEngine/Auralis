@@ -22,7 +22,8 @@ public readonly record struct GraphicsTextureDescription(
             GraphicsTextureUsage.Present | GraphicsTextureUsage.ShadingRateAttachment;
         const GraphicsResourceCreationOptions allOptions =
             GraphicsResourceCreationOptions.DedicatedAllocation | GraphicsResourceCreationOptions.AllowAliasing |
-            GraphicsResourceCreationOptions.MutableFormat | GraphicsResourceCreationOptions.RequireExplicitMemoryBinding;
+            GraphicsResourceCreationOptions.MutableFormat | GraphicsResourceCreationOptions.RequireExplicitMemoryBinding |
+            GraphicsResourceCreationOptions.SparseResidency;
 
         if (!Enum.IsDefined(Dimension))
             throw new ArgumentOutOfRangeException(nameof(Dimension));
@@ -38,10 +39,16 @@ public readonly record struct GraphicsTextureDescription(
             throw new ArgumentOutOfRangeException(nameof(Usage));
         const GraphicsResourceCreationOptions conflictingOptions =
             GraphicsResourceCreationOptions.DedicatedAllocation | GraphicsResourceCreationOptions.AllowAliasing;
+        const GraphicsResourceCreationOptions sparseConflicts =
+            GraphicsResourceCreationOptions.DedicatedAllocation |
+            GraphicsResourceCreationOptions.AllowAliasing |
+            GraphicsResourceCreationOptions.RequireExplicitMemoryBinding;
         if ((CreationOptions & ~allOptions) != 0 ||
             (CreationOptions & conflictingOptions) == conflictingOptions ||
             ((CreationOptions & GraphicsResourceCreationOptions.RequireExplicitMemoryBinding) != 0 &&
-             (CreationOptions & GraphicsResourceCreationOptions.DedicatedAllocation) != 0))
+             (CreationOptions & GraphicsResourceCreationOptions.DedicatedAllocation) != 0) ||
+            ((CreationOptions & GraphicsResourceCreationOptions.SparseResidency) != 0 &&
+             (CreationOptions & sparseConflicts) != 0))
             throw new ArgumentOutOfRangeException(nameof(CreationOptions));
 
         switch (Dimension)
