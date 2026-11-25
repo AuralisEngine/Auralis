@@ -403,6 +403,18 @@ public sealed class AdvancedGraphicsTests
     }
 
     [Fact]
+    public void RayTracingInstanceData_HasCanonical64ByteLayout()
+    {
+        Assert.Equal(64, System.Runtime.InteropServices.Marshal.SizeOf<GraphicsRayTracingInstanceData>());
+        Assert.Equal((nint)48, System.Runtime.InteropServices.Marshal.OffsetOf<GraphicsRayTracingInstanceData>(
+            nameof(GraphicsRayTracingInstanceData.InstanceCustomIndexAndMask)));
+        Assert.Equal((nint)52, System.Runtime.InteropServices.Marshal.OffsetOf<GraphicsRayTracingInstanceData>(
+            nameof(GraphicsRayTracingInstanceData.ShaderBindingTableRecordOffsetAndFlags)));
+        Assert.Equal((nint)56, System.Runtime.InteropServices.Marshal.OffsetOf<GraphicsRayTracingInstanceData>(
+            nameof(GraphicsRayTracingInstanceData.BottomLevelDeviceAddress)));
+    }
+
+    [Fact]
     public void ShaderBindingTableProperties_RequirePowerOfTwoAlignment()
     {
         var properties = new GraphicsShaderBindingTableProperties(32, 24, 64, 4096);
