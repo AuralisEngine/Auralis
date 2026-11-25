@@ -101,4 +101,45 @@ public sealed class AdvancedGraphicsContractsTests
 
         Assert.Throws<ArgumentNullException>(description.Validate);
     }
+    [Fact]
+    public void BindingLayout_ValidatesVariableDescriptorRuntimeCount()
+    {
+        var layout = new GraphicsBindingLayoutDescription(
+        [
+            new GraphicsBindingLayoutEntry(
+                3, GraphicsDescriptorType.SampledTexture, 1024,
+                GraphicsShaderStages.Fragment,
+                GraphicsBindingFlags.VariableCount | GraphicsBindingFlags.PartiallyBound)
+        ]);
+
+        layout.ValidateVariableCounts([new GraphicsVariableDescriptorCount(3, 256)]);
+    }
+
+    [Fact]
+    public void BindingLayout_RejectsRuntimeCountAboveDeclaredMaximum()
+    {
+        var layout = new GraphicsBindingLayoutDescription(
+        [
+            new GraphicsBindingLayoutEntry(
+                7, GraphicsDescriptorType.StorageBuffer, 64,
+                GraphicsShaderStages.Compute, GraphicsBindingFlags.VariableCount)
+        ]);
+
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            layout.ValidateVariableCounts([new GraphicsVariableDescriptorCount(7, 65)]));
+    }
+
+    [Fact]
+    public void BindingLayout_RequiresExactlyOneRuntimeCountPerVariableBinding()
+    {
+        var layout = new GraphicsBindingLayoutDescription(
+        [
+            new GraphicsBindingLayoutEntry(
+                1, GraphicsDescriptorType.SampledTexture, 16,
+                GraphicsShaderStages.Fragment, GraphicsBindingFlags.VariableCount)
+        ]);
+
+        Assert.Throws<ArgumentException>(() => layout.ValidateVariableCounts([]));
+    }
+
 }
