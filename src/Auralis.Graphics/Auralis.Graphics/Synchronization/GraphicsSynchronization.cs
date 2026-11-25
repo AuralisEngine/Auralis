@@ -148,7 +148,9 @@ public readonly record struct GraphicsTextureSubresourceRange(
 
     private static GraphicsTextureAspect GetAvailableAspects(GraphicsFormat format) => format switch
     {
-        GraphicsFormat.D16UNorm or GraphicsFormat.D32Float => GraphicsTextureAspect.Depth,
+        GraphicsFormat.D16UNorm or GraphicsFormat.D24UNorm or GraphicsFormat.D32Float =>
+            GraphicsTextureAspect.Depth,
+        GraphicsFormat.S8UInt => GraphicsTextureAspect.Stencil,
         GraphicsFormat.D24UNormS8UInt or GraphicsFormat.D32FloatS8UInt =>
             GraphicsTextureAspect.Depth | GraphicsTextureAspect.Stencil,
         GraphicsFormat.Unknown => GraphicsTextureAspect.None,
@@ -356,9 +358,17 @@ internal static class GraphicsBarrierCompatibility
 /// This describes ownership only; it does not submit a cross-queue dependency or wait automatically.
 /// The caller must order source-queue work before the release and destination-queue work after the acquire.
 /// </summary>
+public enum GraphicsQueueOwnershipTransferPhase
+{
+    Release,
+    Acquire
+}
+
+/// <summary>One half of a split queue-family ownership transfer. Both halves describe the same resource range and layout transition.</summary>
 public readonly record struct GraphicsQueueOwnershipTransfer(
     IGraphicsQueue SourceQueue,
-    IGraphicsQueue DestinationQueue);
+    IGraphicsQueue DestinationQueue,
+    GraphicsQueueOwnershipTransferPhase Phase);
 
 /// <summary>
 /// One resource dependency to be translated into backend-native synchronization.
@@ -408,11 +418,19 @@ public readonly record struct GraphicsResourceBarrier(
         {
             ArgumentNullException.ThrowIfNull(ownership.SourceQueue);
             ArgumentNullException.ThrowIfNull(ownership.DestinationQueue);
+            if (!Enum.IsDefined(ownership.Phase))
+                throw new ArgumentOutOfRangeException(nameof(OwnershipTransfer));
             if (!ReferenceEquals(ownership.SourceQueue.Device, Resource.Device) ||
                 !ReferenceEquals(ownership.DestinationQueue.Device, Resource.Device))
                 throw new ArgumentException("Ownership-transfer queues and resource must belong to the same device.", nameof(OwnershipTransfer));
-            if (ReferenceEquals(ownership.SourceQueue, ownership.DestinationQueue))
-                throw new ArgumentException("Queue ownership transfer requires distinct source and destination queues.", nameof(OwnershipTransfer));
+            if (ownership.SourceQueue.QueueFamilyIndex == ownership.DestinationQueue.QueueFamilyIndex)
+                throw new ArgumentException("Ownership transfers require different queue families.", nameof(OwnershipTransfer));
+            if (ownership.Phase == GraphicsQueueOwnershipTransferPhase.Release &&
+                DestinationAccess != GraphicsResourceAccess.None)
+                throw new ArgumentException("Release barriers must not declare destination access.", nameof(DestinationAccess));
+            if (ownership.Phase == GraphicsQueueOwnershipTransferPhase.Acquire &&
+                SourceAccess != GraphicsResourceAccess.None)
+                throw new ArgumentException("Acquire barriers must not declare source access.", nameof(SourceAccess));
         }
         if (SourceStages == GraphicsPipelineStage.None || DestinationStages == GraphicsPipelineStage.None ||
             (SourceStages & ~allStages) != 0 || (DestinationStages & ~allStages) != 0)
@@ -477,4 +495,6 @@ public interface IGraphicsFence : IGraphicsDeviceObject
     void Signal(ulong value);
 
     bool Wait(ulong value, TimeSpan timeout, CancellationToken cancellationToken = default);
+
+    ValueTask<bool> WaitAsync(ulong value, TimeSpan timeout, CancellationToken cancellationToken = default);
 }

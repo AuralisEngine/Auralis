@@ -157,6 +157,36 @@ public sealed class GraphicsBarrierValidationTests
     }
 
     [Fact]
+    public void QueueOwnershipTransferHasExplicitReleaseAndAcquireHalves()
+    {
+        var device = new GraphicsDeviceFactoryTests.TestDevice(
+            GraphicsBackend.Vulkan, GraphicsFeature.None, GraphicsQueueCapabilities.Graphics);
+        var buffer = new TestBuffer(device, new GraphicsBufferDescription(1024, GraphicsBufferUsage.Storage));
+        var source = new TestQueue(device, 0, 0);
+        var destination = new TestQueue(device, 1, 1);
+
+        var release = new GraphicsResourceBarrier(
+            buffer, GraphicsPipelineStage.ComputeShader, GraphicsPipelineStage.BottomOfPipe,
+            GraphicsResourceAccess.ShaderWrite, GraphicsResourceAccess.None,
+            OwnershipTransfer: new GraphicsQueueOwnershipTransfer(
+                source, destination, GraphicsQueueOwnershipTransferPhase.Release));
+        var acquire = new GraphicsResourceBarrier(
+            buffer, GraphicsPipelineStage.TopOfPipe, GraphicsPipelineStage.VertexShader,
+            GraphicsResourceAccess.None, GraphicsResourceAccess.ShaderRead,
+            OwnershipTransfer: new GraphicsQueueOwnershipTransfer(
+                source, destination, GraphicsQueueOwnershipTransferPhase.Acquire));
+        release.Validate();
+        acquire.Validate();
+
+        Assert.Throws<ArgumentException>(() =>
+            (release with
+            {
+                OwnershipTransfer = new GraphicsQueueOwnershipTransfer(
+                    source, new TestQueue(device, 2, 0), GraphicsQueueOwnershipTransferPhase.Release)
+            }).Validate());
+    }
+
+    [Fact]
     public void BarrierRejectsUnsupportedResourceTypesAndTextureViews()
     {
         var device = new GraphicsDeviceFactoryTests.TestDevice(
@@ -189,6 +219,13 @@ public sealed class GraphicsBarrierValidationTests
             GraphicsTextureLayout.ShaderReadOnly);
 
         Assert.Throws<ArgumentException>(viewBarrier.Validate);
+    }
+
+    private sealed class TestQueue(IGraphicsDevice device, uint index, uint familyIndex) : IGraphicsQueue
+    {
+        public IGraphicsDevice Device { get; } = device;
+        public uint Index { get; } = index;
+        public uint QueueFamilyIndex { get; } = familyIndex;
     }
 
     private sealed class TestBuffer(

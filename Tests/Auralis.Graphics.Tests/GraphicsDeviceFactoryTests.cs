@@ -176,6 +176,7 @@ public sealed class GraphicsDeviceFactoryTests
     {
         public IGraphicsDevice Device { get; } = device;
         public uint Index { get; } = index;
+        public uint QueueFamilyIndex => 0;
     }
 
     private sealed class TestDeviceObject(IGraphicsDevice device) : GraphicsDeviceObject(device)
