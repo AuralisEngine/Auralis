@@ -137,7 +137,7 @@ This project currently provides common descriptors, validation, provider/device 
 
 The core device contract intentionally keeps optional functionality discoverable through capability-specific interfaces rather than forcing every device to implement unsupported features:
 
-- `IGraphicsMemoryDevice` exposes `IGraphicsMemoryAllocator`, memory heaps/types, property requirements, alignment, mapping, and opaque allocation lifetime. Memory properties describe what a backend reports; they do not imply a Vulkan-style memory-type model on D3D12 or a particular Metal storage mode. Resource binding/placement and aliasing remain backend responsibilities and must be exposed by a future explicit resource-memory extension rather than inferred from an allocation handle.
+- `IGraphicsMemoryDevice` exposes `IGraphicsMemoryAllocator`, memory heaps/types, property requirements, alignment, mapping, and opaque allocation lifetime. Memory properties describe what a backend reports; they do not imply a Vulkan-style memory-type model on D3D12 or a particular Metal storage mode. IGraphicsResourceMemoryDevice exposes backend-reported placement requirements and explicit binding; IGraphicsAliasingCommandList expresses aliasing dependencies.
 - `IGraphicsQueryDevice` creates timestamp, occlusion, and pipeline-statistics pools. Query reset/read operations must not race GPU writes. `IGraphicsTimestampPropertiesDevice` reports queue-specific timestamp frequency and valid counter bits; `GraphicsTimestampProperties` handles counter wraparound when converting elapsed ticks.
 - `IGraphicsRayTracingDevice`, `IGraphicsRayTracingPipelineDevice`, `IGraphicsRayTracingCommandList`, and `IGraphicsRayTracingShaderTableDevice` represent acceleration-structure size queries, opaque structures, build/update commands, shader-group handles, validated shader-binding-table regions, and ray dispatch. Shader table buffers explicitly declare `GraphicsBufferUsage.ShaderBindingTable` and expose GPU addresses.
 - `IGraphicsMeshCommandList` represents mesh dispatch independently from the conventional draw path.
@@ -146,13 +146,21 @@ The core device contract intentionally keeps optional functionality discoverable
 
 The adapter's `SupportedFeatures` describes what the selected physical adapter reports before device creation. `GraphicsDeviceOptions.RequiredFeatures` requests features that must be enabled; `GraphicsDeviceCapabilities.Features` is the resulting logical-device feature set. Backends must reject unavailable required features and must not silently enable unsupported features. Optional extension interfaces are not a substitute for capability checks.
 
-## Contract boundaries and known follow-up work
+## Advanced capability coverage and remaining boundaries
 
-These contracts establish the semantic vocabulary, but they do not yet claim complete parity for every advanced native facility. In particular, explicit resource-to-memory binding/placed-resource aliasing, sparse tile mapping, multi-GPU device groups, variable-rate shading attachment/state descriptions, and complete shader-group/SBT construction metadata need dedicated follow-up contracts before backend work begins. They are intentionally not approximated with generic flags or native handles here.
+The common API now has optional extension surfaces for explicit resource placement and aliasing, sparse buffer/texture mapping including texture mip tails, variable-rate shading state and shading-rate images, multi-device groups and peer-memory capability queries, queue-specific timestamp metadata, shader-group handles and shader-binding-table record packing, and typed device-loss status. These are API definitions only: providers must expose the matching feature and extension interfaces only when they can implement the documented semantics.
 
-A future D3D12 backend can map the common device/queue, resource, dynamic-rendering, fence, descriptor, and pipeline concepts onto its native objects; Vulkan can map the same contracts to physical/logical devices, queue families, image layouts, synchronization2 dependencies, descriptor sets, and acceleration structures. Metal can implement the common subset and report unsupported optional capabilities, while its encoder and storage semantics remain backend-specific. None of these mappings is implemented by this project.
+The multi-device API is explicit. A provider may create a group from selected adapter IDs; applications select participating devices with a validated mask and query peer-memory access per source/destination pair. The common API does not assume linked-adapter topology, implicit replication, or automatic cross-device resource migration.
 
-No GPU execution test is implied by these contracts. Tests should exercise immutable-description validation, feature negotiation rules, and lifecycle rules with ordinary managed test doubles only.
+Variable-rate shading exposes rate capabilities, combiners, and an optional shading-rate image. Foveation policy and generation of the shading-rate image remain application/rendering-layer responsibilities rather than being embedded in this low-level API.
+
+Sparse resources report backend tile dimensions, page sizes, mip-tail requirements, and explicit bind/unbind operations ordered on a selected queue with optional fence dependencies. The common API does not invent a universal tile shape or silently emulate residency.
+
+Device loss is observable through IGraphicsDeviceHealth; once lost, a device is not assumed to recover in place. Implementations should transition from Operational to Lost, provide a diagnostic reason, reject subsequent GPU operations with GraphicsDeviceLostException, and eventually report Disposed when released. Applications recreate the device and its resources explicitly.
+
+A future D3D12 backend can map these concepts onto its native device, queue, resource, tiled-resource, shading-rate, device-group, fence, and ray-tracing facilities; Vulkan can map them to physical/logical devices, queue families, sparse binding, fragment shading rate, synchronization2 dependencies, descriptor sets, and acceleration structures. Metal can implement the common subset and report unsupported optional capabilities, while its encoder, storage, and feature semantics remain backend-specific. None of these mappings is implemented by this project.
+
+No GPU execution test is implied by these contracts. Tests exercise managed validation and metadata only; actual sparse residency, VRS, multi-device execution, ray tracing, and device-loss behavior require backend-specific integration tests.
 
 
 ## Explicit resource placement and descriptor indexing
