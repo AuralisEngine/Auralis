@@ -19,13 +19,15 @@ public readonly record struct GraphicsTimestampProperties(
 
     public ulong ValidMask => !Supported ? 0 : ValidBits == 64 ? ulong.MaxValue : (1UL << (int)ValidBits) - 1;
 
-    public double TicksToMilliseconds(ulong ticks)
+    public ulong GetElapsedTicks(ulong startTimestamp, ulong endTimestamp)
     {
         if (!Supported || TimestampFrequencyHz == 0)
             throw new InvalidOperationException("Timestamp queries are not supported for this queue.");
-        ulong maskedTicks = ticks & ValidMask;
-        return maskedTicks * 1000d / TimestampFrequencyHz;
+        return unchecked(endTimestamp - startTimestamp) & ValidMask;
     }
+
+    public double GetElapsedMilliseconds(ulong startTimestamp, ulong endTimestamp) =>
+        GetElapsedTicks(startTimestamp, endTimestamp) * 1000d / TimestampFrequencyHz;
 }
 
 /// <summary>Optional query extension for queue-specific timestamp frequency and counter precision.</summary>
