@@ -235,7 +235,8 @@ public sealed class GraphicsReviewRegressionTests
             new GraphicsFormatCapabilities(
                 GraphicsFormat.RGBA8UNorm,
                 GraphicsFormatSupport.Sampled,
-                GraphicsSampleCountFlags.One),
+                GraphicsSampleCountFlags.One,
+                new[] { GraphicsFormat.RGBA8UNormSrgb }),
             new GraphicsFormatCapabilities(
                 GraphicsFormat.RGBA8UNormSrgb,
                 GraphicsFormatSupport.Sampled,
@@ -507,7 +508,24 @@ public sealed class GraphicsReviewRegressionTests
         srgbView.Validate(mutable);
 
         var incompatibleView = srgbView with { Format = GraphicsFormat.BGRA8UNormSrgb };
-        Assert.Throws<ArgumentException>(() => incompatibleView.Validate(mutable));
+        var viewCapabilities = CreateCapabilities(
+            GraphicsFeature.None,
+            default,
+            new GraphicsFormatCapabilities(
+                GraphicsFormat.RGBA8UNorm,
+                GraphicsFormatSupport.Sampled,
+                GraphicsSampleCountFlags.One,
+                new[] { GraphicsFormat.RGBA8UNormSrgb }),
+            new GraphicsFormatCapabilities(
+                GraphicsFormat.RGBA8UNormSrgb,
+                GraphicsFormatSupport.Sampled,
+                GraphicsSampleCountFlags.One),
+            new GraphicsFormatCapabilities(
+                GraphicsFormat.BGRA8UNormSrgb,
+                GraphicsFormatSupport.Sampled,
+                GraphicsSampleCountFlags.One));
+        Assert.Throws<GraphicsException>(() =>
+            viewCapabilities.ValidateTextureViewDescription(mutable, incompatibleView));
     }
 
     private static GraphicsDeviceFactoryTests.TestDevice CreateDevice(

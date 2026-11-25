@@ -415,7 +415,7 @@ public sealed class AdvancedGraphicsTests
         Assert.Throws<ArgumentException>(() =>
             new GraphicsShaderTableRegion(96, 64, 32).Validate(properties));
         Assert.Throws<ArgumentOutOfRangeException>(() =>
-            new GraphicsShaderTableRegion(128, 64, 24).Validate(properties));
+            new GraphicsShaderTableRegion(128, 72, 24).Validate(properties));
     }
 
     [Fact]
