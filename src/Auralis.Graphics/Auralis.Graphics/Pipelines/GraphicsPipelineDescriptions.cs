@@ -103,6 +103,71 @@ public sealed class GraphicsBindingLayoutDescription
         }
     }
 
+    /// <summary>Validates the ordered offsets supplied when binding dynamic buffer descriptors.</summary>
+    public void ValidateDynamicOffsets(ReadOnlySpan<GraphicsDynamicBufferOffset> dynamicOffsets)
+    {
+        int expectedCount = 0;
+        for (int i = 0; i < _entries.Length; i++)
+        {
+            if (_entries[i].Type is GraphicsDescriptorType.DynamicUniformBuffer or GraphicsDescriptorType.DynamicStorageBuffer)
+                expectedCount = checked(expectedCount + (int)_entries[i].Count);
+        }
+
+        if (dynamicOffsets.Length != expectedCount)
+            throw new ArgumentException($"Expected {expectedCount} dynamic buffer offsets, received {dynamicOffsets.Length}.", nameof(dynamicOffsets));
+
+        uint previousBinding = 0;
+        uint previousElement = 0;
+        for (int i = 0; i < dynamicOffsets.Length; i++)
+        {
+            GraphicsDynamicBufferOffset offset = dynamicOffsets[i];
+            GraphicsBindingLayoutEntry? matchingEntry = null;
+            for (int j = 0; j < _entries.Length; j++)
+            {
+                if (_entries[j].Binding == offset.Binding)
+                {
+                    matchingEntry = _entries[j];
+                    break;
+                }
+            }
+
+            if (matchingEntry is not { } entry ||
+                entry.Type is not (GraphicsDescriptorType.DynamicUniformBuffer or GraphicsDescriptorType.DynamicStorageBuffer))
+                throw new ArgumentException($"Binding {offset.Binding} is not a dynamic buffer binding.", nameof(dynamicOffsets));
+            if (offset.ArrayElement >= entry.Count)
+                throw new ArgumentOutOfRangeException(nameof(dynamicOffsets), $"Array element {offset.ArrayElement} exceeds binding {offset.Binding}.");
+            if (i != 0 && (offset.Binding < previousBinding ||
+                (offset.Binding == previousBinding && offset.ArrayElement <= previousElement)))
+                throw new ArgumentException("Dynamic offsets must be ordered by binding number and then ascending array element.", nameof(dynamicOffsets));
+
+            previousBinding = offset.Binding;
+            previousElement = offset.ArrayElement;
+        }
+
+        int cursor = 0;
+        uint lastBinding = 0;
+        bool hasLastBinding = false;
+        for (int i = 0; i < _entries.Length; i++)
+        {
+            GraphicsBindingLayoutEntry entry = _entries[i];
+            if (entry.Type is not (GraphicsDescriptorType.DynamicUniformBuffer or GraphicsDescriptorType.DynamicStorageBuffer))
+                continue;
+
+            if (hasLastBinding && entry.Binding < lastBinding)
+                throw new InvalidOperationException("Dynamic descriptor layout entries must be sorted by binding number before validating offsets.");
+
+            for (uint element = 0; element < entry.Count; element++)
+            {
+                if (dynamicOffsets[cursor].Binding != entry.Binding || dynamicOffsets[cursor].ArrayElement != element)
+                    throw new ArgumentException("Dynamic offsets must contain every dynamic descriptor in binding/array order.", nameof(dynamicOffsets));
+                cursor++;
+            }
+
+            lastBinding = entry.Binding;
+            hasLastBinding = true;
+        }
+    }
+
     public void Validate()
     {
         const GraphicsShaderStages allStages = GraphicsShaderStages.All;
