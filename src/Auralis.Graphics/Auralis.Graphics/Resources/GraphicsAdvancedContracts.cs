@@ -451,7 +451,15 @@ public sealed record GraphicsAccelerationStructureDescription
     public ReadOnlyMemory<GraphicsAccelerationStructureGeometry> Geometries { get; init; }
     public uint MaximumInstanceCount { get; init; }
 
-    public void Validate(IGraphicsDevice? expectedDevice = null)
+    public void Validate() => ValidateCore(null);
+
+    public void Validate(IGraphicsDevice expectedDevice)
+    {
+        ArgumentNullException.ThrowIfNull(expectedDevice);
+        ValidateCore(expectedDevice);
+    }
+
+    private void ValidateCore(IGraphicsDevice? expectedDevice)
     {
         if (expectedDevice?.IsDisposed == true)
             throw new ObjectDisposedException(nameof(expectedDevice));
