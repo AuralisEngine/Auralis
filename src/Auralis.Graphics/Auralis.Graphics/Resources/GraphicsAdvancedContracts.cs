@@ -69,7 +69,6 @@ public readonly record struct GraphicsMemoryAllocationDescription(
             throw new ArgumentOutOfRangeException(nameof(RequiredProperties), "Memory property flags contain unknown values.");
 
         ValidatePropertyCombination(RequiredProperties, nameof(RequiredProperties));
-        ValidatePropertyCombination(PreferredProperties, nameof(PreferredProperties));
     }
 
     private static void ValidatePropertyCombination(GraphicsMemoryProperty properties, string parameterName)
@@ -249,14 +248,22 @@ public readonly record struct GraphicsRayTracingTriangleGeometry(
 {
     public void Validate()
     {
-        if (VertexStride < 12 || (VertexStride & 3) != 0 || (VertexOffset & 3) != 0 || VertexCount < 3)
+            if (VertexCount < 3)
+            throw new ArgumentOutOfRangeException(nameof(VertexCount));
+        ulong vertexElementSize = VertexFormat switch
+        {
+            GraphicsFormat.RG16Float => 4UL,
+            GraphicsFormat.RGBA16Float => 8UL,
+            GraphicsFormat.RGB32Float => 12UL,
+            GraphicsFormat.RGBA32Float => 16UL,
+            _ => throw new ArgumentException(
+                "Triangle positions must use RG16Float, RGBA16Float, RGB32Float, or RGBA32Float.",
+                nameof(VertexFormat))
+        };
+        uint alignment = VertexFormat is GraphicsFormat.RG16Float or GraphicsFormat.RGBA16Float ? 2u : 4u;
+        if (VertexStride < vertexElementSize || VertexStride % alignment != 0 || VertexOffset % alignment != 0)
             throw new ArgumentOutOfRangeException(nameof(VertexStride),
-                "Triangle vertices require at least three vertices, a four-byte-aligned stride of at least 12 bytes, and a four-byte-aligned offset.");
-        if (VertexFormat is not (GraphicsFormat.RGB32Float or GraphicsFormat.RGBA32Float))
-            throw new ArgumentException("Triangle positions must use RGB32Float or RGBA32Float.", nameof(VertexFormat));
-        if (VertexFormat == GraphicsFormat.RGBA32Float && VertexStride < 16)
-            throw new ArgumentOutOfRangeException(nameof(VertexStride));
-        ulong vertexElementSize = VertexFormat == GraphicsFormat.RGB32Float ? 12UL : 16UL;
+                "Triangle vertex stride and offset must satisfy the selected format's element size and alignment.");
         ulong vertexDataSize = checked((ulong)(VertexCount - 1) * VertexStride + vertexElementSize);
         GraphicsRayTracingBufferValidation.Validate(
             VertexBuffer, VertexOffset, vertexDataSize, nameof(VertexBuffer));
@@ -339,9 +346,17 @@ public readonly record struct GraphicsAccelerationStructureGeometry(
         if ((Flags & ~allFlags) != 0)
             throw new ArgumentOutOfRangeException(nameof(Flags));
         if (Type == GraphicsAccelerationStructureGeometryType.Triangles)
+        {
+            if (Aabbs != default)
+                throw new ArgumentException("Triangle geometry must not populate the inactive AABB member.", nameof(Aabbs));
             Triangles.Validate();
+        }
         else
+        {
+            if (Triangles != default)
+                throw new ArgumentException("AABB geometry must not populate the inactive triangle member.", nameof(Triangles));
             Aabbs.Validate();
+        }
     }
 
     internal IGraphicsDevice Device => Type == GraphicsAccelerationStructureGeometryType.Triangles
