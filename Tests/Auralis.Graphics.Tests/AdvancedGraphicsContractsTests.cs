@@ -246,7 +246,7 @@ public sealed class AdvancedGraphicsTests
         var texture = new GraphicsTextureDescription(
             GraphicsTextureDimension.Texture2D, GraphicsFormat.RGBA8UNorm,
             256, 256, 1, 9, 1, 1, GraphicsTextureUsage.Sampled);
-        var requirements = new GraphicsSparseTextureRequirements(64, 64, 1, 0, 0, 0, 0, false);
+        var requirements = new GraphicsSparseTextureRequirements(64, 64, 1, 0, 0, 0, 0, 0, false);
 
         Assert.Throws<ArgumentOutOfRangeException>(() => requirements.Validate(texture));
     }
