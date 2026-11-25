@@ -19,7 +19,7 @@ public readonly record struct GraphicsSparseTextureRequirements(
     {
         texture.Validate();
         if (TileWidth == 0 || TileHeight == 0 || TileDepth == 0 || TileSizeInBytes == 0)
-            throw new ArgumentOutOfRangeException(nameof(TileWidth), "Sparse tile dimensions must be non-zero.");
+            throw new ArgumentOutOfRangeException(nameof(TileWidth), "Sparse tile dimensions and tile size must be non-zero.");
         if (FirstMipTailLevel > texture.MipLevels)
             throw new ArgumentOutOfRangeException(nameof(FirstMipTailLevel));
         if (MipTailSizeInBytes == 0 && (MipTailOffsetInBytes != 0 || MipTailStrideInBytes != 0))
@@ -50,9 +50,16 @@ public readonly record struct GraphicsSparseTextureRegion(
             throw new ArgumentOutOfRangeException(nameof(ArrayLayer));
         if (TileWidth == 0 || TileHeight == 0 || TileDepth == 0)
             throw new ArgumentOutOfRangeException(nameof(TileWidth));
-        if (TileX > uint.MaxValue - TileWidth || TileY > uint.MaxValue - TileHeight ||
-            TileZ > uint.MaxValue - TileDepth)
-            throw new ArgumentOutOfRangeException(nameof(TileWidth), "Tile region coordinate overflow.");
+        uint mipWidth = Math.Max(1u, texture.Width >> (int)MipLevel);
+        uint mipHeight = Math.Max(1u, texture.Height >> (int)MipLevel);
+        uint mipDepth = Math.Max(1u, texture.Depth >> (int)MipLevel);
+        uint tilesX = (mipWidth - 1) / requirements.TileWidth + 1;
+        uint tilesY = (mipHeight - 1) / requirements.TileHeight + 1;
+        uint tilesZ = (mipDepth - 1) / requirements.TileDepth + 1;
+        if (TileX >= tilesX || TileWidth > tilesX - TileX ||
+            TileY >= tilesY || TileHeight > tilesY - TileY ||
+            TileZ >= tilesZ || TileDepth > tilesZ - TileZ)
+            throw new ArgumentOutOfRangeException(nameof(TileWidth), "Sparse tile region exceeds the mip's tile grid.");
     }
 }
 
