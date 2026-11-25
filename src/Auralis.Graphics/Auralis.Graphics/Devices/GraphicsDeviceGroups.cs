@@ -52,9 +52,10 @@ public interface IGraphicsDeviceGroupProvider
 }
 
 /// <summary>Optional group-queue extension for submitting command lists to an explicit device mask.</summary>
-public interface IGraphicsDeviceGroupCommandQueue
+public interface IGraphicsDeviceGroupCommandQueue : IGraphicsCommandQueue
 {
     IGraphicsDeviceGroup DeviceGroup { get; }
+    /// <summary>Submits lists whose device ownership is valid for every selected device in the mask.</summary>
     void SubmitToDevices(
         ReadOnlySpan<IGraphicsCommandList> commandLists,
         GraphicsDeviceGroupMask deviceMask,
