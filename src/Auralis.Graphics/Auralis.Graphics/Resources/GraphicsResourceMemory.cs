@@ -55,6 +55,17 @@ public readonly record struct GraphicsResourceMemoryBinding(
             throw new ObjectDisposedException(nameof(Allocation));
         if (!ReferenceEquals(Resource.Device, Allocation.Device))
             throw new ArgumentException("Resource and memory allocation must belong to the same device.");
+
+        bool requiresExplicitBinding = Resource switch
+        {
+            IGraphicsBuffer buffer =>
+                (buffer.Description.CreationOptions & GraphicsResourceCreationOptions.RequireExplicitMemoryBinding) != 0,
+            IGraphicsTexture texture =>
+                (texture.Description.CreationOptions & GraphicsResourceCreationOptions.RequireExplicitMemoryBinding) != 0,
+            _ => false
+        };
+        if (!requiresExplicitBinding)
+            throw new ArgumentException("Only buffers or textures created with RequireExplicitMemoryBinding can use explicit placement.");
         if (OffsetInBytes % requirements.Alignment != 0)
             throw new ArgumentOutOfRangeException(nameof(OffsetInBytes), "Binding offset does not satisfy the resource alignment.");
         if (OffsetInBytes > Allocation.SizeInBytes ||
