@@ -103,7 +103,8 @@ public sealed class GraphicsDeviceCapabilities
             GraphicsFormatSupport.ColorAttachment | GraphicsFormatSupport.DepthStencilAttachment |
             GraphicsFormatSupport.Blend | GraphicsFormatSupport.VertexBuffer |
             GraphicsFormatSupport.CopySource | GraphicsFormatSupport.CopyDestination |
-            GraphicsFormatSupport.LinearFiltering | GraphicsFormatSupport.ShadingRateAttachment;
+            GraphicsFormatSupport.LinearFiltering | GraphicsFormatSupport.ShadingRateAttachment |
+            GraphicsFormatSupport.AccelerationStructureVertex;
         const GraphicsSampleCountFlags allSampleCounts =
             GraphicsSampleCountFlags.One | GraphicsSampleCountFlags.Two |
             GraphicsSampleCountFlags.Four | GraphicsSampleCountFlags.Eight |
