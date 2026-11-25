@@ -157,5 +157,6 @@ public enum GraphicsBufferUsage
     Storage = 1 << 3,
     IndirectArguments = 1 << 4,
     CopySource = 1 << 5,
-    CopyDestination = 1 << 6
+    CopyDestination = 1 << 6,
+    ShaderBindingTable = 1 << 7
 }
