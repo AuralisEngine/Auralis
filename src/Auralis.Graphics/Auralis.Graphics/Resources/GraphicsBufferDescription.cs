@@ -14,7 +14,8 @@ public readonly record struct GraphicsBufferDescription(
         const GraphicsBufferUsage allUsage =
             GraphicsBufferUsage.Vertex | GraphicsBufferUsage.Index | GraphicsBufferUsage.Constant |
             GraphicsBufferUsage.Storage | GraphicsBufferUsage.IndirectArguments |
-            GraphicsBufferUsage.CopySource | GraphicsBufferUsage.CopyDestination;
+            GraphicsBufferUsage.CopySource | GraphicsBufferUsage.CopyDestination |
+            GraphicsBufferUsage.ShaderBindingTable;
         const GraphicsResourceCreationOptions allOptions =
             GraphicsResourceCreationOptions.DedicatedAllocation | GraphicsResourceCreationOptions.AllowAliasing |
             GraphicsResourceCreationOptions.RequireExplicitMemoryBinding;
