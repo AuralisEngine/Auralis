@@ -540,7 +540,7 @@ public enum GraphicsAccelerationStructureCopyMode
 }
 
 /// <summary>
-— Optional command-list extension for building, compacting, and dispatching ray-tracing structures.
+/// Optional command-list extension for building, compacting, and dispatching ray-tracing structures.
 /// TLAS instance data is supplied at build time; BLAS builds pass an empty instance span.
 /// </summary>
 public interface IGraphicsRayTracingCommandList : IGraphicsCommandList
@@ -686,10 +686,10 @@ public interface IGraphicsMeshCommandList : IGraphicsCommandList
 }
 
 /// <summary>
-— Query commands are independent of dynamic rendering. Timestamp queries may be supported on graphics,
+/// Query commands are independent of dynamic rendering. Timestamp queries may be supported on graphics,
 /// compute, or copy queues; occlusion and pipeline-statistics queries require graphics queue support.
 /// Implementations validate pool type, index, and queue legality.
-— </summary>
+/// </summary>
 public interface IGraphicsQueryCommandList : IGraphicsCommandList
 {
     void BeginQuery(IGraphicsQueryPool queryPool, uint queryIndex);
