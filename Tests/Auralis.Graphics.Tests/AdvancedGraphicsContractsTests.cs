@@ -92,7 +92,8 @@ public sealed class AdvancedGraphicsContractsTests
         var description = new GraphicsRayTracingPipelineDescription
         {
             Layout = null!,
-            Shaders = ReadOnlyMemory<IGraphicsShader>.Empty,
+            Stages = ReadOnlyMemory<GraphicsRayTracingShaderEntry>.Empty,
+            Groups = ReadOnlyMemory<GraphicsRayTracingShaderGroup>.Empty,
             MaximumRecursionDepth = 0,
             MaximumPayloadSizeInBytes = 0,
             MaximumAttributeSizeInBytes = 0
