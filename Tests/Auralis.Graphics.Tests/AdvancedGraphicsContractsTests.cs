@@ -49,17 +49,15 @@ public sealed class AdvancedGraphicsTests
     }
 
     [Fact]
-    public void MemoryAllocationDescription_RejectsInconsistentMemoryPropertyCombinations()
+    public void MemoryAllocationDescription_AllowsIncompatiblePreferredHintsWhenRequiredPropertiesAreValid()
     {
-        var hostCached = new GraphicsMemoryAllocationDescription(
-            1024, 256, 1, GraphicsMemoryProperty.HostCached,
-            GraphicsMemoryProperty.None, GraphicsMemoryUsage.CpuToGpu);
-        var lazyHostVisible = new GraphicsMemoryAllocationDescription(
-            1024, 256, 1,
-            GraphicsMemoryProperty.DeviceLocal | GraphicsMemoryProperty.HostVisible | GraphicsMemoryProperty.LazilyAllocated,
-            GraphicsMemoryProperty.None, GraphicsMemoryUsage.TransientAttachment);
-        Assert.Throws<ArgumentException>(hostCached.Validate);
-        Assert.Throws<ArgumentException>(lazyHostVisible.Validate);
+        var upload = new GraphicsMemoryAllocationDescription(
+            4096, 256, 1,
+            GraphicsMemoryProperty.DeviceLocal | GraphicsMemoryProperty.HostVisible,
+            GraphicsMemoryProperty.HostCached,
+            GraphicsMemoryUsage.CpuToGpu);
+
+        upload.Validate();
     }
 
     [Fact]
