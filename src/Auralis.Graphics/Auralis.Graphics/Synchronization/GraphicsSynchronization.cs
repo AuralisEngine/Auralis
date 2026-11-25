@@ -26,6 +26,7 @@ public enum GraphicsPipelineStage
     TessellationEvaluationShader = 1 << 14,
     TaskShader = 1 << 15,
     MeshShader = 1 << 16,
+    FragmentShadingRate = 1 << 17,
 
     /// <summary>All graphics execution stages, including indirect drawing and mesh/task shading.</summary>
     AllGraphics =
@@ -37,6 +38,7 @@ public enum GraphicsPipelineStage
         GeometryShader |
         TaskShader |
         MeshShader |
+        FragmentShadingRate |
         FragmentShader |
         DepthStencil |
         ColorAttachmentOutput
@@ -62,7 +64,8 @@ public enum GraphicsResourceAccess
     HostRead = 1 << 12,
     HostWrite = 1 << 13,
     MemoryRead = 1 << 14,
-    MemoryWrite = 1 << 15
+    MemoryWrite = 1 << 15,
+    ShadingRateAttachmentRead = 1 << 16
 }
 
 /// <summary>
@@ -165,6 +168,7 @@ internal static class GraphicsBarrierCompatibility
         GraphicsPipelineStage.GeometryShader |
         GraphicsPipelineStage.TaskShader |
         GraphicsPipelineStage.MeshShader |
+        GraphicsPipelineStage.FragmentShadingRate |
         GraphicsPipelineStage.FragmentShader |
         GraphicsPipelineStage.ComputeShader |
         GraphicsPipelineStage.AllCommands;
@@ -242,7 +246,10 @@ internal static class GraphicsBarrierCompatibility
         new(GraphicsResourceAccess.MemoryRead, true, true,
             GraphicsBufferUsage.None, GraphicsTextureUsage.None, ExecutionStages),
         new(GraphicsResourceAccess.MemoryWrite, true, true,
-            GraphicsBufferUsage.None, GraphicsTextureUsage.None, ExecutionStages)
+            GraphicsBufferUsage.None, GraphicsTextureUsage.None, ExecutionStages),
+        new(GraphicsResourceAccess.ShadingRateAttachmentRead, false, true,
+            GraphicsBufferUsage.None, GraphicsTextureUsage.ShadingRateAttachment,
+            GraphicsPipelineStage.FragmentShadingRate | GraphicsPipelineStage.AllCommands)
     ];
 
     public static void ValidateAccess(
@@ -332,6 +339,7 @@ internal static class GraphicsBarrierCompatibility
             GraphicsTextureLayout.TransferSource => GraphicsTextureUsage.CopySource,
             GraphicsTextureLayout.TransferDestination => GraphicsTextureUsage.CopyDestination,
             GraphicsTextureLayout.Present => GraphicsTextureUsage.Present,
+            GraphicsTextureLayout.ShadingRateAttachment => GraphicsTextureUsage.ShadingRateAttachment,
             _ => throw new ArgumentOutOfRangeException(nameof(layout))
         };
 
@@ -381,7 +389,7 @@ public readonly record struct GraphicsResourceBarrier(
             GraphicsPipelineStage.BottomOfPipe | GraphicsPipelineStage.AllCommands |
             GraphicsPipelineStage.GeometryShader | GraphicsPipelineStage.TessellationControlShader |
             GraphicsPipelineStage.TessellationEvaluationShader | GraphicsPipelineStage.TaskShader |
-            GraphicsPipelineStage.MeshShader;
+            GraphicsPipelineStage.MeshShader | GraphicsPipelineStage.FragmentShadingRate;
         const GraphicsResourceAccess allAccess =
             GraphicsResourceAccess.IndirectRead | GraphicsResourceAccess.IndexRead |
             GraphicsResourceAccess.VertexRead | GraphicsResourceAccess.UniformRead |
@@ -390,7 +398,8 @@ public readonly record struct GraphicsResourceBarrier(
             GraphicsResourceAccess.DepthStencilRead | GraphicsResourceAccess.DepthStencilWrite |
             GraphicsResourceAccess.TransferRead | GraphicsResourceAccess.TransferWrite |
             GraphicsResourceAccess.HostRead | GraphicsResourceAccess.HostWrite |
-            GraphicsResourceAccess.MemoryRead | GraphicsResourceAccess.MemoryWrite;
+            GraphicsResourceAccess.MemoryRead | GraphicsResourceAccess.MemoryWrite |
+            GraphicsResourceAccess.ShadingRateAttachmentRead;
 
         if (Resource.IsDisposed || Resource.Device.IsDisposed)
             throw new ObjectDisposedException(nameof(Resource));
