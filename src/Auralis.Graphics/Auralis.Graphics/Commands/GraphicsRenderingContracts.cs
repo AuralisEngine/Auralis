@@ -119,6 +119,8 @@ public sealed class GraphicsRenderingDescription
                 throw new ArgumentOutOfRangeException(nameof(DepthStencilAttachment));
 
             GraphicsFormat format = GetViewFormat(depth.View);
+            if (!IsDepthStencilFormat(format))
+                throw new ArgumentException("Depth/stencil attachments must use a depth or stencil format.", nameof(DepthStencilAttachment));
             bool hasDepth = HasDepth(format);
             bool hasStencil = HasStencil(format);
             if ((!hasDepth && (depth.DepthLoadOperation != GraphicsAttachmentLoadOperation.DontCare ||
@@ -195,8 +197,7 @@ public sealed class GraphicsRenderingDescription
     private static bool IsDepthStencilFormat(GraphicsFormat format) => HasDepth(format) || HasStencil(format);
 
     private static bool HasDepth(GraphicsFormat format) =>
-        format is GraphicsFormat.D16UNorm or GraphicsFormat.D24UNorm or
-            GraphicsFormat.D24UNormS8UInt or GraphicsFormat.D32Float or GraphicsFormat.D32FloatS8UInt;
+        format is GraphicsFormat.D16UNorm or GraphicsFormat.D24UNormS8UInt or GraphicsFormat.D32Float or GraphicsFormat.D32FloatS8UInt;
 
     private static bool HasStencil(GraphicsFormat format) =>
         format is GraphicsFormat.S8UInt or GraphicsFormat.D24UNormS8UInt or GraphicsFormat.D32FloatS8UInt;
