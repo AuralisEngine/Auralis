@@ -1,4 +1,5 @@
 using Auralis.Graphics.Resources;
+using Auralis.Graphics.Pipelines;
 using Xunit;
 
 namespace Auralis.Graphics.Tests;
