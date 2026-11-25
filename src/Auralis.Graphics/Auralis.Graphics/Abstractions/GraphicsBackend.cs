@@ -31,7 +31,11 @@ public readonly record struct GraphicsAdapterInfo(
     GraphicsAdapterType Type,
     uint VendorId,
     uint DeviceId,
-    ulong DedicatedMemoryBytes);
+    ulong DedicatedMemoryBytes)
+{
+    /// <summary>Optional features reported as supported by the physical adapter before logical-device enablement.</summary>
+    public GraphicsFeatureSet SupportedFeatures { get; init; }
+}
 
 /// <summary>Describes the selected device and the driver/API versions reported by its backend.</summary>
 public readonly record struct GraphicsDeviceInfo(
