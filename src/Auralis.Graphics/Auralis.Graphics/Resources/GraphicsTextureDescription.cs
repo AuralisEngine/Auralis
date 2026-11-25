@@ -69,13 +69,9 @@ public readonly record struct GraphicsTextureDescription(
         if (SampleCount > 1 && (Dimension != GraphicsTextureDimension.Texture2D || MipLevels != 1))
             throw new ArgumentException("Multisampled textures must be 2D textures with a single mip level.");
 
-        if ((CreationOptions & GraphicsResourceCreationOptions.SparseResidency) != 0)
-        {
-            if (SampleCount != 1)
-                throw new ArgumentException("Sparse-residency textures must be single-sampled.", nameof(SampleCount));
-            if (Dimension == GraphicsTextureDimension.Texture1D)
-                throw new ArgumentException("Sparse residency is not available for 1D textures.", nameof(Dimension));
-        }
+        if ((CreationOptions & GraphicsResourceCreationOptions.SparseResidency) != 0 &&
+            Dimension == GraphicsTextureDimension.Texture1D)
+            throw new ArgumentException("Sparse residency is not available for 1D textures.", nameof(Dimension));
 
         if ((Usage & GraphicsTextureUsage.ShadingRateAttachment) != 0 &&
             (Dimension != GraphicsTextureDimension.Texture2D || SampleCount != 1))

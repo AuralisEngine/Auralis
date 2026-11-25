@@ -41,6 +41,9 @@ public readonly record struct GraphicsShadingRateCapabilities(
         if (AttachmentTileWidth == 0 || AttachmentTileHeight == 0 ||
             MaximumFragmentSizeWidth == 0 || MaximumFragmentSizeHeight == 0)
             throw new ArgumentOutOfRangeException(nameof(AttachmentTileWidth));
+        if ((MaximumFragmentSizeWidth & (MaximumFragmentSizeWidth - 1)) != 0 ||
+            (MaximumFragmentSizeHeight & (MaximumFragmentSizeHeight - 1)) != 0)
+            throw new ArgumentException("Maximum fragment dimensions must be powers of two.");
         if ((AttachmentTileWidth & (AttachmentTileWidth - 1)) != 0 ||
             (AttachmentTileHeight & (AttachmentTileHeight - 1)) != 0)
             throw new ArgumentException("Shading-rate attachment tile dimensions must be powers of two.");

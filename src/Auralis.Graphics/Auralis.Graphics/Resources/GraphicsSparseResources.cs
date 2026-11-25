@@ -4,7 +4,11 @@ using Auralis.Graphics.Synchronization;
 
 namespace Auralis.Graphics.Resources;
 
-/// <summary>Backend-reported sparse texture tile and mip-tail requirements.</summary>
+/// <summary>
+/// Backend-reported sparse texture tile and mip-tail requirements. Multisample sparse image support is
+/// backend/adapter-specific; structural validation does not assume every sparse implementation supports
+/// every sample count.
+/// </summary>
 public readonly record struct GraphicsSparseTextureRequirements(
     uint TileWidth,
     uint TileHeight,
@@ -23,8 +27,8 @@ public readonly record struct GraphicsSparseTextureRequirements(
             throw new ArgumentException("The texture must be created with SparseResidency.", nameof(texture));
         if (TileWidth == 0 || TileHeight == 0 || TileDepth == 0 || TileSizeInBytes == 0)
             throw new ArgumentOutOfRangeException(nameof(TileWidth), "Sparse tile dimensions and tile size must be non-zero.");
-        if (texture.Dimension == GraphicsTextureDimension.Texture1D || texture.SampleCount != 1)
-            throw new ArgumentException("Sparse texture requirements are valid only for non-1D, single-sample textures.");
+        if (texture.Dimension == GraphicsTextureDimension.Texture1D)
+            throw new ArgumentException("Sparse texture requirements are not available for 1D textures.");
         if (FirstMipTailLevel > texture.MipLevels)
             throw new ArgumentOutOfRangeException(nameof(FirstMipTailLevel));
         if (MipTailSizeInBytes == 0 && FirstMipTailLevel != texture.MipLevels)

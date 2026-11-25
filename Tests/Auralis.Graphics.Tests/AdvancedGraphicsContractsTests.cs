@@ -301,6 +301,16 @@ public sealed class AdvancedGraphicsTests
     }
 
     [Fact]
+    public void SparseTextureDescription_AllowsMultisampleIntentForBackendCapabilityValidation()
+    {
+        var texture = new GraphicsTextureDescription(
+            GraphicsTextureDimension.Texture2D, GraphicsFormat.RGBA8UNorm,
+            256, 256, 1, 1, 1, 4, GraphicsTextureUsage.Sampled,
+            GraphicsResourceCreationOptions.SparseResidency);
+        texture.Validate();
+    }
+
+    [Fact]
     public void SparseTextureRequirements_RejectZeroTileSize()
     {
         var texture = new GraphicsTextureDescription(
