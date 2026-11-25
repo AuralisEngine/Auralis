@@ -248,6 +248,15 @@ public readonly record struct GraphicsRayTracingTriangleGeometry(
     IGraphicsBuffer? TransformBuffer = null,
     ulong TransformOffset = 0)
 {
+    /// <summary>Validates geometry structure and the selected format against device-reported RT vertex support.</summary>
+    public void Validate(GraphicsDeviceCapabilities capabilities)
+    {
+        ArgumentNullException.ThrowIfNull(capabilities);
+        Validate();
+        if (!capabilities.SupportsFormat(VertexFormat, GraphicsFormatSupport.AccelerationStructureVertex))
+            throw new GraphicsException($"The device does not support {VertexFormat} as an acceleration-structure vertex format.");
+    }
+
     public void Validate()
     {
         if (VertexCount < 3)
