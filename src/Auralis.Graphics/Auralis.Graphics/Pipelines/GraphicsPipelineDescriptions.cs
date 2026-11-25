@@ -61,6 +61,48 @@ public sealed class GraphicsBindingLayoutDescription
         Validate();
     }
 
+    /// <summary>Validates runtime counts supplied when allocating a variable-count binding set.</summary>
+    public void ValidateVariableCounts(ReadOnlySpan<GraphicsVariableDescriptorCount> variableCounts)
+    {
+        int variableBindingCount = 0;
+        for (int i = 0; i < _entries.Length; i++)
+        {
+            if ((_entries[i].Flags & GraphicsBindingFlags.VariableCount) != 0)
+                variableBindingCount++;
+        }
+
+        if (variableCounts.Length != variableBindingCount)
+            throw new ArgumentException("A runtime count must be supplied for every variable-count binding and no other binding.", nameof(variableCounts));
+
+        for (int i = 0; i < variableCounts.Length; i++)
+        {
+            variableCounts[i].Validate();
+            bool found = false;
+            uint maximumCount = 0;
+            for (int j = 0; j < _entries.Length; j++)
+            {
+                if (_entries[j].Binding == variableCounts[i].Binding &&
+                    (_entries[j].Flags & GraphicsBindingFlags.VariableCount) != 0)
+                {
+                    found = true;
+                    maximumCount = _entries[j].Count;
+                    break;
+                }
+            }
+
+            if (!found)
+                throw new ArgumentException($"Binding {variableCounts[i].Binding} is not a variable-count binding.", nameof(variableCounts));
+            if (variableCounts[i].Count > maximumCount)
+                throw new ArgumentOutOfRangeException(nameof(variableCounts), $"Runtime descriptor count exceeds the declared maximum for binding {variableCounts[i].Binding}.");
+
+            for (int j = 0; j < i; j++)
+            {
+                if (variableCounts[j].Binding == variableCounts[i].Binding)
+                    throw new ArgumentException($"Runtime count for binding {variableCounts[i].Binding} is duplicated.", nameof(variableCounts));
+            }
+        }
+    }
+
     public void Validate()
     {
         const GraphicsShaderStages allStages = GraphicsShaderStages.All;
