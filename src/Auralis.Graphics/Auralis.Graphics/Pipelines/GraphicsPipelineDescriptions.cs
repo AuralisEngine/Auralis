@@ -26,7 +26,9 @@ public enum GraphicsDescriptorType
     SampledTexture,
     StorageTexture,
     Sampler,
-    CombinedTextureSampler
+    CombinedTextureSampler,
+    DynamicUniformBuffer,
+    DynamicStorageBuffer
 }
 
 [Flags]
