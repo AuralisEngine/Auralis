@@ -169,7 +169,6 @@ internal static class GraphicsBarrierCompatibility
         GraphicsPipelineStage.GeometryShader |
         GraphicsPipelineStage.TaskShader |
         GraphicsPipelineStage.MeshShader |
-        GraphicsPipelineStage.FragmentShadingRate |
         GraphicsPipelineStage.FragmentShader |
         GraphicsPipelineStage.ComputeShader |
         GraphicsPipelineStage.AllCommands;
@@ -183,6 +182,7 @@ internal static class GraphicsBarrierCompatibility
         GraphicsPipelineStage.GeometryShader |
         GraphicsPipelineStage.TaskShader |
         GraphicsPipelineStage.MeshShader |
+        GraphicsPipelineStage.FragmentShadingRate |
         GraphicsPipelineStage.FragmentShader |
         GraphicsPipelineStage.ComputeShader |
         GraphicsPipelineStage.ColorAttachmentOutput |
