@@ -66,7 +66,8 @@ public enum GraphicsFormatSupport
     VertexBuffer = 1 << 5,
     CopySource = 1 << 6,
     CopyDestination = 1 << 7,
-    LinearFiltering = 1 << 8
+    LinearFiltering = 1 << 8,
+    ShadingRateAttachment = 1 << 9
 }
 
 /// <summary>Supported sample counts, represented as flags so a format can advertise multiple counts.</summary>
@@ -117,7 +118,8 @@ public enum GraphicsTextureUsage
     CopySource = 1 << 4,
     CopyDestination = 1 << 5,
     /// <summary>Intended for presentation through a compatible presentation surface.</summary>
-    Present = 1 << 6
+    Present = 1 << 6,
+    ShadingRateAttachment = 1 << 7
 }
 
 /// <summary>How a buffer is intended to be accessed by the CPU and GPU.</summary>
