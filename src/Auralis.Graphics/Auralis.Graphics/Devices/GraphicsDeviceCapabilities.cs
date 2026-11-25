@@ -139,6 +139,20 @@ public sealed class GraphicsDeviceCapabilities
                 (_formats[i].SampleCounts & ~allSampleCounts) != 0)
                 throw new ArgumentException("A format capability entry contains unknown flags.", nameof(formats));
 
+            ReadOnlySpan<GraphicsFormat> compatibleFormats = _formats[i].ViewCompatibleFormats.Span;
+            for (int compatibleIndex = 0; compatibleIndex < compatibleFormats.Length; compatibleIndex++)
+            {
+                GraphicsFormat compatibleFormat = compatibleFormats[compatibleIndex];
+                if (compatibleFormat == GraphicsFormat.Unknown || !Enum.IsDefined(compatibleFormat) ||
+                    compatibleFormat == _formats[i].Format)
+                    throw new ArgumentException("Compatible view formats must be concrete formats distinct from the resource format.", nameof(formats));
+                for (int previousIndex = 0; previousIndex < compatibleIndex; previousIndex++)
+                {
+                    if (compatibleFormats[previousIndex] == compatibleFormat)
+                        throw new ArgumentException("A compatible view format cannot be listed more than once.", nameof(formats));
+                }
+            }
+
             for (int j = 0; j < i; j++)
             {
                 if (_formats[j].Format == _formats[i].Format)
