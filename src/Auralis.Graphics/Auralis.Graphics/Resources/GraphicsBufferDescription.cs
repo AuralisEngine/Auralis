@@ -16,7 +16,8 @@ public readonly record struct GraphicsBufferDescription(
             GraphicsBufferUsage.Storage | GraphicsBufferUsage.IndirectArguments |
             GraphicsBufferUsage.CopySource | GraphicsBufferUsage.CopyDestination;
         const GraphicsResourceCreationOptions allOptions =
-            GraphicsResourceCreationOptions.DedicatedAllocation | GraphicsResourceCreationOptions.AllowAliasing;
+            GraphicsResourceCreationOptions.DedicatedAllocation | GraphicsResourceCreationOptions.AllowAliasing |
+            GraphicsResourceCreationOptions.RequireExplicitMemoryBinding;
 
         if (SizeInBytes == 0)
             throw new ArgumentOutOfRangeException(nameof(SizeInBytes), "Buffer size must be greater than zero.");
@@ -31,7 +32,10 @@ public readonly record struct GraphicsBufferDescription(
             throw new ArgumentOutOfRangeException(nameof(MemoryPreference));
 
         if ((CreationOptions & ~allOptions) != 0 ||
-            CreationOptions == (GraphicsResourceCreationOptions.DedicatedAllocation | GraphicsResourceCreationOptions.AllowAliasing))
+            (CreationOptions & (GraphicsResourceCreationOptions.DedicatedAllocation | GraphicsResourceCreationOptions.AllowAliasing)) ==
+                (GraphicsResourceCreationOptions.DedicatedAllocation | GraphicsResourceCreationOptions.AllowAliasing) ||
+            ((CreationOptions & GraphicsResourceCreationOptions.RequireExplicitMemoryBinding) != 0 &&
+             (CreationOptions & GraphicsResourceCreationOptions.DedicatedAllocation) != 0))
             throw new ArgumentOutOfRangeException(nameof(CreationOptions));
     }
 }
