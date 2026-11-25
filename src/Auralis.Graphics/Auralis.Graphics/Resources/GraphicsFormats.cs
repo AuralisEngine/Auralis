@@ -55,16 +55,28 @@ public enum GraphicsFormat
     D32FloatS8UInt,
     BC1UNorm,
     BC1UNormSrgb,
+    BC2UNorm,
+    BC2UNormSrgb,
     BC3UNorm,
     BC3UNormSrgb,
     BC4UNorm,
+    BC4SNorm,
     BC5UNorm,
+    BC5SNorm,
     BC6HUFloat,
     BC6HSFloat,
     BC7UNorm,
     BC7UNormSrgb,
+    ETC2RGB8UNorm,
+    ETC2RGB8UNormSrgb,
+    ETC2RGBA8UNorm,
+    ETC2RGBA8UNormSrgb,
     ASTC4x4UNorm,
-    ASTC4x4UNormSrgb
+    ASTC4x4UNormSrgb,
+    ASTC6x6UNorm,
+    ASTC6x6UNormSrgb,
+    ASTC8x8UNorm,
+    ASTC8x8UNormSrgb
 }
 
 /// <summary>Operations that a device may support for a particular format.</summary>
