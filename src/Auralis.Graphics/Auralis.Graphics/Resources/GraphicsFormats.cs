@@ -91,7 +91,11 @@ public enum GraphicsResourceCreationOptions
     DedicatedAllocation = 1 << 0,
     AllowAliasing = 1 << 1,
     /// <summary>Allows views to reinterpret the texture using an explicitly compatible format.</summary>
-    MutableFormat = 1 << 2
+    MutableFormat = 1 << 2,
+    /// <summary>Creates the resource without backing memory; it must be bound before GPU use.</summary>
+    RequireExplicitMemoryBinding = 1 << 3,
+    /// <summary>Creates a sparse resource whose tiles are mapped independently.</summary>
+    Sparse = 1 << 4
 }
 
 /// <summary>Texture resource dimensionality.</summary>
