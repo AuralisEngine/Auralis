@@ -35,7 +35,8 @@ public enum GraphicsBindingFlags
     None = 0,
     PartiallyBound = 1 << 0,
     UpdateAfterBind = 1 << 1,
-    VariableCount = 1 << 2
+    VariableCount = 1 << 2,
+    UpdateUnusedWhilePending = 1 << 3
 }
 
 public readonly record struct GraphicsBindingLayoutEntry(
@@ -63,7 +64,7 @@ public sealed class GraphicsBindingLayoutDescription
         const GraphicsShaderStages allStages = GraphicsShaderStages.All;
         const GraphicsBindingFlags allFlags =
             GraphicsBindingFlags.PartiallyBound | GraphicsBindingFlags.UpdateAfterBind |
-            GraphicsBindingFlags.VariableCount;
+            GraphicsBindingFlags.VariableCount | GraphicsBindingFlags.UpdateUnusedWhilePending;
 
         uint highestBinding = 0;
         for (int i = 0; i < _entries.Length; i++)
