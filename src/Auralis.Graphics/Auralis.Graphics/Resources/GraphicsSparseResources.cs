@@ -123,14 +123,81 @@ public readonly record struct GraphicsSparseTextureBinding(
     }
 }
 
+/// <summary>Byte range in a sparse buffer, expressed in bytes and aligned to the backend-reported tile size.</summary>
+public readonly record struct GraphicsSparseBufferRegion(ulong OffsetInBytes, ulong SizeInBytes)
+{
+    public void Validate(in GraphicsBufferDescription buffer, ulong tileSizeInBytes)
+    {
+        buffer.Validate();
+        if (tileSizeInBytes == 0)
+            throw new ArgumentOutOfRangeException(nameof(tileSizeInBytes));
+        if (SizeInBytes == 0 || OffsetInBytes > buffer.SizeInBytes ||
+            SizeInBytes > buffer.SizeInBytes - OffsetInBytes)
+            throw new ArgumentOutOfRangeException(nameof(SizeInBytes));
+        if (OffsetInBytes % tileSizeInBytes != 0 || SizeInBytes % tileSizeInBytes != 0)
+            throw new ArgumentException("Sparse buffer ranges must be aligned to whole tiles.");
+    }
+}
+
+/// <summary>Backend-reported sparse buffer page size and allocation alignment.</summary>
+public readonly record struct GraphicsSparseBufferRequirements(ulong TileSizeInBytes, ulong Alignment)
+{
+    public void Validate(in GraphicsBufferDescription buffer)
+    {
+        buffer.Validate();
+        if (TileSizeInBytes == 0 || Alignment == 0 ||
+            (Alignment & (Alignment - 1)) != 0 || Alignment > TileSizeInBytes)
+            throw new ArgumentException("Sparse buffer tile size and alignment are invalid.");
+    }
+}
+
+/// <summary>One sparse buffer mapping. A null allocation unmaps the selected byte range.</summary>
+public readonly record struct GraphicsSparseBufferBinding(
+    IGraphicsBuffer Buffer,
+    GraphicsSparseBufferRegion Region,
+    IGraphicsMemoryAllocation? Allocation,
+    ulong AllocationOffsetInBytes)
+{
+    public void Validate(in GraphicsSparseBufferRequirements requirements)
+    {
+        ArgumentNullException.ThrowIfNull(Buffer);
+        if (Buffer.IsDisposed || Buffer.Device.IsDisposed)
+            throw new ObjectDisposedException(nameof(Buffer));
+        requirements.Validate(Buffer.Description);
+        Region.Validate(Buffer.Description, requirements.TileSizeInBytes);
+        if (Allocation is null)
+        {
+            if (AllocationOffsetInBytes != 0)
+                throw new ArgumentException("Unmapping cannot specify a memory offset.");
+            return;
+        }
+        if (Allocation.IsDisposed || Allocation.Device.IsDisposed ||
+            !ReferenceEquals(Allocation.Device, Buffer.Device))
+            throw new ArgumentException("Sparse buffer and allocation must belong to the same live device.");
+        if (AllocationOffsetInBytes > Allocation.SizeInBytes ||
+            Region.SizeInBytes > Allocation.SizeInBytes - AllocationOffsetInBytes)
+            throw new ArgumentException("The allocation does not contain the sparse buffer mapping range.");
+        if (AllocationOffsetInBytes % requirements.Alignment != 0)
+            throw new ArgumentException("The allocation offset does not satisfy sparse buffer alignment.");
+    }
+}
+
 /// <summary>Optional sparse-resource extension. Binding operations are ordered on the supplied queue.</summary>
 public interface IGraphicsSparseResourceDevice
 {
     IGraphicsDevice Device { get; }
     GraphicsSparseTextureRequirements GetSparseTextureRequirements(IGraphicsTexture texture);
+    GraphicsSparseBufferRequirements GetSparseBufferRequirements(IGraphicsBuffer buffer);
     void BindSparseTextures(
         IGraphicsCommandQueue queue,
         ReadOnlySpan<GraphicsSparseTextureBinding> bindings,
+        IGraphicsFence? waitFence = null,
+        ulong waitValue = 0,
+        IGraphicsFence? signalFence = null,
+        ulong signalValue = 0);
+    void BindSparseBuffers(
+        IGraphicsCommandQueue queue,
+        ReadOnlySpan<GraphicsSparseBufferBinding> bindings,
         IGraphicsFence? waitFence = null,
         ulong waitValue = 0,
         IGraphicsFence? signalFence = null,
