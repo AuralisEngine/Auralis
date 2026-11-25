@@ -62,9 +62,12 @@ public readonly record struct GraphicsMemoryAllocationDescription(
             throw new ArgumentOutOfRangeException(nameof(Alignment), "Alignment must be zero or a power of two.");
         if (MemoryTypeBits == 0) throw new ArgumentOutOfRangeException(nameof(MemoryTypeBits));
         if (!Enum.IsDefined(Usage)) throw new ArgumentOutOfRangeException(nameof(Usage));
-        if ((RequiredProperties & PreferredProperties) != PreferredProperties &&
-            (PreferredProperties & ~RequiredProperties) == 0)
-            throw new ArgumentException("Preferred properties must not contain unknown values.");
+        const GraphicsMemoryProperty allProperties =
+            GraphicsMemoryProperty.DeviceLocal | GraphicsMemoryProperty.HostVisible |
+            GraphicsMemoryProperty.HostCoherent | GraphicsMemoryProperty.HostCached |
+            GraphicsMemoryProperty.LazilyAllocated | GraphicsMemoryProperty.Protected;
+        if (((RequiredProperties | PreferredProperties) & ~allProperties) != 0)
+            throw new ArgumentOutOfRangeException(nameof(RequiredProperties), "Memory property flags contain unknown values.");
     }
 }
 
@@ -89,6 +92,19 @@ public interface IGraphicsMemoryAllocator : IDisposable
     ReadOnlyMemory<GraphicsMemoryHeapInfo> Heaps { get; }
     ReadOnlyMemory<GraphicsMemoryTypeInfo> MemoryTypes { get; }
     IGraphicsMemoryAllocation Allocate(in GraphicsMemoryAllocationDescription description);
+}
+
+/// <summary>Optional device extension exposing explicit memory allocation and heap information.</summary>
+public interface IGraphicsMemoryDevice
+{
+    IGraphicsMemoryAllocator MemoryAllocator { get; }
+}
+
+/// <summary>Optional device extension for query-pool creation.</summary>
+public interface IGraphicsQueryDevice
+{
+    IGraphicsDevice Device { get; }
+    IGraphicsQueryPool CreateQueryPool(in GraphicsQueryPoolDescription description);
 }
 
 /// <summary>Optional resource-binding flags for descriptor arrays and streaming updates.</summary>
@@ -227,7 +243,13 @@ public sealed record GraphicsAccelerationStructureDescription
 
     public void Validate()
     {
-        if (!Enum.IsDefined(Flags)) throw new ArgumentOutOfRangeException(nameof(Flags));
+        const GraphicsAccelerationStructureBuildFlags allFlags =
+            GraphicsAccelerationStructureBuildFlags.AllowUpdate |
+            GraphicsAccelerationStructureBuildFlags.AllowCompaction |
+            GraphicsAccelerationStructureBuildFlags.PreferFastTrace |
+            GraphicsAccelerationStructureBuildFlags.PreferFastBuild |
+            GraphicsAccelerationStructureBuildFlags.MinimizeMemory;
+        if ((Flags & ~allFlags) != 0) throw new ArgumentOutOfRangeException(nameof(Flags));
         if (IsTopLevel)
         {
             if (MaximumInstanceCount == 0 || !Geometries.IsEmpty)
