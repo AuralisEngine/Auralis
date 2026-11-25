@@ -252,6 +252,32 @@ public sealed class AdvancedGraphicsTests
     }
 
     [Fact]
+    public void SparseBufferRegion_RequiresWholeTileRanges()
+    {
+        var buffer = new GraphicsBufferDescription(4096, GraphicsBufferUsage.Storage);
+        Assert.Throws<ArgumentException>(() =>
+            new GraphicsSparseBufferRegion(1, 256).Validate(buffer, 256));
+        new GraphicsSparseBufferRegion(256, 512).Validate(buffer, 256);
+    }
+
+    [Fact]
+    public void ShaderBindingTableWriter_ComputesAlignedRecordLayout()
+    {
+        GraphicsShaderBindingTableRecord[] records =
+        [
+            new(0, new byte[12]),
+            new(1, new byte[20])
+        ];
+        var properties = new GraphicsShaderBindingTableProperties(32, 32, 64, 4096);
+
+        GraphicsShaderBindingTableLayout layout =
+            GraphicsShaderBindingTableWriter.GetLayout(records, properties);
+
+        Assert.Equal(64u, layout.StrideInBytes);
+        Assert.Equal(128UL, layout.SizeInBytes);
+    }
+
+    [Fact]
     public void ShaderBindingTableProperties_RequirePowerOfTwoAlignment()
     {
         var properties = new GraphicsShaderBindingTableProperties(32, 24, 64, 4096);
