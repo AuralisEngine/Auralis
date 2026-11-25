@@ -45,30 +45,32 @@ public readonly record struct GraphicsShaderBindingTableRegion(
     public void Validate(in GraphicsShaderBindingTableProperties properties)
     {
         properties.Validate();
-        ArgumentNullException.ThrowIfNull(Buffer);
-        if (Buffer.IsDisposed || Buffer.Device.IsDisposed)
-            throw new ObjectDisposedException(nameof(Buffer));
-        if (Buffer is not IGraphicsBufferDeviceAddress)
-            throw new ArgumentException("Shader binding table buffers must expose a GPU device address.");
-        if ((Buffer.Description.Usage & GraphicsBufferUsage.Storage) == 0)
-            throw new ArgumentException("Shader binding table buffers must support storage-buffer usage.");
         if (SizeInBytes == 0)
         {
             if (Buffer is not null || OffsetInBytes != 0 || StrideInBytes != 0)
                 throw new ArgumentException("An empty shader table region must not reference a buffer and must have zero offset and stride.");
             return;
         }
+        IGraphicsBuffer buffer = Buffer ?? throw new ArgumentNullException(nameof(Buffer));
+        if (buffer.IsDisposed || buffer.Device.IsDisposed)
+            throw new ObjectDisposedException(nameof(Buffer));
+        if (buffer is not IGraphicsBufferDeviceAddress address)
+            throw new ArgumentException("Shader binding table buffers must expose a GPU device address.");
+        if ((buffer.Description.Usage & GraphicsBufferUsage.ShaderBindingTable) == 0)
+            throw new ArgumentException("Shader binding table buffers must declare ShaderBindingTable usage.");
         if (StrideInBytes < properties.ShaderGroupHandleSize ||
             StrideInBytes > properties.MaximumShaderGroupStride ||
             StrideInBytes % properties.ShaderGroupHandleAlignment != 0)
             throw new ArgumentOutOfRangeException(nameof(StrideInBytes));
         if (OffsetInBytes % properties.ShaderGroupBaseAlignment != 0)
             throw new ArgumentOutOfRangeException(nameof(OffsetInBytes));
-        if (OffsetInBytes > Buffer.Description.SizeInBytes ||
-            SizeInBytes > Buffer.Description.SizeInBytes - OffsetInBytes ||
+        if (OffsetInBytes > buffer.Description.SizeInBytes ||
+            SizeInBytes > buffer.Description.SizeInBytes - OffsetInBytes ||
             SizeInBytes % StrideInBytes != 0)
             throw new ArgumentOutOfRangeException(nameof(SizeInBytes));
-        _ = DeviceAddress;
+        ulong deviceAddress = checked(address.DeviceAddress + OffsetInBytes);
+        if (deviceAddress % properties.ShaderGroupBaseAlignment != 0)
+            throw new ArgumentException("The resulting GPU address does not satisfy shader-group base alignment.");
     }
 }
 
