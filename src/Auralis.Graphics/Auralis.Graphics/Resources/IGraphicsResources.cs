@@ -15,11 +15,15 @@ public interface IGraphicsBuffer : IGraphicsResource
     /// <summary>
     /// Maps one CPU-visible buffer window. The returned memory is valid only until Unmap is called.
     /// Mapping GPU-only memory is an error. Backends perform any required cache maintenance.
-    /// Memory&lt;byte&gt; has an Int32 length, so one window cannot exceed Int32.MaxValue bytes; larger
-    /// buffers must be mapped through multiple explicit windows.
+    /// A zero size is invalid. An explicit size greater than <see cref="int.MaxValue"/> is rejected.
+    /// When size is <see cref="ulong.MaxValue"/>, the window extends from offset to the end of the
+    /// buffer, capped at <see cref="int.MaxValue"/> bytes. Map validates the requested range against
+    /// <see cref="GraphicsBufferDescription.SizeInBytes"/> and returns exactly the selected window.
+    /// To access a larger buffer, map successive windows and call Unmap between windows.
     /// </summary>
     Memory<byte> Map(GraphicsMapMode mode, ulong offset = 0, ulong size = ulong.MaxValue);
 
+    /// <summary>Ends the active mapping, if any. All Memory returned by the preceding Map becomes invalid.</summary>
     void Unmap();
 }
 
