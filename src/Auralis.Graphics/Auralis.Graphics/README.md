@@ -167,3 +167,5 @@ Sparse/tiled resources remain a separate future area. Their tile shapes, mip-tai
 
 
 Queue ownership is represented explicitly by `GraphicsQueueOwnershipTransfer` on a resource barrier. Both queues must belong to the resource's device and must be distinct. The ownership description does not perform synchronization by itself: applications must signal completion on the source queue and enqueue a wait on the destination queue using the existing fence/queue-wait APIs. Backends may treat ownership transfer as a no-op when their native resource model does not require exclusive queue ownership. A queue identity is deliberately not equated with a physical queue family; several logical queue roles may map to the same native queue.
+
+Dynamic descriptor offsets are supplied in ascending binding-number order, then ascending array-element order, matching explicit API requirements independently of the order in which layout entries were declared. `GraphicsBindingLayoutDescription.ValidateDynamicOffsets` checks completeness and ordering without allocating temporary collections; a backend additionally validates per-device offset alignment and buffer bounds.
