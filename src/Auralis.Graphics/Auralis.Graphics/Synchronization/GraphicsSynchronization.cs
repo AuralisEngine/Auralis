@@ -148,7 +148,7 @@ public readonly record struct GraphicsTextureSubresourceRange(
 
     private static GraphicsTextureAspect GetAvailableAspects(GraphicsFormat format) => format switch
     {
-        GraphicsFormat.D16UNorm or GraphicsFormat.D24UNorm or GraphicsFormat.D32Float =>
+        GraphicsFormat.D16UNorm or GraphicsFormat.D32Float =>
             GraphicsTextureAspect.Depth,
         GraphicsFormat.S8UInt => GraphicsTextureAspect.Stencil,
         GraphicsFormat.D24UNormS8UInt or GraphicsFormat.D32FloatS8UInt =>
@@ -393,7 +393,7 @@ public readonly record struct GraphicsResourceBarrier(
     public void Validate(IGraphicsQueue recordingQueue)
     {
         ArgumentNullException.ThrowIfNull(recordingQueue);
-        Validate();
+        ValidateCore();
         if (!ReferenceEquals(recordingQueue.Device, Resource.Device))
             throw new ArgumentException("The recording queue and barrier resource must belong to the same device.", nameof(recordingQueue));
 
@@ -411,6 +411,13 @@ public readonly record struct GraphicsResourceBarrier(
     }
 
     public void Validate()
+    {
+        ValidateCore();
+        if (OwnershipTransfer is not null)
+            throw new InvalidOperationException("Queue ownership-transfer barriers must be validated with Validate(recordingQueue).");
+    }
+
+    private void ValidateCore()
     {
         ArgumentNullException.ThrowIfNull(Resource);
 
