@@ -72,7 +72,7 @@ public readonly record struct GraphicsMemoryAllocationDescription(
 }
 
 /// <summary>Opaque allocation owned by its allocator. Dispose releases the allocation, not necessarily its backing heap.</summary>
-public interface IGraphicsMemoryAllocation : IDisposable
+public interface IGraphicsMemoryAllocation : IGraphicsDeviceObject
 {
     IGraphicsDevice Device { get; }
     ulong SizeInBytes { get; }
