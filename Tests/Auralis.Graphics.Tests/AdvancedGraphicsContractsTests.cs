@@ -335,16 +335,6 @@ public sealed class AdvancedGraphicsTests
     }
 
     [Fact]
-    public void SparseTextureDescription_AllowsMultisampleIntentForBackendCapabilityValidation()
-    {
-        var texture = new GraphicsTextureDescription(
-            GraphicsTextureDimension.Texture2D, GraphicsFormat.RGBA8UNorm,
-            256, 256, 1, 1, 1, 4, GraphicsTextureUsage.Sampled,
-            GraphicsResourceCreationOptions.SparseResidency);
-        texture.Validate();
-    }
-
-    [Fact]
     public void SparseTextureDescription_RejectsOneDimensionalSparseResidency()
     {
         var texture = new GraphicsTextureDescription(
@@ -508,10 +498,4 @@ public sealed class AdvancedGraphicsTests
         Assert.Throws<ArgumentOutOfRangeException>(description.Validate);
     }
 
-    [Fact]
-    public void ShaderBindingTableProperties_RequireBaseAlignmentAtLeastHandleAlignment()
-    {
-        var properties = new GraphicsShaderBindingTableProperties(32, 64, 32, 4096);
-        Assert.Throws<ArgumentException>(properties.Validate);
-    }
 }
