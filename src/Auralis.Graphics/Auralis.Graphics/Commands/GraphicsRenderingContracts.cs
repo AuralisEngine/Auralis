@@ -98,7 +98,7 @@ public readonly record struct GraphicsViewport(
 public readonly record struct GraphicsScissorRect(int X, int Y, uint Width, uint Height);
 
 /// <summary>Optional dynamic-rendering extension implemented by command lists supporting graphics rendering.</summary>
-public interface IGraphicsRenderingCommandList
+public interface IGraphicsRenderingCommandList : IGraphicsCommandList
 {
     void BeginRendering(GraphicsRenderingDescription description);
     void EndRendering();
