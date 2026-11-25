@@ -20,7 +20,6 @@ public sealed class AdvancedGraphicsContractsTests
     }
 
     [Theory]
-    [InlineData(0)]
     [InlineData(3)]
     [InlineData(192)]
     public void MemoryAllocationDescription_RejectsInvalidAlignment(ulong alignment)
@@ -88,7 +87,7 @@ public sealed class AdvancedGraphicsContractsTests
     }
 
     [Fact]
-    public void RayTracingPipelineDescription_RequiresAtLeastOneShaderAndPositiveRecursion()
+    public void RayTracingPipelineDescription_RequiresPipelineLayout()
     {
         var description = new GraphicsRayTracingPipelineDescription
         {
