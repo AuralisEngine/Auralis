@@ -167,6 +167,20 @@ public readonly record struct GraphicsQueryPoolDescription(
     {
         if (!Enum.IsDefined(Type)) throw new ArgumentOutOfRangeException(nameof(Type));
         if (QueryCount == 0) throw new ArgumentOutOfRangeException(nameof(QueryCount));
+        const GraphicsPipelineStatistics allStatistics =
+            GraphicsPipelineStatistics.InputAssemblyVertices |
+            GraphicsPipelineStatistics.InputAssemblyPrimitives |
+            GraphicsPipelineStatistics.VertexShaderInvocations |
+            GraphicsPipelineStatistics.GeometryShaderInvocations |
+            GraphicsPipelineStatistics.GeometryShaderPrimitives |
+            GraphicsPipelineStatistics.ClippingInvocations |
+            GraphicsPipelineStatistics.ClippingPrimitives |
+            GraphicsPipelineStatistics.FragmentShaderInvocations |
+            GraphicsPipelineStatistics.TessellationControlPatches |
+            GraphicsPipelineStatistics.TessellationEvaluationInvocations |
+            GraphicsPipelineStatistics.ComputeShaderInvocations;
+        if ((Statistics & ~allStatistics) != 0)
+            throw new ArgumentOutOfRangeException(nameof(Statistics));
         if (Type != GraphicsQueryType.PipelineStatistics && Statistics != GraphicsPipelineStatistics.None)
             throw new ArgumentException("Statistics flags are valid only for pipeline-statistics queries.");
         if (Type == GraphicsQueryType.PipelineStatistics && Statistics == GraphicsPipelineStatistics.None)
@@ -242,13 +256,18 @@ public readonly record struct GraphicsRayTracingTriangleGeometry(
             throw new ArgumentException("Triangle positions must use RGB32Float or RGBA32Float.", nameof(VertexFormat));
         if (VertexFormat == GraphicsFormat.RGBA32Float && VertexStride < 16)
             throw new ArgumentOutOfRangeException(nameof(VertexStride));
+        ulong vertexElementSize = VertexFormat == GraphicsFormat.RGB32Float ? 12UL : 16UL;
+        ulong vertexDataSize = checked((ulong)(VertexCount - 1) * VertexStride + vertexElementSize);
         GraphicsRayTracingBufferValidation.Validate(
-            VertexBuffer, VertexOffset, checked((ulong)VertexStride * VertexCount), nameof(VertexBuffer));
+            VertexBuffer, VertexOffset, vertexDataSize, nameof(VertexBuffer));
+        GraphicsRayTracingBufferValidation.RequireAddressAlignment(VertexBuffer, VertexOffset, 4, nameof(VertexOffset));
 
         if (IndexBuffer is null)
         {
             if (IndexCount != 0 || IndexOffset != 0)
                 throw new ArgumentException("Index count and offset must be zero when no index buffer is supplied.");
+            if (VertexCount % 3 != 0)
+                throw new ArgumentException("Non-indexed triangle vertex counts must be a multiple of three.", nameof(VertexCount));
         }
         else
         {
@@ -259,6 +278,8 @@ public readonly record struct GraphicsRayTracingTriangleGeometry(
                 IndexBuffer, IndexOffset, checked((ulong)IndexCount * indexElementSize), nameof(IndexBuffer));
             if (IndexOffset % indexElementSize != 0)
                 throw new ArgumentOutOfRangeException(nameof(IndexOffset));
+            GraphicsRayTracingBufferValidation.RequireAddressAlignment(
+                IndexBuffer, IndexOffset, indexElementSize, nameof(IndexOffset));
             GraphicsRayTracingBufferValidation.RequireSameDevice(VertexBuffer, IndexBuffer, nameof(IndexBuffer));
         }
 
@@ -267,6 +288,8 @@ public readonly record struct GraphicsRayTracingTriangleGeometry(
             GraphicsRayTracingBufferValidation.Validate(TransformBuffer, TransformOffset, 48, nameof(TransformBuffer));
             if ((TransformOffset & 15) != 0)
                 throw new ArgumentOutOfRangeException(nameof(TransformOffset), "The 3x4 transform must be 16-byte aligned.");
+            GraphicsRayTracingBufferValidation.RequireAddressAlignment(
+                TransformBuffer, TransformOffset, 16, nameof(TransformOffset));
             GraphicsRayTracingBufferValidation.RequireSameDevice(VertexBuffer, TransformBuffer, nameof(TransformBuffer));
         }
         if (!Enum.IsDefined(IndexFormat))
@@ -286,7 +309,9 @@ public readonly record struct GraphicsRayTracingAabbGeometry(
         if (Count == 0 || Stride < 24 || (Stride & 7) != 0 || (Offset & 7) != 0)
             throw new ArgumentOutOfRangeException(nameof(Stride),
                 "AABB geometry requires a non-zero count, an eight-byte-aligned stride of at least 24 bytes, and an eight-byte-aligned offset.");
-        GraphicsRayTracingBufferValidation.Validate(Buffer, Offset, checked((ulong)Count * Stride), nameof(Buffer));
+        ulong aabbDataSize = checked((ulong)(Count - 1) * Stride + 24);
+        GraphicsRayTracingBufferValidation.Validate(Buffer, Offset, aabbDataSize, nameof(Buffer));
+        GraphicsRayTracingBufferValidation.RequireAddressAlignment(Buffer, Offset, 8, nameof(Offset));
     }
 }
 
@@ -336,9 +361,17 @@ internal static class GraphicsRayTracingBufferValidation
             throw new ArgumentException("Ray-tracing geometry buffers must declare AccelerationStructureBuildInput usage.", parameterName);
         if (buffer is not IGraphicsBufferDeviceAddress address || address.DeviceAddress == 0)
             throw new ArgumentException("Ray-tracing geometry buffers must expose a non-zero GPU device address.", parameterName);
+        _ = checked(address.DeviceAddress + offset);
         if (size == 0 || offset > buffer.Description.SizeInBytes ||
             size > buffer.Description.SizeInBytes - offset)
             throw new ArgumentOutOfRangeException(parameterName, "Ray-tracing geometry range exceeds its buffer.");
+    }
+
+    public static void RequireAddressAlignment(IGraphicsBuffer buffer, ulong offset, ulong alignment, string parameterName)
+    {
+        if (buffer is not IGraphicsBufferDeviceAddress address ||
+            alignment == 0 || checked(address.DeviceAddress + offset) % alignment != 0)
+            throw new ArgumentException("The resulting GPU device address does not satisfy the required alignment.", parameterName);
     }
 
     public static void RequireSameDevice(IGraphicsBuffer first, IGraphicsBuffer second, string parameterName)
@@ -387,6 +420,8 @@ public readonly record struct GraphicsRayTracingInstance(
     public void Validate(IGraphicsDevice device)
     {
         ArgumentNullException.ThrowIfNull(device);
+        if (device.IsDisposed)
+            throw new ObjectDisposedException(nameof(device));
         ArgumentNullException.ThrowIfNull(BottomLevel);
         if (BottomLevel.IsDisposed || BottomLevel.Device.IsDisposed)
             throw new ObjectDisposedException(nameof(BottomLevel));
@@ -416,8 +451,10 @@ public sealed record GraphicsAccelerationStructureDescription
     public ReadOnlyMemory<GraphicsAccelerationStructureGeometry> Geometries { get; init; }
     public uint MaximumInstanceCount { get; init; }
 
-    public void Validate()
+    public void Validate(IGraphicsDevice? expectedDevice = null)
     {
+        if (expectedDevice?.IsDisposed == true)
+            throw new ObjectDisposedException(nameof(expectedDevice));
         const GraphicsAccelerationStructureBuildFlags allFlags =
             GraphicsAccelerationStructureBuildFlags.AllowUpdate |
             GraphicsAccelerationStructureBuildFlags.AllowCompaction |
@@ -444,6 +481,8 @@ public sealed record GraphicsAccelerationStructureDescription
                     geometryDevice = geometries[i].Device;
                 else if (!ReferenceEquals(geometryDevice, geometries[i].Device))
                     throw new ArgumentException("All bottom-level geometry buffers must belong to the same device.");
+                if (expectedDevice is not null && !ReferenceEquals(expectedDevice, geometries[i].Device))
+                    throw new ArgumentException("Bottom-level geometry buffers must belong to the acceleration-structure device.");
             }
         }
     }
@@ -451,6 +490,8 @@ public sealed record GraphicsAccelerationStructureDescription
     public void ValidateInstances(IGraphicsDevice device, ReadOnlySpan<GraphicsRayTracingInstance> instances)
     {
         ArgumentNullException.ThrowIfNull(device);
+        if (device.IsDisposed)
+            throw new ObjectDisposedException(nameof(device));
         if (!IsTopLevel)
             throw new InvalidOperationException("Only a top-level acceleration structure accepts instance data.");
         if (instances.Length > MaximumInstanceCount)
@@ -472,7 +513,11 @@ public interface IGraphicsAccelerationStructure : IGraphicsResource
 public interface IGraphicsRayTracingDevice
 {
     IGraphicsDevice Device { get; }
+
+    /// <summary>Implementations validate with <c>description.Validate(Device)</c> before querying sizes.</summary>
     GraphicsAccelerationStructureSizes GetAccelerationStructureSizes(in GraphicsAccelerationStructureDescription description);
+
+    /// <summary>Implementations validate with <c>description.Validate(Device)</c> before creating the structure.</summary>
     IGraphicsAccelerationStructure CreateAccelerationStructure(in GraphicsAccelerationStructureDescription description);
 }
 
@@ -495,6 +540,20 @@ public readonly record struct GraphicsShaderTableRegion(ulong DeviceAddress, ulo
         }
         if (DeviceAddress == 0 || StrideInBytes == 0 || SizeInBytes % StrideInBytes != 0)
             throw new ArgumentException("A non-empty shader table region requires a non-zero address and stride, and an integral record count.");
+    }
+
+    public void Validate(in GraphicsShaderBindingTableProperties properties)
+    {
+        Validate();
+        properties.Validate();
+        if (SizeInBytes == 0)
+            return;
+        if (DeviceAddress % properties.ShaderGroupBaseAlignment != 0)
+            throw new ArgumentException("Shader table region addresses must satisfy shader-group base alignment.", nameof(DeviceAddress));
+        if (StrideInBytes < properties.ShaderGroupHandleSize ||
+            StrideInBytes > properties.MaximumShaderGroupStride ||
+            StrideInBytes % properties.ShaderGroupHandleAlignment != 0)
+            throw new ArgumentOutOfRangeException(nameof(StrideInBytes));
     }
 }
 
@@ -520,9 +579,18 @@ public readonly record struct GraphicsRayDispatchDescription(
             RayGeneration.SizeInBytes != RayGeneration.StrideInBytes)
             throw new ArgumentException("The ray-generation region must contain exactly one record.");
     }
+
+    public void Validate(in GraphicsShaderBindingTableProperties properties)
+    {
+        Validate();
+        RayGeneration.Validate(properties);
+        Miss.Validate(properties);
+        Hit.Validate(properties);
+        Callable.Validate(properties);
+    }
 }
 
-/// <summary>Ray-tracing pipeline stages have distinct execution semantics.</summary>/// <summary>Ray-tracing pipeline stages have distinct execution semantics.</summary>
+/// <summary>Ray-tracing pipeline stages have distinct execution semantics.</summary>
 public enum GraphicsRayTracingShaderStage
 {
     RayGeneration,
