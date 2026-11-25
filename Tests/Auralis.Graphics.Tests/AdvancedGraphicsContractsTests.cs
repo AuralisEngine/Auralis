@@ -143,4 +143,33 @@ public sealed class AdvancedGraphicsTests
 
         Assert.Throws<ArgumentException>(() => layout.ValidateVariableCounts([]));
     }
+    [Fact]
+    public void BindingLayout_ValidatesDynamicOffsetsInBindingOrder()
+    {
+        var layout = new GraphicsBindingLayoutDescription(
+        [
+            new GraphicsBindingLayoutEntry(5, GraphicsDescriptorType.DynamicStorageBuffer, 1, GraphicsShaderStages.Compute),
+            new GraphicsBindingLayoutEntry(2, GraphicsDescriptorType.DynamicUniformBuffer, 2, GraphicsShaderStages.Vertex)
+        ]);
+
+        layout.ValidateDynamicOffsets(
+        [
+            new GraphicsDynamicBufferOffset(2, 0, 256),
+            new GraphicsDynamicBufferOffset(2, 1, 512),
+            new GraphicsDynamicBufferOffset(5, 0, 1024)
+        ]);
+    }
+
+    [Fact]
+    public void BindingLayout_RejectsMissingDynamicOffsets()
+    {
+        var layout = new GraphicsBindingLayoutDescription(
+        [
+            new GraphicsBindingLayoutEntry(0, GraphicsDescriptorType.DynamicUniformBuffer, 2, GraphicsShaderStages.Vertex)
+        ]);
+
+        Assert.Throws<ArgumentException>(() =>
+            layout.ValidateDynamicOffsets([new GraphicsDynamicBufferOffset(0, 0, 256)]));
+    }
+
 }
