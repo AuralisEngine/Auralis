@@ -862,6 +862,10 @@ public static class GraphicsRayTracingCommandValidation
 
 public interface IGraphicsRayTracingCommandList : IGraphicsCommandList
 {
+    /// <summary>
+    /// Builds from a managed instance span. Implementations may stage this data internally; callers
+    /// rebuilding TLAS structures frequently should prefer the device-buffer overload below.
+    /// </summary>
     void BuildAccelerationStructure(
         IGraphicsAccelerationStructure destination,
         IGraphicsAccelerationStructure? source,
@@ -872,7 +876,8 @@ public interface IGraphicsRayTracingCommandList : IGraphicsCommandList
 
     /// <summary>
     /// Builds a TLAS from caller-owned, device-addressable 64-byte instance records. This avoids
-    /// requiring the backend to stage a managed instance span on every rebuild.
+    /// requiring the backend to stage a managed instance span on every rebuild. Call
+    /// GraphicsRayTracingCommandValidation.ValidateBuild before recording.
     /// </summary>
     void BuildAccelerationStructure(
         IGraphicsAccelerationStructure destination,
@@ -882,11 +887,13 @@ public interface IGraphicsRayTracingCommandList : IGraphicsCommandList
         GraphicsAccelerationStructureBuildFlags flags,
         in GraphicsRayTracingInstanceBuffer instances);
 
+    /// <summary>Implementations should call GraphicsRayTracingCommandValidation.ValidateCompactedSizeWrite before recording.</summary>
     void WriteAccelerationStructureCompactedSize(
         IGraphicsAccelerationStructure accelerationStructure,
         IGraphicsQueryPool queryPool,
         uint queryIndex);
 
+    /// <summary>Implementations should call GraphicsRayTracingCommandValidation.ValidateCopy before recording.</summary>
     void CopyAccelerationStructure(
         IGraphicsAccelerationStructure source,
         IGraphicsAccelerationStructure destination,
