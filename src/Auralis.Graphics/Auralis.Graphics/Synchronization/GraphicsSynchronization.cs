@@ -1,4 +1,5 @@
 using Auralis.Graphics.Abstractions;
+using Auralis.Graphics.Commands;
 using Auralis.Graphics.Resources;
 
 namespace Auralis.Graphics.Synchronization;
@@ -342,6 +343,15 @@ internal static class GraphicsBarrierCompatibility
 }
 
 /// <summary>
+/// Identifies a queue ownership transfer for resources whose backend requires exclusive queue ownership.
+/// This describes ownership only; it does not submit a cross-queue dependency or wait automatically.
+/// The caller must order source-queue work before the release and destination-queue work after the acquire.
+/// </summary>
+public readonly record struct GraphicsQueueOwnershipTransfer(
+    IGraphicsQueue SourceQueue,
+    IGraphicsQueue DestinationQueue);
+
+/// <summary>
 /// One resource dependency to be translated into backend-native synchronization.
 /// Range fields are mutually exclusive. Null ranges select the whole resource.
 /// Barriers target buffers or textures directly; texture views must be resolved to their underlying texture.
@@ -355,7 +365,8 @@ public readonly record struct GraphicsResourceBarrier(
     GraphicsTextureLayout OldLayout = GraphicsTextureLayout.NotApplicable,
     GraphicsTextureLayout NewLayout = GraphicsTextureLayout.NotApplicable,
     GraphicsBufferRange? BufferRange = null,
-    GraphicsTextureSubresourceRange? TextureRange = null)
+    GraphicsTextureSubresourceRange? TextureRange = null,
+    GraphicsQueueOwnershipTransfer? OwnershipTransfer = null)
 {
     public void Validate()
     {
@@ -383,6 +394,16 @@ public readonly record struct GraphicsResourceBarrier(
 
         if (Resource.IsDisposed || Resource.Device.IsDisposed)
             throw new ObjectDisposedException(nameof(Resource));
+        if (OwnershipTransfer is { } ownership)
+        {
+            ArgumentNullException.ThrowIfNull(ownership.SourceQueue);
+            ArgumentNullException.ThrowIfNull(ownership.DestinationQueue);
+            if (!ReferenceEquals(ownership.SourceQueue.Device, Resource.Device) ||
+                !ReferenceEquals(ownership.DestinationQueue.Device, Resource.Device))
+                throw new ArgumentException("Ownership-transfer queues and resource must belong to the same device.", nameof(OwnershipTransfer));
+            if (ReferenceEquals(ownership.SourceQueue, ownership.DestinationQueue))
+                throw new ArgumentException("Queue ownership transfer requires distinct source and destination queues.", nameof(OwnershipTransfer));
+        }
         if (SourceStages == GraphicsPipelineStage.None || DestinationStages == GraphicsPipelineStage.None ||
             (SourceStages & ~allStages) != 0 || (DestinationStages & ~allStages) != 0)
             throw new ArgumentException("Resource barriers require valid, non-empty source and destination stages.");
