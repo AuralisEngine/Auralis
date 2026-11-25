@@ -131,3 +131,25 @@ Provider registration is a startup operation and the registry is not intended fo
 ## Implementation status
 
 This project currently provides common descriptors, validation, provider/device contracts, command/pipeline/synchronization interfaces, and presentation interop contracts. It does **not** create native devices, allocate GPU memory, record native commands, compile shaders, create native windows/surfaces, or implement a Direct3D 12, Vulkan, or Metal backend. Those responsibilities belong to future backend and platform integration work.
+
+
+## Extended contracts: memory, queries, and advanced GPU work
+
+The core device contract intentionally keeps optional functionality discoverable through capability-specific interfaces rather than forcing every device to implement unsupported features:
+
+- `IGraphicsMemoryDevice` exposes `IGraphicsMemoryAllocator`, memory heaps/types, property requirements, alignment, mapping, and opaque allocation lifetime. Memory properties describe what a backend reports; they do not imply a Vulkan-style memory-type model on D3D12 or a particular Metal storage mode. Resource binding/placement and aliasing remain backend responsibilities and must be exposed by a future explicit resource-memory extension rather than inferred from an allocation handle.
+- `IGraphicsQueryDevice` creates timestamp, occlusion, and pipeline-statistics pools. Query reset/read operations must not race GPU writes. Timestamp values are device ticks; consumers must use device timestamp-period metadata from a future limits extension before converting them to time.
+- `IGraphicsRayTracingDevice`, `IGraphicsRayTracingPipelineDevice`, and `IGraphicsRayTracingCommandList` represent acceleration-structure size queries, opaque structures, build/update commands, shader-table regions, and ray dispatch. These are optional extensions and are usable only when the device reports the relevant ray-tracing feature.
+- `IGraphicsMeshCommandList` represents mesh dispatch independently from the conventional draw path.
+- `IGraphicsRenderingCommandList` adds dynamic rendering scopes, attachment load/store/resolve descriptions, viewports, scissors, and dynamic blend/stencil values without requiring render-pass objects.
+- `IGraphicsCommandDiagnostics` represents debug labels and markers without affecting execution dependencies.
+
+The adapter's `SupportedFeatures` describes what the selected physical adapter reports before device creation. `GraphicsDeviceOptions.RequiredFeatures` requests features that must be enabled; `GraphicsDeviceCapabilities.Features` is the resulting logical-device feature set. Backends must reject unavailable required features and must not silently enable unsupported features. Optional extension interfaces are not a substitute for capability checks.
+
+## Contract boundaries and known follow-up work
+
+These contracts establish the semantic vocabulary, but they do not yet claim complete parity for every advanced native facility. In particular, explicit resource-to-memory binding/placed-resource aliasing, sparse tile mapping, multi-GPU device groups, variable-rate shading attachment/state descriptions, and complete shader-group/SBT construction metadata need dedicated follow-up contracts before backend work begins. They are intentionally not approximated with generic flags or native handles here.
+
+A future D3D12 backend can map the common device/queue, resource, dynamic-rendering, fence, descriptor, and pipeline concepts onto its native objects; Vulkan can map the same contracts to physical/logical devices, queue families, image layouts, synchronization2 dependencies, descriptor sets, and acceleration structures. Metal can implement the common subset and report unsupported optional capabilities, while its encoder and storage semantics remain backend-specific. None of these mappings is implemented by this project.
+
+No GPU execution test is implied by these contracts. Tests should exercise immutable-description validation, feature negotiation rules, and lifecycle rules with ordinary managed test doubles only.
