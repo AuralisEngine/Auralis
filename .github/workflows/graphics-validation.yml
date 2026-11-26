@@ -19,9 +19,9 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 10.0.x
-      - name: Restore affected test project
-        run: dotnet restore Tests/Auralis.Graphics.Tests/Auralis.Graphics.Tests.csproj
-      - name: Build graphics abstractions and tests
-        run: dotnet build Tests/Auralis.Graphics.Tests/Auralis.Graphics.Tests.csproj --configuration Release --no-restore
-      - name: Run graphics tests
-        run: dotnet test Tests/Auralis.Graphics.Tests/Auralis.Graphics.Tests.csproj --configuration Release --no-build
+      - name: Restore solution
+        run: dotnet restore Auralis.slnx
+      - name: Build solution
+        run: dotnet build Auralis.slnx --configuration Release --no-restore
+      - name: Run solution tests
+        run: dotnet test Auralis.slnx --configuration Release --no-build
