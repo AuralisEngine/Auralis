@@ -231,6 +231,36 @@ public sealed class RayTracingValidationTests
     }
 
     [Fact]
+    public void DeviceAwareAccelerationStructureValidationRequiresRayTracingAndVertexFormatSupport()
+    {
+        var vertexBuffer = new TestBuffer(CreateDevice(),
+            new GraphicsBufferDescription(36, GraphicsBufferUsage.AccelerationStructureBuildInput),
+            0x1000);
+        var description = new GraphicsAccelerationStructureDescription
+        {
+            IsTopLevel = false,
+            Flags = GraphicsAccelerationStructureBuildFlags.None,
+            Geometries =
+            [
+                new GraphicsAccelerationStructureGeometry(
+                    GraphicsAccelerationStructureGeometryType.Triangles,
+                    new GraphicsRayTracingTriangleGeometry(vertexBuffer, 0, 12, 3, GraphicsFormat.RGB32Float),
+                    default)
+            ]
+        };
+
+        var noRayTracing = new GraphicsDeviceFactoryTests.TestDevice(
+            GraphicsBackend.Vulkan, GraphicsFeature.None, GraphicsQueueCapabilities.Graphics);
+        Assert.Throws<GraphicsFeatureNotSupportedException>(() => description.Validate(noRayTracing));
+
+        var rayTracingWithoutFormatCapabilities = new GraphicsDeviceFactoryTests.TestDevice(
+            GraphicsBackend.Vulkan, GraphicsFeature.RayTracing, GraphicsQueueCapabilities.Graphics);
+        Assert.Throws<GraphicsException>(() => description.Validate(rayTracingWithoutFormatCapabilities));
+
+        description.Validate(CreateDevice());
+    }
+
+    [Fact]
     public void PackedRayTracingInstanceValidatesLimitsFlagsTransformsAndBlasReferences()
     {
         var device = CreateDevice();
@@ -355,7 +385,12 @@ public sealed class RayTracingValidationTests
             new GraphicsFeatureSet(GraphicsFeature.RayTracing),
             GraphicsQueueCapabilities.Graphics | GraphicsQueueCapabilities.Compute,
             limits,
-            ReadOnlySpan<GraphicsFormatCapabilities>.Empty);
+            [
+                new GraphicsFormatCapabilities(
+                    GraphicsFormat.RGB32Float,
+                    GraphicsFormatSupport.AccelerationStructureVertex,
+                    GraphicsSampleCountFlags.One)
+            ]);
         return new GraphicsDeviceFactoryTests.TestDevice(
             GraphicsBackend.Vulkan, GraphicsFeature.RayTracing,
             GraphicsQueueCapabilities.Graphics | GraphicsQueueCapabilities.Compute,

@@ -365,7 +365,16 @@ public readonly record struct GraphicsAccelerationStructureGeometry(
     GraphicsRayTracingAabbGeometry Aabbs,
     GraphicsRayTracingGeometryFlags Flags = GraphicsRayTracingGeometryFlags.None)
 {
-    public void Validate()
+    public void Validate() => ValidateCore(null);
+
+    /// <summary>Validates geometry and device-reported acceleration-structure vertex-format support.</summary>
+    public void Validate(GraphicsDeviceCapabilities capabilities)
+    {
+        ArgumentNullException.ThrowIfNull(capabilities);
+        ValidateCore(capabilities);
+    }
+
+    private void ValidateCore(GraphicsDeviceCapabilities? capabilities)
     {
         const GraphicsRayTracingGeometryFlags allFlags =
             GraphicsRayTracingGeometryFlags.Opaque | GraphicsRayTracingGeometryFlags.NoDuplicateAnyHitInvocation;
@@ -377,7 +386,10 @@ public readonly record struct GraphicsAccelerationStructureGeometry(
         {
             if (Aabbs != default)
                 throw new ArgumentException("Triangle geometry must not populate the inactive AABB member.", nameof(Aabbs));
-            Triangles.Validate();
+            if (capabilities is null)
+                Triangles.Validate();
+            else
+                Triangles.Validate(capabilities);
         }
         else
         {
@@ -589,6 +601,10 @@ public sealed record GraphicsAccelerationStructureDescription
     {
         if (expectedDevice?.IsDisposed == true)
             throw new ObjectDisposedException(nameof(expectedDevice));
+        if (expectedDevice is not null &&
+            !expectedDevice.Capabilities.Features.Supports(GraphicsFeature.RayTracing))
+            throw new GraphicsFeatureNotSupportedException(
+                GraphicsFeature.RayTracing, GraphicsFeature.RayTracing);
         const GraphicsAccelerationStructureBuildFlags allFlags =
             GraphicsAccelerationStructureBuildFlags.AllowUpdate |
             GraphicsAccelerationStructureBuildFlags.AllowCompaction |
@@ -610,7 +626,10 @@ public sealed record GraphicsAccelerationStructureDescription
             ReadOnlySpan<GraphicsAccelerationStructureGeometry> geometries = Geometries.Span;
             for (int i = 0; i < geometries.Length; i++)
             {
-                geometries[i].Validate();
+                if (expectedDevice is null)
+                    geometries[i].Validate();
+                else
+                    geometries[i].Validate(expectedDevice.Capabilities);
                 if (geometryDevice is null)
                     geometryDevice = geometries[i].Device;
                 else if (!ReferenceEquals(geometryDevice, geometries[i].Device))
