@@ -240,13 +240,13 @@ public sealed class RayTracingValidationTests
         {
             IsTopLevel = false,
             Flags = GraphicsAccelerationStructureBuildFlags.None,
-            Geometries =
-            [
-                new GraphicsAccelerationStructureGeometry(
+            Geometries = new GraphicsAccelerationStructureGeometry[]
+            {
+                new(
                     GraphicsAccelerationStructureGeometryType.Triangles,
                     new GraphicsRayTracingTriangleGeometry(vertexBuffer, 0, 12, 3, GraphicsFormat.RGB32Float),
                     default)
-            ]
+            }
         };
 
         var noRayTracing = new GraphicsDeviceFactoryTests.TestDevice(
