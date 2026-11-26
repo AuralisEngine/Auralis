@@ -2,6 +2,7 @@ using Auralis.Graphics.Abstractions;
 using Auralis.Graphics.Commands;
 using Auralis.Graphics.Devices;
 using Auralis.Graphics.Resources;
+using Auralis.Graphics.Synchronization;
 using Xunit;
 
 namespace Auralis.Graphics.Tests;
