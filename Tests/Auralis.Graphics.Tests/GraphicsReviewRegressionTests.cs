@@ -36,7 +36,7 @@ public sealed class GraphicsReviewRegressionTests
     [Fact]
     public void BarrierAccessCompatibilityValidatesResourceKindUsageAndStage()
     {
-        var device = CreateRayTracingDevice();
+        var device = CreateDevice();
         var buffer = new TestBuffer(device,
             new GraphicsBufferDescription(
                 1024,
@@ -97,7 +97,7 @@ public sealed class GraphicsReviewRegressionTests
     [Fact]
     public void BarrierValidatesTextureLayoutsAgainstDeclaredUsage()
     {
-        var device = CreateRayTracingDevice();
+        var device = CreateDevice();
         var sampledTexture = new TestTexture(device, CreateTextureDescription(GraphicsTextureUsage.Sampled));
 
         var invalidColorAttachmentTransition = new GraphicsResourceBarrier(
@@ -137,7 +137,7 @@ public sealed class GraphicsReviewRegressionTests
     [Fact]
     public void HostBarrierAccessRequiresMatchingCpuMemoryAccess()
     {
-        var device = CreateRayTracingDevice();
+        var device = CreateDevice();
         var gpuOnly = new TestBuffer(device,
             new GraphicsBufferDescription(256, GraphicsBufferUsage.Storage));
         var cpuToGpu = new TestBuffer(device,
@@ -461,7 +461,7 @@ public sealed class GraphicsReviewRegressionTests
     [Fact]
     public void PresentationSurfaceSelectsQueueBySurfaceCompatibility()
     {
-        var device = CreateRayTracingDevice();
+        var device = CreateDevice();
         var foreignDevice = CreateDevice();
         var target = new TestTarget();
         var surface = new TestPresentationSurface(device, target);
@@ -546,7 +546,7 @@ public sealed class GraphicsReviewRegressionTests
     [Fact]
     public void RayTracingBuildValidationAllowsInPlaceUpdatesAndUsesUpdateScratchRequirements()
     {
-        var device = CreateDevice();
+        var device = CreateRayTracingDevice();
         var vertexBuffer = new TestBuffer(device,
             new GraphicsBufferDescription(256, GraphicsBufferUsage.AccelerationStructureBuildInput));
         var description = CreateBlasDescription(vertexBuffer, 3);
@@ -563,7 +563,7 @@ public sealed class GraphicsReviewRegressionTests
     [Fact]
     public void RayTracingBuildValidationRequiresAddressAlignedAndSufficientScratchStorage()
     {
-        var device = CreateDevice();
+        var device = CreateRayTracingDevice();
         var vertexBuffer = new TestBuffer(device,
             new GraphicsBufferDescription(256, GraphicsBufferUsage.AccelerationStructureBuildInput));
         var destination = new TestAccelerationStructure(device, CreateBlasDescription(vertexBuffer, 3));
@@ -594,7 +594,7 @@ public sealed class GraphicsReviewRegressionTests
     [Fact]
     public void RayTracingBlasUpdateMustPreserveGeometryAndPrimitiveCounts()
     {
-        var device = CreateDevice();
+        var device = CreateRayTracingDevice();
         var vertices = new TestBuffer(device, new GraphicsBufferDescription(512, GraphicsBufferUsage.AccelerationStructureBuildInput));
         var source = new TestAccelerationStructure(device, CreateBlasDescription(vertices, 3));
         var destinationWithPrimitiveCountChange = new TestAccelerationStructure(device, CreateBlasDescription(vertices, 6));
