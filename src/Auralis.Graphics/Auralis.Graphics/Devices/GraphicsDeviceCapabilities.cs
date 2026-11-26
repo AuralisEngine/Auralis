@@ -67,6 +67,36 @@ public readonly record struct GraphicsFormatCapabilities(
 }
 
 /// <summary>
+/// Independently reported descriptor-indexing capabilities. These properties represent logical-device
+/// enabled capabilities, not merely physical-adapter support.
+/// </summary>
+public readonly record struct GraphicsDescriptorIndexingCapabilities(
+    bool PartiallyBound,
+    bool UpdateUnusedWhilePending,
+    bool VariableDescriptorCount,
+    bool UniformBufferUpdateAfterBind,
+    bool SampledImageUpdateAfterBind,
+    bool StorageImageUpdateAfterBind,
+    bool StorageBufferUpdateAfterBind)
+{
+    public bool HasAny => PartiallyBound || UpdateUnusedWhilePending || VariableDescriptorCount ||
+        UniformBufferUpdateAfterBind || SampledImageUpdateAfterBind ||
+        StorageImageUpdateAfterBind || StorageBufferUpdateAfterBind;
+
+    public bool SupportsUpdateAfterBind(GraphicsDescriptorType type) =>
+        type switch
+        {
+            GraphicsDescriptorType.UniformBuffer => UniformBufferUpdateAfterBind,
+            GraphicsDescriptorType.StorageBuffer => StorageBufferUpdateAfterBind,
+            GraphicsDescriptorType.SampledTexture or GraphicsDescriptorType.Sampler or
+                GraphicsDescriptorType.CombinedTextureSampler => SampledImageUpdateAfterBind,
+            GraphicsDescriptorType.StorageTexture => StorageImageUpdateAfterBind,
+            GraphicsDescriptorType.DynamicUniformBuffer or GraphicsDescriptorType.DynamicStorageBuffer => false,
+            _ => false
+        };
+}
+
+/// <summary>
 /// Immutable, backend-reported feature and limit snapshot. No capability is inferred from the backend name.
 /// </summary>
 public sealed class GraphicsDeviceCapabilities
@@ -79,13 +109,16 @@ public sealed class GraphicsDeviceCapabilities
 
     public GraphicsDeviceLimits Limits { get; }
 
+    public GraphicsDescriptorIndexingCapabilities DescriptorIndexing { get; }
+
     public ReadOnlySpan<GraphicsFormatCapabilities> Formats => _formats;
 
     public GraphicsDeviceCapabilities(
         GraphicsFeatureSet features,
         GraphicsQueueCapabilities queueCapabilities,
         GraphicsDeviceLimits limits,
-        ReadOnlySpan<GraphicsFormatCapabilities> formats)
+        ReadOnlySpan<GraphicsFormatCapabilities> formats,
+        GraphicsDescriptorIndexingCapabilities descriptorIndexing = default)
     {
         const GraphicsFeature allFeatures =
             GraphicsFeature.ComputeShaders | GraphicsFeature.IndirectDrawing |
@@ -123,10 +156,15 @@ public sealed class GraphicsDeviceCapabilities
         if (limits.MaxSamplerAnisotropy != 0 &&
             (!float.IsFinite(limits.MaxSamplerAnisotropy) || limits.MaxSamplerAnisotropy < 1))
             throw new ArgumentOutOfRangeException(nameof(limits));
+        if (descriptorIndexing.HasAny && !features.Supports(GraphicsFeature.DescriptorIndexing))
+            throw new ArgumentException(
+                "Fine-grained descriptor-indexing capabilities require GraphicsFeature.DescriptorIndexing to be enabled.",
+                nameof(descriptorIndexing));
 
         Features = features;
         QueueCapabilities = queueCapabilities;
         Limits = limits;
+        DescriptorIndexing = descriptorIndexing;
         _formats = new GraphicsFormatCapabilities[formats.Length];
         for (int i = 0; i < formats.Length; i++)
         {

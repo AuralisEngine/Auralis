@@ -1,4 +1,5 @@
 using Auralis.Graphics.Abstractions;
+using Auralis.Graphics.Devices;
 using Auralis.Graphics.Resources;
 
 namespace Auralis.Graphics.Pipelines;
@@ -110,14 +111,18 @@ public sealed class GraphicsBindingLayoutDescription
         }
     }
 
-    /// <summary>Validates the ordered offsets supplied when binding dynamic buffer descriptors.</summary>
+    /// <summary>Validates ordered dynamic offsets. Device-specific alignment is checked by the overload receiving device limits.</summary>
     public void ValidateDynamicOffsets(ReadOnlySpan<GraphicsDynamicBufferOffset> dynamicOffsets)
     {
         int expectedCount = 0;
         for (int i = 0; i < _entries.Length; i++)
         {
-            if (_entries[i].Type is GraphicsDescriptorType.DynamicUniformBuffer or GraphicsDescriptorType.DynamicStorageBuffer)
-                expectedCount = checked(expectedCount + (int)_entries[i].Count);
+            if (_entries[i].Type is not (GraphicsDescriptorType.DynamicUniformBuffer or GraphicsDescriptorType.DynamicStorageBuffer))
+                continue;
+            if (_entries[i].Count > int.MaxValue || expectedCount > int.MaxValue - (int)_entries[i].Count)
+                throw new ArgumentOutOfRangeException(nameof(dynamicOffsets),
+                    "The layout has more dynamic descriptors than can be represented by a managed span.");
+            expectedCount += (int)_entries[i].Count;
         }
 
         if (dynamicOffsets.Length != expectedCount)
@@ -159,6 +164,71 @@ public sealed class GraphicsBindingLayoutDescription
         }
     }
 
+    /// <summary>
+    /// Validates dynamic offset ordering and device-reported uniform/storage alignment. A zero limit means
+    /// the backend did not report the alignment; implementations must still apply their native rules.
+    /// Buffer bounds are validated when the binding set is bound because base offsets/ranges are not part
+    /// of this layout description.
+    /// </summary>
+    public void ValidateDynamicOffsets(
+        ReadOnlySpan<GraphicsDynamicBufferOffset> dynamicOffsets,
+        in GraphicsDeviceLimits limits)
+    {
+        ValidateDynamicOffsets(dynamicOffsets);
+        for (int i = 0; i < dynamicOffsets.Length; i++)
+        {
+            ulong alignment = 0;
+            for (int entryIndex = 0; entryIndex < _entries.Length; entryIndex++)
+            {
+                GraphicsBindingLayoutEntry entry = _entries[entryIndex];
+                if (entry.Binding != dynamicOffsets[i].Binding)
+                    continue;
+                alignment = entry.Type == GraphicsDescriptorType.DynamicUniformBuffer
+                    ? limits.MinUniformBufferOffsetAlignment
+                    : entry.Type == GraphicsDescriptorType.DynamicStorageBuffer
+                        ? limits.MinStorageBufferOffsetAlignment
+                        : 0;
+                break;
+            }
+
+            if (alignment != 0 && dynamicOffsets[i].Offset % alignment != 0)
+                throw new ArgumentException(
+                    $"Dynamic offset {dynamicOffsets[i].Offset} for binding {dynamicOffsets[i].Binding} must be aligned to {alignment} bytes.",
+                    nameof(dynamicOffsets));
+        }
+    }
+
+    /// <summary>Validates structurally and against this device's independently enabled descriptor-indexing features.</summary>
+    public void Validate(GraphicsDeviceCapabilities capabilities)
+    {
+        ArgumentNullException.ThrowIfNull(capabilities);
+        Validate();
+
+        bool usesDescriptorIndexing = false;
+        for (int i = 0; i < _entries.Length; i++)
+        {
+            GraphicsBindingLayoutEntry entry = _entries[i];
+            GraphicsBindingFlags flags = entry.Flags;
+            usesDescriptorIndexing |= flags != GraphicsBindingFlags.None;
+
+            if ((flags & GraphicsBindingFlags.PartiallyBound) != 0 &&
+                !capabilities.DescriptorIndexing.PartiallyBound)
+                throw new GraphicsException("Partially-bound descriptors are not enabled on this device.");
+            if ((flags & GraphicsBindingFlags.UpdateUnusedWhilePending) != 0 &&
+                !capabilities.DescriptorIndexing.UpdateUnusedWhilePending)
+                throw new GraphicsException("Update-unused-while-pending descriptors are not enabled on this device.");
+            if ((flags & GraphicsBindingFlags.VariableCount) != 0 &&
+                !capabilities.DescriptorIndexing.VariableDescriptorCount)
+                throw new GraphicsException("Variable descriptor counts are not enabled on this device.");
+            if ((flags & GraphicsBindingFlags.UpdateAfterBind) != 0 &&
+                !capabilities.DescriptorIndexing.SupportsUpdateAfterBind(entry.Type))
+                throw new GraphicsException($"Update-after-bind is not enabled for descriptor type {entry.Type}.");
+        }
+
+        if (usesDescriptorIndexing && !capabilities.Features.Supports(GraphicsFeature.DescriptorIndexing))
+            throw new GraphicsException("Descriptor indexing is not enabled on this device.");
+    }
+
     public void Validate()
     {
         const GraphicsShaderStages allStages = GraphicsShaderStages.All;
@@ -169,6 +239,19 @@ public sealed class GraphicsBindingLayoutDescription
         uint highestBinding = 0;
         for (int i = 0; i < _entries.Length; i++)
             highestBinding = Math.Max(highestBinding, _entries[i].Binding);
+
+        bool hasUpdateAfterBind = false;
+        bool hasDynamicBufferDescriptor = false;
+        for (int i = 0; i < _entries.Length; i++)
+        {
+            hasUpdateAfterBind |= (_entries[i].Flags & GraphicsBindingFlags.UpdateAfterBind) != 0;
+            hasDynamicBufferDescriptor |= _entries[i].Type is
+                GraphicsDescriptorType.DynamicUniformBuffer or GraphicsDescriptorType.DynamicStorageBuffer;
+        }
+        if (hasUpdateAfterBind && hasDynamicBufferDescriptor)
+            throw new ArgumentException(
+                "A descriptor layout containing update-after-bind bindings cannot contain dynamic uniform/storage buffer descriptors.",
+                nameof(Entries));
 
         for (int i = 0; i < _entries.Length; i++)
         {
@@ -181,6 +264,12 @@ public sealed class GraphicsBindingLayoutDescription
                 throw new ArgumentOutOfRangeException(nameof(Entries), "Descriptor shader stages are invalid.");
             if ((entry.Flags & ~allFlags) != 0)
                 throw new ArgumentOutOfRangeException(nameof(Entries), "Descriptor binding flags are invalid.");
+            bool dynamicBufferType = entry.Type is GraphicsDescriptorType.DynamicUniformBuffer or GraphicsDescriptorType.DynamicStorageBuffer;
+            if (dynamicBufferType &&
+                (entry.Flags & (GraphicsBindingFlags.VariableCount | GraphicsBindingFlags.UpdateAfterBind)) != 0)
+                throw new ArgumentException(
+                    "Dynamic uniform/storage buffer descriptors cannot use variable-count or update-after-bind flags.",
+                    nameof(Entries));
             if ((entry.Flags & GraphicsBindingFlags.VariableCount) != 0 && entry.Binding != highestBinding)
                 throw new ArgumentException(
                     "A variable-count descriptor binding must have the highest binding number.",

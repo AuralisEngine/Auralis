@@ -43,7 +43,12 @@ public readonly record struct GraphicsDynamicBufferOffset(
     uint ArrayElement,
     ulong Offset);
 
-/// <summary>Optional command-list extension for binding dynamic uniform/storage buffer offsets.</summary>
+/// <summary>
+/// Optional command-list extension for binding dynamic uniform/storage buffer offsets. Implementations
+/// should validate offset order and use the device-limits overload of
+/// GraphicsBindingLayoutDescription.ValidateDynamicOffsets before recording; effective buffer bounds
+/// still require the binding set's base offsets and ranges and must be checked at bind time.
+/// </summary>
 public interface IGraphicsDynamicBindingCommandList : IGraphicsCommandList
 {
     void SetBindingSet(
