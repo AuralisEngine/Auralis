@@ -239,6 +239,7 @@ public interface IGraphicsSparseResourceDevice
         IGraphicsTexture texture,
         GraphicsSparseTextureAspect aspect = GraphicsSparseTextureAspect.Color);
     GraphicsSparseBufferRequirements GetSparseBufferRequirements(IGraphicsBuffer buffer);
+    /// <summary>Implementations validate the queue and each binding using GraphicsSparseResourceValidation before scheduling.</summary>
     void BindSparseTextures(
         IGraphicsSparseBindingQueue queue,
         ReadOnlySpan<GraphicsSparseTextureBinding> bindings,
@@ -246,6 +247,7 @@ public interface IGraphicsSparseResourceDevice
         ulong waitValue = 0,
         IGraphicsFence? signalFence = null,
         ulong signalValue = 0);
+    /// <summary>Implementations validate the queue and each binding using GraphicsSparseResourceValidation before scheduling.</summary>
     void BindSparseBuffers(
         IGraphicsSparseBindingQueue queue,
         ReadOnlySpan<GraphicsSparseBufferBinding> bindings,
@@ -368,6 +370,43 @@ public static class GraphicsSparseResourceValidation
             throw new ArgumentException("The sparse-binding queue must belong to the sparse resource device.", nameof(queue));
         if (queue is not IGraphicsSparseBindingQueue)
             throw new ArgumentException("The selected queue does not report sparse-binding capability.", nameof(queue));
+    }
+
+    /// <summary>Validates every texture mapping against the backend-reported requirement for its aspect.</summary>
+    public static void ValidateTextureBindings(
+        IGraphicsSparseResourceDevice sparseDevice,
+        IGraphicsQueue queue,
+        ReadOnlySpan<GraphicsSparseTextureBinding> bindings)
+    {
+        ValidateBindingQueue(sparseDevice, queue);
+        for (int i = 0; i < bindings.Length; i++)
+        {
+            IGraphicsTexture texture = bindings[i].Texture ??
+                throw new ArgumentException("Sparse texture bindings cannot contain a null texture.", nameof(bindings));
+            if (!ReferenceEquals(texture.Device, sparseDevice.Device))
+                throw new ArgumentException("All sparse textures must belong to the sparse resource device.", nameof(bindings));
+            GraphicsSparseTextureRequirements requirements =
+                sparseDevice.GetSparseTextureRequirements(texture, bindings[i].Region.Aspect);
+            bindings[i].Validate(requirements);
+        }
+    }
+
+    /// <summary>Validates every buffer mapping against the backend-reported page/alignment requirements.</summary>
+    public static void ValidateBufferBindings(
+        IGraphicsSparseResourceDevice sparseDevice,
+        IGraphicsQueue queue,
+        ReadOnlySpan<GraphicsSparseBufferBinding> bindings)
+    {
+        ValidateBindingQueue(sparseDevice, queue);
+        for (int i = 0; i < bindings.Length; i++)
+        {
+            IGraphicsBuffer buffer = bindings[i].Buffer ??
+                throw new ArgumentException("Sparse buffer bindings cannot contain a null buffer.", nameof(bindings));
+            if (!ReferenceEquals(buffer.Device, sparseDevice.Device))
+                throw new ArgumentException("All sparse buffers must belong to the sparse resource device.", nameof(bindings));
+            GraphicsSparseBufferRequirements requirements = sparseDevice.GetSparseBufferRequirements(buffer);
+            bindings[i].Validate(requirements);
+        }
     }
 
     public static void ValidateTextureMetadataBindings(
