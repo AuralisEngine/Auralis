@@ -72,7 +72,18 @@ public readonly record struct GraphicsSparseTextureRequirements(
             MipTailStrideInBytes < MipTailSizeInBytes)
             throw new ArgumentException("Per-layer mip-tail stride cannot be smaller than the mip-tail size.");
         if (MipTailSizeInBytes != 0 && texture.ArrayLayers > 1 && !SingleMipTail)
-            _ = checked(MipTailOffsetInBytes + MipTailStrideInBytes * (texture.ArrayLayers - 1UL) + MipTailSizeInBytes);
+        {
+            ulong lastLayer = texture.ArrayLayers - 1UL;
+            if (MipTailStrideInBytes != 0 &&
+                lastLayer > (ulong.MaxValue - MipTailOffsetInBytes) / MipTailStrideInBytes)
+                throw new ArgumentOutOfRangeException(nameof(MipTailStrideInBytes),
+                    "Per-layer mip-tail offsets exceed the addressable byte range.");
+
+            ulong lastLayerOffset = MipTailOffsetInBytes + MipTailStrideInBytes * lastLayer;
+            if (MipTailSizeInBytes > ulong.MaxValue - lastLayerOffset)
+                throw new ArgumentOutOfRangeException(nameof(MipTailSizeInBytes),
+                    "The final mip-tail range exceeds the addressable byte range.");
+        }
     }
 }
 
@@ -163,9 +174,20 @@ public readonly record struct GraphicsSparseTextureBinding(
             throw new ArgumentOutOfRangeException(nameof(AllocationOffsetInBytes));
         if (AllocationOffsetInBytes % requirements.TileSizeInBytes != 0)
             throw new ArgumentException("Sparse mapping allocation offsets must satisfy tile-size alignment.", nameof(AllocationOffsetInBytes));
-        ulong requiredSize = IsMipTail
-            ? requirements.MipTailSizeInBytes
-            : checked((ulong)Region.TileWidth * Region.TileHeight * Region.TileDepth * requirements.TileSizeInBytes);
+        ulong requiredSize;
+        if (IsMipTail)
+        {
+            requiredSize = requirements.MipTailSizeInBytes;
+        }
+        else
+        {
+            ulong tileCount = (ulong)Region.TileWidth * Region.TileHeight * Region.TileDepth;
+            if (requirements.TileSizeInBytes != 0 &&
+                tileCount > ulong.MaxValue / requirements.TileSizeInBytes)
+                throw new ArgumentOutOfRangeException(nameof(Region),
+                    "The sparse tile region byte size exceeds the addressable range.");
+            requiredSize = tileCount * requirements.TileSizeInBytes;
+        }
         if (requiredSize > Allocation.SizeInBytes - AllocationOffsetInBytes)
             throw new ArgumentException("The allocation does not contain the complete sparse mapping range.");
     }
@@ -283,10 +305,14 @@ public readonly record struct GraphicsSparseTextureMetadataRequirements(
             throw new ArgumentException("A single metadata mip tail cannot declare a per-layer stride.", nameof(StrideInBytes));
         if (!SingleMipTail && texture.ArrayLayers > 1 && StrideInBytes < SizeInBytes)
             throw new ArgumentException("Per-layer metadata mip-tail stride cannot be smaller than its size.", nameof(StrideInBytes));
-        if (!SingleMipTail && texture.ArrayLayers > 1)
-            _ = checked(OffsetInBytes + StrideInBytes * (texture.ArrayLayers - 1UL) + SizeInBytes);
-        else
-            _ = checked(OffsetInBytes + SizeInBytes);
+        ulong lastLayer = SingleMipTail ? 0 : texture.ArrayLayers - 1UL;
+        if (StrideInBytes != 0 && lastLayer > (ulong.MaxValue - OffsetInBytes) / StrideInBytes)
+            throw new ArgumentOutOfRangeException(nameof(StrideInBytes),
+                "Sparse metadata layer offsets exceed the addressable byte range.");
+        ulong tailOffset = OffsetInBytes + StrideInBytes * lastLayer;
+        if (SizeInBytes > ulong.MaxValue - tailOffset)
+            throw new ArgumentOutOfRangeException(nameof(SizeInBytes),
+                "The sparse metadata tail exceeds the addressable byte range.");
     }
 }
 

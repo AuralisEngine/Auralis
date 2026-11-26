@@ -24,7 +24,21 @@ public readonly record struct GraphicsDeviceLimits(
     uint MaxRayPayloadSizeInBytes = 0,
     uint MaxRayHitAttributeSizeInBytes = 0,
     ulong MinUniformBufferOffsetAlignment = 0,
-    ulong MinStorageBufferOffsetAlignment = 0);
+    ulong MinStorageBufferOffsetAlignment = 0)
+{
+    /// <summary>Validates optional alignment limits. Zero denotes an unreported limit.</summary>
+    public void Validate()
+    {
+        if (MinUniformBufferOffsetAlignment != 0 &&
+            (MinUniformBufferOffsetAlignment & (MinUniformBufferOffsetAlignment - 1)) != 0)
+            throw new ArgumentOutOfRangeException(nameof(MinUniformBufferOffsetAlignment),
+                "Uniform-buffer dynamic-offset alignment must be zero or a power of two.");
+        if (MinStorageBufferOffsetAlignment != 0 &&
+            (MinStorageBufferOffsetAlignment & (MinStorageBufferOffsetAlignment - 1)) != 0)
+            throw new ArgumentOutOfRangeException(nameof(MinStorageBufferOffsetAlignment),
+                "Storage-buffer dynamic-offset alignment must be zero or a power of two.");
+    }
+}
 
 /// <summary>Describes the operations supported for a particular texture format.</summary>
 public readonly record struct GraphicsFormatCapabilities(
@@ -153,6 +167,7 @@ public sealed class GraphicsDeviceCapabilities
             throw new ArgumentOutOfRangeException(nameof(features));
         if ((queueCapabilities & ~allQueues) != 0)
             throw new ArgumentOutOfRangeException(nameof(queueCapabilities));
+        limits.Validate();
         if (limits.MaxSamplerAnisotropy != 0 &&
             (!float.IsFinite(limits.MaxSamplerAnisotropy) || limits.MaxSamplerAnisotropy < 1))
             throw new ArgumentOutOfRangeException(nameof(limits));

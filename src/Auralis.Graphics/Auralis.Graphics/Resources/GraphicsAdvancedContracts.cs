@@ -281,7 +281,12 @@ public readonly record struct GraphicsRayTracingTriangleGeometry(
             VertexOffset % componentAlignment != 0)
             throw new ArgumentOutOfRangeException(nameof(VertexStride),
                 "Triangle vertex stride and offset must satisfy the consumed position size and component alignment.");
-        ulong vertexDataSize = checked((ulong)(VertexCount - 1) * VertexStride + positionDataSize);
+        ulong vertexIntervals = VertexCount - 1UL;
+        if (vertexIntervals != 0 &&
+            vertexIntervals > (ulong.MaxValue - positionDataSize) / VertexStride)
+            throw new ArgumentOutOfRangeException(nameof(VertexCount),
+                "The triangle vertex range exceeds the addressable byte range.");
+        ulong vertexDataSize = vertexIntervals * VertexStride + positionDataSize;
         GraphicsRayTracingBufferValidation.Validate(
             VertexBuffer, VertexOffset, vertexDataSize, nameof(VertexBuffer));
         GraphicsRayTracingBufferValidation.RequireAddressAlignment(VertexBuffer, VertexOffset, componentAlignment, nameof(VertexOffset));
@@ -333,7 +338,11 @@ public readonly record struct GraphicsRayTracingAabbGeometry(
         if (Count == 0 || Stride < 24 || (Stride & 7) != 0 || (Offset & 7) != 0)
             throw new ArgumentOutOfRangeException(nameof(Stride),
                 "AABB geometry requires a non-zero count, an eight-byte-aligned stride of at least 24 bytes, and an eight-byte-aligned offset.");
-        ulong aabbDataSize = checked((ulong)(Count - 1) * Stride + 24);
+        ulong aabbIntervals = Count - 1UL;
+        if (aabbIntervals != 0 && aabbIntervals > (ulong.MaxValue - 24UL) / Stride)
+            throw new ArgumentOutOfRangeException(nameof(Count),
+                "The AABB vertex range exceeds the addressable byte range.");
+        ulong aabbDataSize = aabbIntervals * Stride + 24UL;
         GraphicsRayTracingBufferValidation.Validate(Buffer, Offset, aabbDataSize, nameof(Buffer));
         GraphicsRayTracingBufferValidation.RequireAddressAlignment(Buffer, Offset, 8, nameof(Offset));
     }
@@ -393,7 +402,9 @@ internal static class GraphicsRayTracingBufferValidation
             throw new ArgumentException("Ray-tracing geometry buffers must declare AccelerationStructureBuildInput usage.", parameterName);
         if (buffer is not IGraphicsBufferDeviceAddress address || address.DeviceAddress == 0)
             throw new ArgumentException("Ray-tracing geometry buffers must expose a non-zero GPU device address.", parameterName);
-        ulong deviceAddress = checked(address.DeviceAddress + offset);
+        if (offset > ulong.MaxValue - address.DeviceAddress)
+            throw new ArgumentOutOfRangeException(parameterName, "Ray-tracing geometry GPU address overflows.");
+        ulong deviceAddress = address.DeviceAddress + offset;
         if (size == 0 || offset > buffer.Description.SizeInBytes ||
             size > buffer.Description.SizeInBytes - offset)
             throw new ArgumentOutOfRangeException(parameterName, "Ray-tracing geometry range exceeds its buffer.");
