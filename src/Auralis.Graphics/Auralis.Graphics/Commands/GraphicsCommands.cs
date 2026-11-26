@@ -168,6 +168,8 @@ public interface IGraphicsQueue
 /// <summary>
 /// Optional marker implemented only by queue instances capable of sparse resource binding.
 /// This capability is queue/family-specific and must not be inferred from device-wide queue flags.
+/// Sparse binding is not implicitly ordered with command-buffer execution, even on the same queue;
+/// callers must express required dependencies with the supplied synchronization primitives.
 /// </summary>
 public interface IGraphicsSparseBindingQueue : IGraphicsQueue
 {

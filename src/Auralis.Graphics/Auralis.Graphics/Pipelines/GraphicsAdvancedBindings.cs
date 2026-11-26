@@ -14,8 +14,9 @@ public readonly record struct GraphicsVariableDescriptorCount(uint Binding, uint
 }
 
 /// <summary>
-/// Optional device extension for descriptor indexing and bindless binding sets.
-/// The supplied counts must match exactly the variable-count bindings in the layout.
+/// Optional device extension for descriptor indexing and bindless binding sets. The supplied counts must match
+/// exactly the variable-count bindings in the layout. Implementations must validate the layout against their
+/// enabled GraphicsDescriptorIndexingCapabilities before creating a set; Validate() alone checks only structural rules.
 /// </summary>
 public interface IGraphicsDescriptorIndexingDevice
 {

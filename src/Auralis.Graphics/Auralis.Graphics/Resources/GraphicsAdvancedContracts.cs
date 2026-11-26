@@ -261,6 +261,8 @@ public readonly record struct GraphicsRayTracingTriangleGeometry(
     {
         if (VertexCount < 3)
             throw new ArgumentOutOfRangeException(nameof(VertexCount));
+        // DXR four-component 16-bit formats ignore the fourth component and permit a six-byte stride.
+        // Keep physical format width separate from the XYZ position bytes the acceleration-structure builder reads.
         (ulong physicalFormatSize, ulong positionDataSize, uint componentAlignment) = VertexFormat switch
         {
             GraphicsFormat.RG16Float or GraphicsFormat.RG16UNorm or GraphicsFormat.RG16SNorm =>
@@ -1069,7 +1071,9 @@ public enum GraphicsRayTracingShaderGroupType
 
 /// <summary>
 /// Shader-group composition for a ray-tracing pipeline. Shader indices refer to the Stages array;
-/// -1 means that a hit-group stage is absent.
+/// -1 means that a hit-group stage is absent. Triangle hit groups allow closest-hit and any-hit shaders
+/// to be independently absent, including both; procedural hit groups require an intersection shader
+/// while closest-hit and any-hit shaders remain optional.
 /// </summary>
 public readonly record struct GraphicsRayTracingShaderGroup(
     GraphicsRayTracingShaderGroupType Type,
@@ -1078,7 +1082,11 @@ public readonly record struct GraphicsRayTracingShaderGroup(
     int AnyHitShaderIndex,
     int IntersectionShaderIndex);
 
-/// <summary>Ray tracing pipeline stage and shader-group description; no shader compiler is implied.</summary>
+/// <summary>
+/// Ray-tracing pipeline stage and shader-group description; no shader compiler is implied. Validation
+/// checks resource lifetime/device ownership, stage agreement, group references, ray-generation presence,
+/// and device-reported recursion, payload, and hit-attribute limits.
+/// </summary>
 public sealed record GraphicsRayTracingPipelineDescription
 {
     public required IGraphicsPipelineLayout Layout { get; init; }

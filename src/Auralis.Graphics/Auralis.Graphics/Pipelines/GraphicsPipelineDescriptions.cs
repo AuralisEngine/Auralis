@@ -198,7 +198,12 @@ public sealed class GraphicsBindingLayoutDescription
         }
     }
 
-    /// <summary>Validates structurally and against this device's independently enabled descriptor-indexing features.</summary>
+    /// <summary>
+    /// Validates structural type/flag rules and this logical device's independently enabled descriptor-indexing features.
+    /// Physical adapter support alone is insufficient; the backend must have enabled each required feature when
+    /// creating the device. Dynamic offset alignment is validated by the device-limits overload and effective buffer
+    /// bounds remain a bind-time responsibility.
+    /// </summary>
     public void Validate(GraphicsDeviceCapabilities capabilities)
     {
         ArgumentNullException.ThrowIfNull(capabilities);

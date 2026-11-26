@@ -5,7 +5,10 @@ using Auralis.Graphics.Synchronization;
 
 namespace Auralis.Graphics.Resources;
 
-/// <summary>Image aspects for which the backend reports independent sparse requirements.</summary>
+/// <summary>
+/// Color/depth/stencil aspects with independent sparse requirements. Opaque image metadata is not a
+/// texel aspect and is exposed separately through IGraphicsSparseTextureMetadataDevice.
+/// </summary>
 [Flags]
 public enum GraphicsSparseTextureAspect
 {
@@ -16,10 +19,11 @@ public enum GraphicsSparseTextureAspect
 }
 
 /// <summary>
-/// Backend-reported sparse texture tile and mip-tail requirements. Tile extents are opaque backend
-/// granularities and are not constrained to powers of two; Vulkan can explicitly report non-standard
-/// sparse block dimensions. Multisample sparse image support is backend/adapter-specific; structural
-/// validation does not assume every sparse implementation supports every sample count.
+/// Backend-reported, aspect-specific sparse texture tile and mip-tail requirements. Tile extents are
+/// opaque backend granularities and are not constrained to powers of two; Vulkan can report non-standard
+/// sparse block dimensions. Opaque metadata has a separate mip-tail contract. Multisample sparse image
+/// support is backend/adapter-specific; structural validation does not assume every sparse implementation
+/// supports every sample count.
 /// </summary>
 public readonly record struct GraphicsSparseTextureRequirements(
     uint TileWidth,
@@ -361,7 +365,9 @@ public readonly record struct GraphicsSparseTextureMetadataBinding(
 
 /// <summary>
 /// Optional extension for backends exposing separate sparse image metadata requirements and bindings.
-/// Backends without a distinct metadata mapping model do not implement this interface.
+/// Vulkan-style metadata is opaque and resides in its own mip-tail requirement; it is not represented as
+/// a Color/Depth/Stencil texel aspect. Backends without a distinct metadata mapping model do not implement
+/// this interface.
 /// </summary>
 public interface IGraphicsSparseTextureMetadataDevice : IGraphicsSparseResourceDevice
 {
