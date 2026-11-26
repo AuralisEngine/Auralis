@@ -160,14 +160,17 @@ public static class GraphicsShaderBindingTableWriter
             maximumLocalDataSize = Math.Max(maximumLocalDataSize, (uint)records[i].LocalData.Length);
         }
 
-        uint unalignedStride = checked(properties.ShaderGroupHandleSize + maximumLocalDataSize);
-        uint alignment = properties.ShaderGroupHandleAlignment;
-        uint stride = checked((unalignedStride + alignment - 1) / alignment * alignment);
-        if (stride > properties.MaximumShaderGroupStride)
+        ulong unalignedStride = (ulong)properties.ShaderGroupHandleSize + maximumLocalDataSize;
+        ulong alignment = properties.ShaderGroupHandleAlignment;
+        ulong stride = ((unalignedStride + alignment - 1) / alignment) * alignment;
+        if (stride > uint.MaxValue || stride > properties.MaximumShaderGroupStride)
             throw new ArgumentOutOfRangeException(nameof(records),
                 "The shader binding table record exceeds the device's maximum stride.");
 
-        return new GraphicsShaderBindingTableLayout(stride, checked((ulong)stride * (uint)records.Length));
+        uint strideInBytes = (uint)stride;
+        return new GraphicsShaderBindingTableLayout(
+            strideInBytes,
+            stride * (uint)records.Length);
     }
 
     public static GraphicsShaderBindingTableLayout WriteRecords(
