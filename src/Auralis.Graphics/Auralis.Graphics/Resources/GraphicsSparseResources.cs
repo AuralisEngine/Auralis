@@ -4,6 +4,16 @@ using Auralis.Graphics.Synchronization;
 
 namespace Auralis.Graphics.Resources;
 
+/// <summary>Image aspects for which the backend reports independent sparse requirements.</summary>
+[Flags]
+public enum GraphicsSparseTextureAspect
+{
+    None = 0,
+    Color = 1 << 0,
+    Depth = 1 << 1,
+    Stencil = 1 << 2
+}
+
 /// <summary>
 /// Backend-reported sparse texture tile and mip-tail requirements. Tile extents are opaque backend
 /// granularities and are not constrained to powers of two; Vulkan can explicitly report non-standard
@@ -19,7 +29,8 @@ public readonly record struct GraphicsSparseTextureRequirements(
     ulong MipTailSizeInBytes,
     ulong MipTailOffsetInBytes,
     ulong MipTailStrideInBytes,
-    bool SingleMipTail)
+    bool SingleMipTail,
+    GraphicsSparseTextureAspect Aspect = GraphicsSparseTextureAspect.Color)
 {
     public void Validate(in GraphicsTextureDescription texture)
     {
@@ -30,6 +41,22 @@ public readonly record struct GraphicsSparseTextureRequirements(
             throw new ArgumentOutOfRangeException(nameof(TileWidth), "Sparse tile dimensions and tile size must be non-zero.");
         if (texture.Dimension == GraphicsTextureDimension.Texture1D)
             throw new ArgumentException("Sparse texture requirements are not available for 1D textures.");
+        const GraphicsSparseTextureAspect allAspects =
+            GraphicsSparseTextureAspect.Color | GraphicsSparseTextureAspect.Depth | GraphicsSparseTextureAspect.Stencil;
+        if (Aspect == GraphicsSparseTextureAspect.None || (Aspect & ~allAspects) != 0)
+            throw new ArgumentOutOfRangeException(nameof(Aspect));
+        GraphicsSparseTextureAspect availableAspects = texture.Format switch
+        {
+            GraphicsFormat.D16UNorm or GraphicsFormat.D32Float => GraphicsSparseTextureAspect.Depth,
+            GraphicsFormat.S8UInt => GraphicsSparseTextureAspect.Stencil,
+            GraphicsFormat.D24UNormS8UInt or GraphicsFormat.D32FloatS8UInt =>
+                GraphicsSparseTextureAspect.Depth | GraphicsSparseTextureAspect.Stencil,
+            _ => GraphicsSparseTextureAspect.Color
+        };
+        if ((Aspect & ~availableAspects) != 0)
+            throw new ArgumentException(
+                $"Texture format {texture.Format} does not contain sparse aspect(s) {Aspect}.",
+                nameof(Aspect));
         if (FirstMipTailLevel > texture.MipLevels)
             throw new ArgumentOutOfRangeException(nameof(FirstMipTailLevel));
         if (MipTailSizeInBytes == 0 && FirstMipTailLevel != texture.MipLevels)
@@ -57,10 +84,13 @@ public readonly record struct GraphicsSparseTextureRegion(
     uint TileZ,
     uint TileWidth,
     uint TileHeight,
-    uint TileDepth)
+    uint TileDepth,
+    GraphicsSparseTextureAspect Aspect = GraphicsSparseTextureAspect.Color)
 {
     public void Validate(in GraphicsTextureDescription texture, in GraphicsSparseTextureRequirements requirements)
     {
+        if (Aspect != requirements.Aspect)
+            throw new ArgumentException("Sparse texture region aspect must match the requirements used to validate it.", nameof(Aspect));
         if (MipLevel >= texture.MipLevels || MipLevel >= requirements.FirstMipTailLevel)
             throw new ArgumentOutOfRangeException(nameof(MipLevel), "Regular tile regions must precede the mip tail.");
         if (ArrayLayer >= texture.ArrayLayers)
@@ -98,6 +128,8 @@ public readonly record struct GraphicsSparseTextureBinding(
         if (Texture.IsDisposed || Texture.Device.IsDisposed)
             throw new ObjectDisposedException(nameof(Texture));
         requirements.Validate(Texture.Description);
+        if (Region.Aspect != requirements.Aspect)
+            throw new ArgumentException("Sparse texture binding aspect must match the backend requirements.", nameof(Region));
         if (IsMipTail)
         {
             if (requirements.MipTailSizeInBytes == 0)
@@ -203,20 +235,153 @@ public readonly record struct GraphicsSparseBufferBinding(
 public interface IGraphicsSparseResourceDevice
 {
     IGraphicsDevice Device { get; }
-    GraphicsSparseTextureRequirements GetSparseTextureRequirements(IGraphicsTexture texture);
+    GraphicsSparseTextureRequirements GetSparseTextureRequirements(
+        IGraphicsTexture texture,
+        GraphicsSparseTextureAspect aspect = GraphicsSparseTextureAspect.Color);
     GraphicsSparseBufferRequirements GetSparseBufferRequirements(IGraphicsBuffer buffer);
     void BindSparseTextures(
-        IGraphicsCommandQueue queue,
+        IGraphicsSparseBindingQueue queue,
         ReadOnlySpan<GraphicsSparseTextureBinding> bindings,
         IGraphicsFence? waitFence = null,
         ulong waitValue = 0,
         IGraphicsFence? signalFence = null,
         ulong signalValue = 0);
     void BindSparseBuffers(
-        IGraphicsCommandQueue queue,
+        IGraphicsSparseBindingQueue queue,
         ReadOnlySpan<GraphicsSparseBufferBinding> bindings,
         IGraphicsFence? waitFence = null,
         ulong waitValue = 0,
         IGraphicsFence? signalFence = null,
         ulong signalValue = 0);
+}
+
+
+/// <summary>
+/// Backend-reported opaque sparse image metadata mip-tail range. Metadata is not addressed by texel
+/// coordinates and therefore uses a separate contract from color/depth/stencil sparse tiles.
+/// </summary>
+public readonly record struct GraphicsSparseTextureMetadataRequirements(
+    ulong SizeInBytes,
+    ulong OffsetInBytes,
+    ulong StrideInBytes,
+    ulong Alignment,
+    bool SingleMipTail)
+{
+    public void Validate(in GraphicsTextureDescription texture)
+    {
+        texture.Validate();
+        if ((texture.CreationOptions & GraphicsResourceCreationOptions.SparseResidency) == 0)
+            throw new ArgumentException("The texture must be created with SparseResidency.", nameof(texture));
+        if (texture.Dimension == GraphicsTextureDimension.Texture1D)
+            throw new ArgumentException("Sparse metadata is not available for 1D textures.", nameof(texture));
+        if (SizeInBytes == 0 || Alignment == 0 || (Alignment & (Alignment - 1)) != 0)
+            throw new ArgumentException("Sparse metadata size and alignment must be non-zero, with power-of-two alignment.");
+        if (SingleMipTail && StrideInBytes != 0)
+            throw new ArgumentException("A single metadata mip tail cannot declare a per-layer stride.", nameof(StrideInBytes));
+        if (!SingleMipTail && texture.ArrayLayers > 1 && StrideInBytes < SizeInBytes)
+            throw new ArgumentException("Per-layer metadata mip-tail stride cannot be smaller than its size.", nameof(StrideInBytes));
+        if (!SingleMipTail && texture.ArrayLayers > 1)
+            _ = checked(OffsetInBytes + StrideInBytes * (texture.ArrayLayers - 1UL) + SizeInBytes);
+        else
+            _ = checked(OffsetInBytes + SizeInBytes);
+    }
+}
+
+/// <summary>Maps or unmaps one opaque metadata mip tail (per-layer or single-tail as reported by the backend).</summary>
+public readonly record struct GraphicsSparseTextureMetadataBinding(
+    IGraphicsTexture Texture,
+    uint ArrayLayer,
+    IGraphicsMemoryAllocation? Allocation,
+    ulong AllocationOffsetInBytes)
+{
+    public void Validate(in GraphicsSparseTextureMetadataRequirements requirements)
+    {
+        ArgumentNullException.ThrowIfNull(Texture);
+        if (Texture.IsDisposed || Texture.Device.IsDisposed)
+            throw new ObjectDisposedException(nameof(Texture));
+        requirements.Validate(Texture.Description);
+        if (requirements.SingleMipTail)
+        {
+            if (ArrayLayer != 0)
+                throw new ArgumentOutOfRangeException(nameof(ArrayLayer),
+                    "A single metadata mip tail is bound through array layer zero.");
+        }
+        else if (ArrayLayer >= Texture.Description.ArrayLayers)
+        {
+            throw new ArgumentOutOfRangeException(nameof(ArrayLayer));
+        }
+
+        if (Allocation is null)
+        {
+            if (AllocationOffsetInBytes != 0)
+                throw new ArgumentException("Unmapping metadata cannot specify an allocation offset.", nameof(AllocationOffsetInBytes));
+            return;
+        }
+
+        if (Allocation.IsDisposed || Allocation.Device.IsDisposed ||
+            !ReferenceEquals(Allocation.Device, Texture.Device))
+            throw new ArgumentException("Metadata texture and allocation must belong to the same live device.", nameof(Allocation));
+        if (AllocationOffsetInBytes > Allocation.SizeInBytes ||
+            requirements.SizeInBytes > Allocation.SizeInBytes - AllocationOffsetInBytes)
+            throw new ArgumentOutOfRangeException(nameof(AllocationOffsetInBytes),
+                "The allocation does not contain the complete metadata mip-tail range.");
+        if (AllocationOffsetInBytes % requirements.Alignment != 0)
+            throw new ArgumentException("The metadata allocation offset does not satisfy backend alignment.", nameof(AllocationOffsetInBytes));
+    }
+}
+
+/// <summary>
+/// Optional extension for backends exposing separate sparse image metadata requirements and bindings.
+/// Backends without a distinct metadata mapping model do not implement this interface.
+/// </summary>
+public interface IGraphicsSparseTextureMetadataDevice : IGraphicsSparseResourceDevice
+{
+    GraphicsSparseTextureMetadataRequirements GetSparseTextureMetadataRequirements(IGraphicsTexture texture);
+
+    void BindSparseTextureMetadata(
+        IGraphicsSparseBindingQueue queue,
+        ReadOnlySpan<GraphicsSparseTextureMetadataBinding> bindings,
+        IGraphicsFence? waitFence = null,
+        ulong waitValue = 0,
+        IGraphicsFence? signalFence = null,
+        ulong signalValue = 0);
+}
+
+/// <summary>Shared validation for queue-specific sparse operations.</summary>
+public static class GraphicsSparseResourceValidation
+{
+    /// <summary>
+    /// Ensures that the optional sparse device is live/enabled and the selected queue is a sparse-capable
+    /// queue from that exact device. Implementations should call this before every sparse binding operation.
+    /// </summary>
+    public static void ValidateBindingQueue(IGraphicsSparseResourceDevice sparseDevice, IGraphicsQueue queue)
+    {
+        ArgumentNullException.ThrowIfNull(sparseDevice);
+        ArgumentNullException.ThrowIfNull(queue);
+        IGraphicsDevice device = sparseDevice.Device;
+        ArgumentNullException.ThrowIfNull(device);
+        if (device.IsDisposed)
+            throw new ObjectDisposedException(nameof(device));
+        if (!device.Capabilities.Features.Supports(GraphicsFeature.SparseResources))
+            throw new GraphicsFeatureNotSupportedException(GraphicsFeature.SparseResources, GraphicsFeature.SparseResources);
+        if (!ReferenceEquals(queue.Device, device))
+            throw new ArgumentException("The sparse-binding queue must belong to the sparse resource device.", nameof(queue));
+        if (queue is not IGraphicsSparseBindingQueue)
+            throw new ArgumentException("The selected queue does not report sparse-binding capability.", nameof(queue));
+    }
+
+    public static void ValidateTextureMetadataBindings(
+        IGraphicsSparseTextureMetadataDevice sparseDevice,
+        IGraphicsQueue queue,
+        ReadOnlySpan<GraphicsSparseTextureMetadataBinding> bindings,
+        in GraphicsSparseTextureMetadataRequirements requirements)
+    {
+        ValidateBindingQueue(sparseDevice, queue);
+        for (int i = 0; i < bindings.Length; i++)
+        {
+            bindings[i].Validate(requirements);
+            if (!ReferenceEquals(bindings[i].Texture.Device, sparseDevice.Device))
+                throw new ArgumentException("All metadata textures must belong to the sparse resource device.", nameof(bindings));
+        }
+    }
 }

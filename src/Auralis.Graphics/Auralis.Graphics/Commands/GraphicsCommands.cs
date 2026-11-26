@@ -166,6 +166,14 @@ public interface IGraphicsQueue
 }
 
 /// <summary>
+/// Optional marker implemented only by queue instances capable of sparse resource binding.
+/// This capability is queue/family-specific and must not be inferred from device-wide queue flags.
+/// </summary>
+public interface IGraphicsSparseBindingQueue : IGraphicsQueue
+{
+}
+
+/// <summary>
 /// A device-owned command-capable queue. Presentation-only queues intentionally do not implement this interface.
 /// </summary>
 public interface IGraphicsCommandQueue : IGraphicsQueue
