@@ -166,12 +166,12 @@ public sealed class GraphicsBarrierValidationTests
         var destination = new TestQueue(device, 1, 1);
 
         var release = new GraphicsResourceBarrier(
-            buffer, GraphicsPipelineStage.ComputeShader, GraphicsPipelineStage.BottomOfPipe,
+            buffer, GraphicsPipelineStage.ComputeShader, GraphicsPipelineStage.None,
             GraphicsResourceAccess.ShaderWrite, GraphicsResourceAccess.None,
             OwnershipTransfer: new GraphicsQueueOwnershipTransfer(
                 source, destination, GraphicsQueueOwnershipTransferPhase.Release));
         var acquire = new GraphicsResourceBarrier(
-            buffer, GraphicsPipelineStage.TopOfPipe, GraphicsPipelineStage.VertexShader,
+            buffer, GraphicsPipelineStage.None, GraphicsPipelineStage.VertexShader,
             GraphicsResourceAccess.None, GraphicsResourceAccess.ShaderRead,
             OwnershipTransfer: new GraphicsQueueOwnershipTransfer(
                 source, destination, GraphicsQueueOwnershipTransferPhase.Acquire));
@@ -186,6 +186,92 @@ public sealed class GraphicsBarrierValidationTests
                 OwnershipTransfer = new GraphicsQueueOwnershipTransfer(
                     source, new TestQueue(device, 2, 0), GraphicsQueueOwnershipTransferPhase.Release)
             }).Validate());
+    }
+
+    [Fact]
+    public void AccelerationStructureBarriersUseDedicatedReadWriteStages()
+    {
+        var device = new GraphicsDeviceFactoryTests.TestDevice(
+            GraphicsBackend.Vulkan, GraphicsFeature.RayTracing,
+            GraphicsQueueCapabilities.Graphics | GraphicsQueueCapabilities.Compute);
+        var asDescription = new GraphicsAccelerationStructureDescription
+        {
+            IsTopLevel = true,
+            Flags = GraphicsAccelerationStructureBuildFlags.AllowUpdate,
+            MaximumInstanceCount = 8
+        };
+        var accelerationStructure = new TestAccelerationStructure(device, asDescription);
+
+        new GraphicsResourceBarrier(
+            accelerationStructure,
+            GraphicsPipelineStage.RayTracingShader,
+            GraphicsPipelineStage.AccelerationStructureBuild,
+            GraphicsResourceAccess.AccelerationStructureRead,
+            GraphicsResourceAccess.AccelerationStructureRead).Validate();
+
+        new GraphicsResourceBarrier(
+            accelerationStructure,
+            GraphicsPipelineStage.AccelerationStructureBuild,
+            GraphicsPipelineStage.AccelerationStructureCopy,
+            GraphicsResourceAccess.AccelerationStructureWrite,
+            GraphicsResourceAccess.AccelerationStructureRead).Validate();
+
+        var buildToTrace = new GraphicsResourceBarrier(
+            accelerationStructure,
+            GraphicsPipelineStage.AccelerationStructureBuild,
+            GraphicsPipelineStage.RayTracingShader,
+            GraphicsResourceAccess.AccelerationStructureWrite,
+            GraphicsResourceAccess.AccelerationStructureRead);
+        buildToTrace.Validate();
+
+        var invalidReadStage = buildToTrace with
+        {
+            SourceStages = GraphicsPipelineStage.VertexShader,
+            SourceAccess = GraphicsResourceAccess.AccelerationStructureRead
+        };
+        var invalidWriteStage = buildToTrace with
+        {
+            SourceStages = GraphicsPipelineStage.RayTracingShader,
+            SourceAccess = GraphicsResourceAccess.AccelerationStructureWrite
+        };
+        Assert.Throws<ArgumentException>(invalidReadStage.Validate);
+        Assert.Throws<ArgumentException>(invalidWriteStage.Validate);
+    }
+
+    [Fact]
+    public void AccelerationStructureBarriersRejectBufferAndTextureSemantics()
+    {
+        var device = new GraphicsDeviceFactoryTests.TestDevice(
+            GraphicsBackend.Vulkan, GraphicsFeature.RayTracing, GraphicsQueueCapabilities.Graphics);
+        var accelerationStructure = new TestAccelerationStructure(device,
+            new GraphicsAccelerationStructureDescription
+            {
+                IsTopLevel = true,
+                Flags = GraphicsAccelerationStructureBuildFlags.None,
+                MaximumInstanceCount = 1
+            });
+        var read = new GraphicsResourceBarrier(
+            accelerationStructure,
+            GraphicsPipelineStage.RayTracingShader,
+            GraphicsPipelineStage.RayTracingShader,
+            GraphicsResourceAccess.AccelerationStructureRead,
+            GraphicsResourceAccess.AccelerationStructureRead);
+
+        Assert.Throws<ArgumentException>(() =>
+            (read with { BufferRange = new GraphicsBufferRange(0, 16) }).Validate());
+        Assert.Throws<ArgumentException>(() =>
+            (read with { TextureRange = new GraphicsTextureSubresourceRange(
+                GraphicsTextureAspect.Color, 0, 1, 0, 1) }).Validate());
+        Assert.Throws<ArgumentException>(() =>
+            (read with { OldLayout = GraphicsTextureLayout.General }).Validate());
+
+        var buffer = new TestBuffer(device, new GraphicsBufferDescription(128, GraphicsBufferUsage.Storage));
+        Assert.Throws<ArgumentException>(() => new GraphicsResourceBarrier(
+            buffer,
+            GraphicsPipelineStage.RayTracingShader,
+            GraphicsPipelineStage.AccelerationStructureBuild,
+            GraphicsResourceAccess.AccelerationStructureRead,
+            GraphicsResourceAccess.None).Validate());
     }
 
     [Fact]
@@ -261,6 +347,19 @@ public sealed class GraphicsBarrierValidationTests
         public IGraphicsTexture Texture { get; } = texture;
         public GraphicsTextureViewDescription Description { get; } = new(
             GraphicsFormat.Unknown, GraphicsTextureViewType.Texture2D, 0, 1, 0, 1);
+        protected override void DisposeCore() { }
+    }
+
+    private sealed class TestAccelerationStructure(
+        IGraphicsDevice device,
+        GraphicsAccelerationStructureDescription description)
+        : GraphicsDeviceObject(device), IGraphicsAccelerationStructure
+    {
+        public string? DebugName => null;
+        public GraphicsAccelerationStructureDescription Description { get; } = description;
+        public bool IsTopLevel => description.IsTopLevel;
+        public uint InstanceCount => 0;
+        public ulong DeviceAddress => 0x4000;
         protected override void DisposeCore() { }
     }
 

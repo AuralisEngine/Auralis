@@ -27,6 +27,12 @@ public enum GraphicsPipelineStage
     TaskShader = 1 << 15,
     MeshShader = 1 << 16,
     FragmentShadingRate = 1 << 17,
+    /// <summary>Ray-generation, miss, hit, and callable shader execution.</summary>
+    RayTracingShader = 1 << 18,
+    /// <summary>Acceleration-structure build and update execution.</summary>
+    AccelerationStructureBuild = 1 << 19,
+    /// <summary>Acceleration-structure clone and compaction copy execution.</summary>
+    AccelerationStructureCopy = 1 << 20,
 
     /// <summary>All graphics execution stages, including indirect drawing and mesh/task shading.</summary>
     AllGraphics =
@@ -65,7 +71,11 @@ public enum GraphicsResourceAccess
     HostWrite = 1 << 13,
     MemoryRead = 1 << 14,
     MemoryWrite = 1 << 15,
-    ShadingRateAttachmentRead = 1 << 16
+    ShadingRateAttachmentRead = 1 << 16,
+    /// <summary>Reads an acceleration structure from a ray-tracing shader, build, or AS copy operation.</summary>
+    AccelerationStructureRead = 1 << 17,
+    /// <summary>Writes an acceleration structure during a build, update, or AS copy operation.</summary>
+    AccelerationStructureWrite = 1 << 18
 }
 
 /// <summary>
@@ -173,6 +183,7 @@ internal static class GraphicsBarrierCompatibility
         GraphicsPipelineStage.MeshShader |
         GraphicsPipelineStage.FragmentShader |
         GraphicsPipelineStage.ComputeShader |
+        GraphicsPipelineStage.RayTracingShader |
         GraphicsPipelineStage.AllCommands;
 
     private const GraphicsPipelineStage ExecutionStages =
@@ -191,6 +202,9 @@ internal static class GraphicsBarrierCompatibility
         GraphicsPipelineStage.DepthStencil |
         GraphicsPipelineStage.Transfer |
         GraphicsPipelineStage.Host |
+        GraphicsPipelineStage.RayTracingShader |
+        GraphicsPipelineStage.AccelerationStructureBuild |
+        GraphicsPipelineStage.AccelerationStructureCopy |
         GraphicsPipelineStage.AllCommands;
 
     private readonly record struct AccessRule(
@@ -200,7 +214,8 @@ internal static class GraphicsBarrierCompatibility
         GraphicsBufferUsage BufferUsage,
         GraphicsTextureUsage TextureUsage,
         GraphicsPipelineStage Stages,
-        bool AnyTextureUsage = false);
+        bool AnyTextureUsage = false,
+        bool SupportsAccelerationStructure = false);
 
     private static readonly AccessRule[] s_accessRules =
     [
@@ -252,7 +267,17 @@ internal static class GraphicsBarrierCompatibility
             GraphicsBufferUsage.None, GraphicsTextureUsage.None, ExecutionStages),
         new(GraphicsResourceAccess.ShadingRateAttachmentRead, false, true,
             GraphicsBufferUsage.None, GraphicsTextureUsage.ShadingRateAttachment,
-            GraphicsPipelineStage.FragmentShadingRate | GraphicsPipelineStage.AllCommands)
+            GraphicsPipelineStage.FragmentShadingRate | GraphicsPipelineStage.AllCommands),
+        new(GraphicsResourceAccess.AccelerationStructureRead, false, false,
+            GraphicsBufferUsage.None, GraphicsTextureUsage.None,
+            GraphicsPipelineStage.RayTracingShader | GraphicsPipelineStage.AccelerationStructureBuild |
+            GraphicsPipelineStage.AccelerationStructureCopy | GraphicsPipelineStage.AllCommands,
+            SupportsAccelerationStructure: true),
+        new(GraphicsResourceAccess.AccelerationStructureWrite, false, false,
+            GraphicsBufferUsage.None, GraphicsTextureUsage.None,
+            GraphicsPipelineStage.AccelerationStructureBuild | GraphicsPipelineStage.AccelerationStructureCopy |
+            GraphicsPipelineStage.AllCommands,
+            SupportsAccelerationStructure: true)
     ];
 
     public static void ValidateAccess(
@@ -265,8 +290,9 @@ internal static class GraphicsBarrierCompatibility
 
         bool isBuffer = resource is IGraphicsBuffer;
         bool isTexture = resource is IGraphicsTexture;
-        if (!isBuffer && !isTexture)
-            throw new ArgumentException("Barrier access validation supports only buffers and textures.", nameof(resource));
+        bool isAccelerationStructure = resource is IGraphicsAccelerationStructure;
+        if (!isBuffer && !isTexture && !isAccelerationStructure)
+            throw new ArgumentException("Barrier access validation supports buffers, textures, and acceleration structures.", nameof(resource));
 
         GraphicsBufferDescription buffer = isBuffer
             ? ((IGraphicsBuffer)resource).Description
@@ -281,7 +307,9 @@ internal static class GraphicsBarrierCompatibility
             if ((access & rule.Access) == 0)
                 continue;
 
-            if ((isBuffer && !rule.SupportsBuffer) || (isTexture && !rule.SupportsTexture))
+            if ((isBuffer && !rule.SupportsBuffer) ||
+                (isTexture && !rule.SupportsTexture) ||
+                (isAccelerationStructure && !rule.SupportsAccelerationStructure))
                 throw new ArgumentException(
                     $"Access {rule.Access} is not valid for resource type {resource.GetType().Name}.",
                     nameof(access));
@@ -355,8 +383,10 @@ internal static class GraphicsBarrierCompatibility
 
 /// <summary>
 /// Identifies which queue-family ownership transfer half the barrier represents.
-/// A Release barrier is recorded on SourceQueue; an Acquire barrier is recorded on DestinationQueue.
-/// The application must order those submissions using a source signal and a destination queue wait.
+/// A Release barrier is recorded on SourceQueue and supplies only the source stage/access scope; its
+/// destination scope is ignored (None). An Acquire barrier is recorded on DestinationQueue and supplies
+/// only the destination stage/access scope; its source scope is ignored (None). The application orders
+/// those submissions using a source signal and destination queue wait.
 /// </summary>
 public enum GraphicsQueueOwnershipTransferPhase
 {
@@ -374,8 +404,9 @@ public readonly record struct GraphicsQueueOwnershipTransfer(
 
 /// <summary>
 /// One resource dependency to be translated into backend-native synchronization.
-/// Range fields are mutually exclusive. Null ranges select the whole resource.
-/// Barriers target buffers or textures directly; texture views must be resolved to their underlying texture.
+/// Range fields are mutually exclusive. Null ranges select the whole resource. Acceleration structures are
+/// first-class synchronization resources with dedicated access intents and execution stages, but no buffer
+/// byte ranges or texture layouts. Texture views must be resolved to their underlying texture.
 /// </summary>
 public readonly record struct GraphicsResourceBarrier(
     IGraphicsResource Resource,
@@ -430,7 +461,9 @@ public readonly record struct GraphicsResourceBarrier(
             GraphicsPipelineStage.BottomOfPipe | GraphicsPipelineStage.AllCommands |
             GraphicsPipelineStage.GeometryShader | GraphicsPipelineStage.TessellationControlShader |
             GraphicsPipelineStage.TessellationEvaluationShader | GraphicsPipelineStage.TaskShader |
-            GraphicsPipelineStage.MeshShader | GraphicsPipelineStage.FragmentShadingRate;
+            GraphicsPipelineStage.MeshShader | GraphicsPipelineStage.FragmentShadingRate |
+            GraphicsPipelineStage.RayTracingShader | GraphicsPipelineStage.AccelerationStructureBuild |
+            GraphicsPipelineStage.AccelerationStructureCopy;
         const GraphicsResourceAccess allAccess =
             GraphicsResourceAccess.IndirectRead | GraphicsResourceAccess.IndexRead |
             GraphicsResourceAccess.VertexRead | GraphicsResourceAccess.UniformRead |
@@ -440,7 +473,8 @@ public readonly record struct GraphicsResourceBarrier(
             GraphicsResourceAccess.TransferRead | GraphicsResourceAccess.TransferWrite |
             GraphicsResourceAccess.HostRead | GraphicsResourceAccess.HostWrite |
             GraphicsResourceAccess.MemoryRead | GraphicsResourceAccess.MemoryWrite |
-            GraphicsResourceAccess.ShadingRateAttachmentRead;
+            GraphicsResourceAccess.ShadingRateAttachmentRead |
+            GraphicsResourceAccess.AccelerationStructureRead | GraphicsResourceAccess.AccelerationStructureWrite;
 
         if (Resource.IsDisposed || Resource.Device.IsDisposed)
             throw new ObjectDisposedException(nameof(Resource));
@@ -462,9 +496,28 @@ public readonly record struct GraphicsResourceBarrier(
                 SourceAccess != GraphicsResourceAccess.None)
                 throw new ArgumentException("Acquire barriers must not declare source access.", nameof(SourceAccess));
         }
-        if (SourceStages == GraphicsPipelineStage.None || DestinationStages == GraphicsPipelineStage.None ||
-            (SourceStages & ~allStages) != 0 || (DestinationStages & ~allStages) != 0)
-            throw new ArgumentException("Resource barriers require valid, non-empty source and destination stages.");
+        if ((SourceStages & ~allStages) != 0 || (DestinationStages & ~allStages) != 0)
+            throw new ArgumentException("Resource barriers contain unknown pipeline stages.");
+
+        if (OwnershipTransfer is not { } stageTransfer)
+        {
+            if (SourceStages == GraphicsPipelineStage.None || DestinationStages == GraphicsPipelineStage.None)
+                throw new ArgumentException("Ordinary barriers require non-empty source and destination stage scopes.");
+        }
+        else if (stageTransfer.Phase == GraphicsQueueOwnershipTransferPhase.Release)
+        {
+            if (SourceStages == GraphicsPipelineStage.None || DestinationStages != GraphicsPipelineStage.None)
+                throw new ArgumentException(
+                    "Release barriers require a source stage scope and use None for the ignored destination stage scope.",
+                    nameof(DestinationStages));
+        }
+        else if (stageTransfer.Phase == GraphicsQueueOwnershipTransferPhase.Acquire)
+        {
+            if (SourceStages != GraphicsPipelineStage.None || DestinationStages == GraphicsPipelineStage.None)
+                throw new ArgumentException(
+                    "Acquire barriers use None for the ignored source stage scope and require a destination stage scope.",
+                    nameof(SourceStages));
+        }
         if ((SourceAccess & ~allAccess) != 0)
             throw new ArgumentOutOfRangeException(nameof(SourceAccess), "Source access flags contain unknown values.");
         if ((DestinationAccess & ~allAccess) != 0)
@@ -500,6 +553,19 @@ public readonly record struct GraphicsResourceBarrier(
                     OldLayout, texture.Description.Usage, isNewLayout: false);
                 GraphicsBarrierCompatibility.ValidateTextureLayout(
                     NewLayout, texture.Description.Usage, isNewLayout: true);
+                break;
+
+            case IGraphicsAccelerationStructure accelerationStructure:
+                accelerationStructure.Description.Validate(accelerationStructure.Device);
+                if (accelerationStructure.IsTopLevel != accelerationStructure.Description.IsTopLevel)
+                    throw new ArgumentException("The acceleration-structure kind does not match its description.", nameof(Resource));
+                if (BufferRange is not null)
+                    throw new ArgumentException("Acceleration-structure barriers cannot specify buffer ranges.", nameof(BufferRange));
+                if (TextureRange is not null)
+                    throw new ArgumentException("Acceleration-structure barriers cannot specify texture subresource ranges.", nameof(TextureRange));
+                if (OldLayout != GraphicsTextureLayout.NotApplicable ||
+                    NewLayout != GraphicsTextureLayout.NotApplicable)
+                    throw new ArgumentException("Acceleration-structure barriers must use NotApplicable texture layouts.");
                 break;
 
             case IGraphicsTextureView:
