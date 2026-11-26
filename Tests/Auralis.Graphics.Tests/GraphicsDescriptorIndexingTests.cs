@@ -201,6 +201,25 @@ public sealed class GraphicsDescriptorIndexingTests
             layout.ValidateDynamicOffsets(ReadOnlySpan<GraphicsDynamicBufferOffset>.Empty));
     }
 
+    [Fact]
+    public void DeviceLimitsRequirePowerOfTwoDynamicOffsetAlignments()
+    {
+        var invalidUniform = new GraphicsDeviceLimits(
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            MinUniformBufferOffsetAlignment: 3);
+        var invalidStorage = new GraphicsDeviceLimits(
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            MinStorageBufferOffsetAlignment: 24);
+
+        Assert.Throws<ArgumentOutOfRangeException>(invalidUniform.Validate);
+        Assert.Throws<ArgumentOutOfRangeException>(invalidStorage.Validate);
+        Assert.Throws<ArgumentOutOfRangeException>(() => new GraphicsDeviceCapabilities(
+            new GraphicsFeatureSet(GraphicsFeature.None),
+            GraphicsQueueCapabilities.Graphics,
+            invalidUniform,
+            ReadOnlySpan<GraphicsFormatCapabilities>.Empty));
+    }
+
     private static GraphicsDeviceCapabilities CreateCapabilities(
         GraphicsDescriptorIndexingCapabilities descriptorIndexing) =>
         new(

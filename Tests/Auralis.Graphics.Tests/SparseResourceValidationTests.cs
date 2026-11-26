@@ -59,6 +59,60 @@ public sealed class SparseResourceValidationTests
     }
 
     [Fact]
+    public void SparseBindingValidationAcceptsValidTextureAndBufferUnmaps()
+    {
+        var device = CreateDevice(GraphicsFeature.SparseResources);
+        var sparseDevice = new TestSparseDevice(device);
+        var queue = new SparseQueue(device);
+        var texture = CreateTexture(GraphicsFormat.RGBA8UNorm, device);
+        var textureBinding = new GraphicsSparseTextureBinding(
+            texture, new GraphicsSparseTextureRegion(0, 0, 0, 0, 0, 1, 1, 1), null, 0);
+        GraphicsSparseResourceValidation.ValidateTextureBindings(sparseDevice, queue, [textureBinding]);
+
+        var buffer = new TestBuffer(device, new GraphicsBufferDescription(
+            131072, GraphicsBufferUsage.Storage,
+            CreationOptions: GraphicsResourceCreationOptions.SparseResidency));
+        var bufferBinding = new GraphicsSparseBufferBinding(
+            buffer, new GraphicsSparseBufferRegion(0, 65536), null, 0);
+        GraphicsSparseResourceValidation.ValidateBufferBindings(sparseDevice, queue, [bufferBinding]);
+    }
+
+    [Fact]
+    public void SparseBindingValidationRejectsResourcesFromAnotherDevice()
+    {
+        var device = CreateDevice(GraphicsFeature.SparseResources);
+        var otherDevice = CreateDevice(GraphicsFeature.SparseResources);
+        var sparseDevice = new TestSparseDevice(device);
+        var queue = new SparseQueue(device);
+        var foreignTexture = CreateTexture(GraphicsFormat.RGBA8UNorm, otherDevice);
+        var foreignTextureBinding = new GraphicsSparseTextureBinding(
+            foreignTexture, new GraphicsSparseTextureRegion(0, 0, 0, 0, 0, 1, 1, 1), null, 0);
+        Assert.Throws<ArgumentException>(() =>
+            GraphicsSparseResourceValidation.ValidateTextureBindings(sparseDevice, queue, [foreignTextureBinding]));
+
+        var foreignBuffer = new TestBuffer(otherDevice, new GraphicsBufferDescription(
+            65536, GraphicsBufferUsage.Storage,
+            CreationOptions: GraphicsResourceCreationOptions.SparseResidency));
+        var foreignBufferBinding = new GraphicsSparseBufferBinding(
+            foreignBuffer, new GraphicsSparseBufferRegion(0, 65536), null, 0);
+        Assert.Throws<ArgumentException>(() =>
+            GraphicsSparseResourceValidation.ValidateBufferBindings(sparseDevice, queue, [foreignBufferBinding]));
+    }
+
+    [Fact]
+    public void SparseTextureRequirementsTranslateMipTailOverflowIntoRangeValidationError()
+    {
+        var texture = new GraphicsTextureDescription(
+            GraphicsTextureDimension.Texture2D, GraphicsFormat.RGBA8UNorm,
+            256, 256, 1, 9, 4, 1, GraphicsTextureUsage.Sampled,
+            GraphicsResourceCreationOptions.SparseResidency);
+        var requirements = new GraphicsSparseTextureRequirements(
+            64, 64, 1, 65536, 1, 16, ulong.MaxValue - 8, 16, false);
+
+        Assert.Throws<ArgumentOutOfRangeException>(() => requirements.Validate(texture));
+    }
+
+    [Fact]
     public void SparseMetadataRequirementsRepresentSingleAndPerLayerOpaqueTails()
     {
         var texture = CreateTexture(GraphicsFormat.RGBA8UNorm, layers: 4);
@@ -170,6 +224,18 @@ public sealed class SparseResourceValidationTests
             ulong waitValue = 0,
             IGraphicsFence? signalFence = null,
             ulong signalValue = 0) { }
+    }
+
+    private sealed class TestBuffer(
+        IGraphicsDevice device,
+        GraphicsBufferDescription description) : GraphicsDeviceObject(device), IGraphicsBuffer
+    {
+        public string? DebugName => null;
+        public GraphicsBufferDescription Description { get; } = description;
+        public Memory<byte> Map(GraphicsMapMode mode, ulong offset = 0, ulong size = ulong.MaxValue) =>
+            throw new NotSupportedException();
+        public void Unmap() { }
+        protected override void DisposeCore() { }
     }
 
     private sealed class SparseQueue(IGraphicsDevice device) : IGraphicsSparseBindingQueue

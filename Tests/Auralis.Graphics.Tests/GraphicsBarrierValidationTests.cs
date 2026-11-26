@@ -181,6 +181,14 @@ public sealed class GraphicsBarrierValidationTests
         acquire.Validate(destination);
         Assert.Throws<ArgumentException>(() => release.Validate(destination));
         Assert.Throws<ArgumentException>(() =>
+            (release with { DestinationStages = GraphicsPipelineStage.BottomOfPipe }).Validate(source));
+        Assert.Throws<ArgumentException>(() =>
+            (release with { DestinationAccess = GraphicsResourceAccess.ShaderRead }).Validate(source));
+        Assert.Throws<ArgumentException>(() =>
+            (acquire with { SourceStages = GraphicsPipelineStage.ComputeShader }).Validate(destination));
+        Assert.Throws<ArgumentException>(() =>
+            (acquire with { SourceAccess = GraphicsResourceAccess.ShaderWrite }).Validate(destination));
+        Assert.Throws<ArgumentException>(() =>
             (release with
             {
                 OwnershipTransfer = new GraphicsQueueOwnershipTransfer(

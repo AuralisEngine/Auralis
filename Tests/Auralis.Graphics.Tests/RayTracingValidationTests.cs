@@ -215,6 +215,11 @@ public sealed class RayTracingValidationTests
             new GraphicsRayTracingTriangleGeometry(buffer, 2, 8, 3, GraphicsFormat.RG32Float).Validate());
         Assert.Throws<ArgumentOutOfRangeException>(() =>
             new GraphicsRayTracingTriangleGeometry(buffer, 248, 8, 3, GraphicsFormat.RG32Float).Validate());
+        var addressOverflowBuffer = new TestBuffer(device,
+            new GraphicsBufferDescription(64, GraphicsBufferUsage.AccelerationStructureBuildInput),
+            ulong.MaxValue - 4);
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new GraphicsRayTracingTriangleGeometry(addressOverflowBuffer, 0, 12, 3, GraphicsFormat.RGB32Float).Validate());
 
         var capabilities = new GraphicsDeviceCapabilities(
             new GraphicsFeatureSet(GraphicsFeature.RayTracing),
