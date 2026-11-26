@@ -236,13 +236,13 @@ public sealed class RayTracingValidationTests
         {
             IsTopLevel = false,
             Flags = GraphicsAccelerationStructureBuildFlags.AllowUpdate,
-            Geometries =
-            [
-                new GraphicsAccelerationStructureGeometry(
+            Geometries = new GraphicsAccelerationStructureGeometry[]
+            {
+                new(
                     GraphicsAccelerationStructureGeometryType.Triangles,
                     new GraphicsRayTracingTriangleGeometry(buffer, 0, 12, 3, GraphicsFormat.RGB32Float),
                     default)
-            ]
+            }
         };
         var blas = new TestAccelerationStructure(device, blasDescription);
         var maxValues = new GraphicsRayTracingInstance(
@@ -301,19 +301,30 @@ public sealed class RayTracingValidationTests
         {
             IsTopLevel = false,
             Flags = GraphicsAccelerationStructureBuildFlags.None,
-            Geometries =
-            [
-                new GraphicsAccelerationStructureGeometry(
+            Geometries = new GraphicsAccelerationStructureGeometry[]
+            {
+                new(
                     GraphicsAccelerationStructureGeometryType.Triangles,
                     new GraphicsRayTracingTriangleGeometry(buffer, 0, 12, 3, GraphicsFormat.RGB32Float),
                     default)
-            ]
+            }
         };
         var blas = new TestAccelerationStructure(otherDevice, description);
         var instance = new GraphicsRayTracingInstance(blas, GraphicsTransform3x4.Identity);
 
         Assert.Throws<ArgumentException>(() => new GraphicsRayTracingInstanceData(instance, destinationDevice));
     }
+
+    private static GraphicsRayTracingPipelineDescription CreatePipeline(
+        IGraphicsDevice device,
+        GraphicsRayTracingShaderEntry[] stages,
+        GraphicsRayTracingShaderGroup[] groups,
+        IGraphicsPipelineLayout? layout = null) =>
+        CreatePipeline(
+            device,
+            new ReadOnlyMemory<GraphicsRayTracingShaderEntry>(stages),
+            new ReadOnlyMemory<GraphicsRayTracingShaderGroup>(groups),
+            layout);
 
     private static GraphicsRayTracingPipelineDescription CreatePipeline(
         IGraphicsDevice device,
