@@ -15,8 +15,15 @@ public enum GraphicsShaderStages
     TessellationEvaluation = 1 << 5,
     Task = 1 << 6,
     Mesh = 1 << 7,
+    RayGeneration = 1 << 8,
+    Miss = 1 << 9,
+    ClosestHit = 1 << 10,
+    AnyHit = 1 << 11,
+    Intersection = 1 << 12,
+    Callable = 1 << 13,
     AllGraphics = Vertex | Fragment | Geometry | TessellationControl | TessellationEvaluation | Task | Mesh,
-    All = AllGraphics | Compute
+    AllRayTracing = RayGeneration | Miss | ClosestHit | AnyHit | Intersection | Callable,
+    All = AllGraphics | AllRayTracing | Compute
 }
 
 public enum GraphicsDescriptorType
@@ -574,6 +581,10 @@ public sealed class GraphicsRenderPipelineDescription
             GraphicsShaderStage stage = shader.Description.Stage;
             if (stage == GraphicsShaderStage.Compute)
                 throw new ArgumentException("Compute shaders cannot be included in a render pipeline.", nameof(Shaders));
+            if (stage is GraphicsShaderStage.RayGeneration or GraphicsShaderStage.Miss or
+                GraphicsShaderStage.ClosestHit or GraphicsShaderStage.AnyHit or
+                GraphicsShaderStage.Intersection or GraphicsShaderStage.Callable)
+                throw new ArgumentException("Ray-tracing shaders cannot be included in a conventional render pipeline.", nameof(Shaders));
 
             uint stageBit = 1u << (int)stage;
             if ((stageMask & stageBit) != 0)

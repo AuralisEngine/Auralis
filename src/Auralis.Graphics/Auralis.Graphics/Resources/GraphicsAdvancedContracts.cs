@@ -261,27 +261,27 @@ public readonly record struct GraphicsRayTracingTriangleGeometry(
     {
         if (VertexCount < 3)
             throw new ArgumentOutOfRangeException(nameof(VertexCount));
-        ulong vertexElementSize = VertexFormat switch
+        (ulong physicalFormatSize, ulong positionDataSize, uint componentAlignment) = VertexFormat switch
         {
-            GraphicsFormat.RG16Float or GraphicsFormat.RG16UNorm or GraphicsFormat.RG16SNorm => 4UL,
-            GraphicsFormat.RGB16Float or GraphicsFormat.RGB16UNorm or GraphicsFormat.RGB16SNorm => 6UL,
-            GraphicsFormat.RGBA16Float or GraphicsFormat.RGBA16UNorm or GraphicsFormat.RGBA16SNorm => 8UL,
-            GraphicsFormat.RGB32Float => 12UL,
-            GraphicsFormat.RGBA32Float => 16UL,
+            GraphicsFormat.RG16Float or GraphicsFormat.RG16UNorm or GraphicsFormat.RG16SNorm =>
+                (4UL, 4UL, 2u),
+            GraphicsFormat.RGB16Float or GraphicsFormat.RGB16UNorm or GraphicsFormat.RGB16SNorm =>
+                (6UL, 6UL, 2u),
+            GraphicsFormat.RGBA16Float or GraphicsFormat.RGBA16UNorm or GraphicsFormat.RGBA16SNorm =>
+                (8UL, 6UL, 2u),
+            GraphicsFormat.RG32Float => (8UL, 8UL, 4u),
+            GraphicsFormat.RGB32Float => (12UL, 12UL, 4u),
+            GraphicsFormat.RGBA32Float => (16UL, 12UL, 4u),
             _ => throw new ArgumentException(
-                "Triangle positions must use supported two-/three-/four-component 16-bit or three-/four-component 32-bit formats.",
+                "Triangle positions must use a supported 2/3/4-component 16-bit or 2/3/4-component 32-bit format.",
                 nameof(VertexFormat))
         };
-        uint alignment = VertexFormat is
-            GraphicsFormat.RG16Float or GraphicsFormat.RG16UNorm or GraphicsFormat.RG16SNorm or
-            GraphicsFormat.RGB16Float or GraphicsFormat.RGB16UNorm or GraphicsFormat.RGB16SNorm or
-            GraphicsFormat.RGBA16Float or GraphicsFormat.RGBA16UNorm or GraphicsFormat.RGBA16SNorm
-            ? 2u
-            : 4u;
-        if (VertexStride < vertexElementSize || VertexStride % alignment != 0 || VertexOffset % alignment != 0)
+        _ = physicalFormatSize;
+        if (VertexStride < positionDataSize || VertexStride % componentAlignment != 0 ||
+            VertexOffset % componentAlignment != 0)
             throw new ArgumentOutOfRangeException(nameof(VertexStride),
-                "Triangle vertex stride and offset must satisfy the selected format's element size and alignment.");
-        ulong vertexDataSize = checked((ulong)(VertexCount - 1) * VertexStride + vertexElementSize);
+                "Triangle vertex stride and offset must satisfy the consumed position size and component alignment.");
+        ulong vertexDataSize = checked((ulong)(VertexCount - 1) * VertexStride + positionDataSize);
         GraphicsRayTracingBufferValidation.Validate(
             VertexBuffer, VertexOffset, vertexDataSize, nameof(VertexBuffer));
         GraphicsRayTracingBufferValidation.RequireAddressAlignment(VertexBuffer, VertexOffset, alignment, nameof(VertexOffset));
@@ -393,10 +393,12 @@ internal static class GraphicsRayTracingBufferValidation
             throw new ArgumentException("Ray-tracing geometry buffers must declare AccelerationStructureBuildInput usage.", parameterName);
         if (buffer is not IGraphicsBufferDeviceAddress address || address.DeviceAddress == 0)
             throw new ArgumentException("Ray-tracing geometry buffers must expose a non-zero GPU device address.", parameterName);
-        _ = checked(address.DeviceAddress + offset);
+        ulong deviceAddress = checked(address.DeviceAddress + offset);
         if (size == 0 || offset > buffer.Description.SizeInBytes ||
             size > buffer.Description.SizeInBytes - offset)
             throw new ArgumentOutOfRangeException(parameterName, "Ray-tracing geometry range exceeds its buffer.");
+        if (size - 1 > ulong.MaxValue - deviceAddress)
+            throw new ArgumentOutOfRangeException(parameterName, "Ray-tracing geometry GPU address range overflows.");
     }
 
     public static void RequireAddressAlignment(IGraphicsBuffer buffer, ulong offset, ulong alignment, string parameterName)
@@ -458,8 +460,11 @@ public readonly record struct GraphicsRayTracingInstance(
         ArgumentNullException.ThrowIfNull(BottomLevel);
         if (BottomLevel.IsDisposed || BottomLevel.Device.IsDisposed)
             throw new ObjectDisposedException(nameof(BottomLevel));
-        if (!ReferenceEquals(BottomLevel.Device, device) || BottomLevel.IsTopLevel || BottomLevel.DeviceAddress == 0)
+        if (!ReferenceEquals(BottomLevel.Device, device) || BottomLevel.IsTopLevel ||
+            BottomLevel.Description is null || BottomLevel.Description.IsTopLevel ||
+            BottomLevel.DeviceAddress == 0)
             throw new ArgumentException("A TLAS instance must reference a live, device-addressable BLAS from the same device.");
+        BottomLevel.Description.Validate(device);
         if (InstanceCustomIndex > 0x00FF_FFFF)
             throw new ArgumentOutOfRangeException(nameof(InstanceCustomIndex),
                 "Instance custom indices are limited to 24 bits.");
@@ -496,10 +501,23 @@ public readonly struct GraphicsRayTracingInstanceData
 
     public GraphicsRayTracingInstanceData(in GraphicsRayTracingInstance instance)
     {
+        ArgumentNullException.ThrowIfNull(instance.BottomLevel);
+        instance.Validate(instance.BottomLevel.Device);
         Transform = instance.Transform;
-        InstanceCustomIndexAndMask = (instance.InstanceCustomIndex & 0x00FF_FFFF) | ((uint)instance.Mask << 24);
+        InstanceCustomIndexAndMask = instance.InstanceCustomIndex | ((uint)instance.Mask << 24);
         ShaderBindingTableRecordOffsetAndFlags =
-            (instance.ShaderBindingTableRecordOffset & 0x00FF_FFFF) | ((uint)instance.Flags << 24);
+            instance.ShaderBindingTableRecordOffset | ((uint)instance.Flags << 24);
+        BottomLevelDeviceAddress = instance.BottomLevel.DeviceAddress;
+    }
+
+    /// <summary>Creates packed instance data after validating it against the destination device.</summary>
+    public GraphicsRayTracingInstanceData(in GraphicsRayTracingInstance instance, IGraphicsDevice device)
+    {
+        instance.Validate(device);
+        Transform = instance.Transform;
+        InstanceCustomIndexAndMask = instance.InstanceCustomIndex | ((uint)instance.Mask << 24);
+        ShaderBindingTableRecordOffsetAndFlags =
+            instance.ShaderBindingTableRecordOffset | ((uint)instance.Flags << 24);
         BottomLevelDeviceAddress = instance.BottomLevel.DeviceAddress;
     }
 }
@@ -1062,19 +1080,52 @@ public sealed record GraphicsRayTracingPipelineDescription
     public void Validate()
     {
         ArgumentNullException.ThrowIfNull(Layout);
+        if (Layout.IsDisposed || Layout.Device.IsDisposed)
+            throw new ObjectDisposedException(nameof(Layout));
+        GraphicsDeviceCapabilities capabilities = Layout.Device.Capabilities;
+        if (!capabilities.Features.Supports(GraphicsFeature.RayTracing))
+            throw new GraphicsFeatureNotSupportedException(GraphicsFeature.RayTracing, GraphicsFeature.RayTracing);
         if (Stages.IsEmpty || Groups.IsEmpty)
             throw new ArgumentException("A ray-tracing pipeline requires shader stages and shader groups.");
-        if (MaximumRecursionDepth == 0) throw new ArgumentOutOfRangeException(nameof(MaximumRecursionDepth));
+        if (MaximumRecursionDepth == 0)
+            throw new ArgumentOutOfRangeException(nameof(MaximumRecursionDepth));
+        if (capabilities.Limits.MaxRayRecursionDepth != 0 &&
+            MaximumRecursionDepth > capabilities.Limits.MaxRayRecursionDepth)
+            throw new GraphicsException(
+                $"Maximum recursion depth {MaximumRecursionDepth} exceeds the device limit {capabilities.Limits.MaxRayRecursionDepth}.");
+        if (capabilities.Limits.MaxRayPayloadSizeInBytes != 0 &&
+            MaximumPayloadSizeInBytes > capabilities.Limits.MaxRayPayloadSizeInBytes)
+            throw new GraphicsException(
+                $"Maximum payload size {MaximumPayloadSizeInBytes} exceeds the device limit {capabilities.Limits.MaxRayPayloadSizeInBytes}.");
+        if (capabilities.Limits.MaxRayHitAttributeSizeInBytes != 0 &&
+            MaximumAttributeSizeInBytes > capabilities.Limits.MaxRayHitAttributeSizeInBytes)
+            throw new GraphicsException(
+                $"Maximum hit attribute size {MaximumAttributeSizeInBytes} exceeds the device limit {capabilities.Limits.MaxRayHitAttributeSizeInBytes}.");
 
         ReadOnlySpan<GraphicsRayTracingShaderEntry> stages = Stages.Span;
         for (int i = 0; i < stages.Length; i++)
         {
-            if (stages[i].Shader is null || !Enum.IsDefined(stages[i].Stage) ||
-                string.IsNullOrWhiteSpace(stages[i].EntryPoint))
-                throw new ArgumentException($"Ray-tracing shader stage {i} is invalid.");
+            GraphicsRayTracingShaderEntry stage = stages[i];
+            IGraphicsShader shader = stage.Shader ??
+                throw new ArgumentException($"Ray-tracing shader stage {i} cannot reference a null shader.", nameof(Stages));
+            if (!Enum.IsDefined(stage.Stage))
+                throw new ArgumentOutOfRangeException(nameof(Stages), $"Ray-tracing shader stage {i} has an unknown stage.");
+            if (string.IsNullOrWhiteSpace(stage.EntryPoint))
+                throw new ArgumentException($"Ray-tracing shader stage {i} requires an entry-point name.", nameof(Stages));
+            if (shader.IsDisposed || shader.Device.IsDisposed)
+                throw new ObjectDisposedException(nameof(Stages));
+            if (!ReferenceEquals(shader.Device, Layout.Device))
+                throw new ArgumentException("Ray-tracing shaders and the pipeline layout must belong to the same graphics device.", nameof(Stages));
+            ArgumentNullException.ThrowIfNull(shader.Description);
+            shader.Description.Validate();
+            if (shader.Description.Stage != ToGraphicsShaderStage(stage.Stage))
+                throw new ArgumentException(
+                    $"Shader stage {i} is described as {stage.Stage}, but its shader resource declares {shader.Description.Stage}.",
+                    nameof(Stages));
         }
 
         ReadOnlySpan<GraphicsRayTracingShaderGroup> groups = Groups.Span;
+        bool hasRayGenerationGroup = false;
         for (int i = 0; i < groups.Length; i++)
         {
             GraphicsRayTracingShaderGroup group = groups[i];
@@ -1086,27 +1137,42 @@ public sealed record GraphicsRayTracingPipelineDescription
                 ValidateShaderIndex(group.GeneralShaderIndex, stages.Length, nameof(Groups));
                 if (group.ClosestHitShaderIndex != -1 || group.AnyHitShaderIndex != -1 ||
                     group.IntersectionShaderIndex != -1)
-                    throw new ArgumentException("General shader groups cannot contain hit-group shader indices.");
-                if (stages[group.GeneralShaderIndex].Stage is not
-                    (GraphicsRayTracingShaderStage.RayGeneration or GraphicsRayTracingShaderStage.Miss or GraphicsRayTracingShaderStage.Callable))
-                    throw new ArgumentException("General groups require ray-generation, miss, or callable shaders.");
+                    throw new ArgumentException("General shader groups cannot contain hit-group shader indices.", nameof(Groups));
+                GraphicsRayTracingShaderStage generalStage = stages[group.GeneralShaderIndex].Stage;
+                if (generalStage is not (GraphicsRayTracingShaderStage.RayGeneration or
+                    GraphicsRayTracingShaderStage.Miss or GraphicsRayTracingShaderStage.Callable))
+                    throw new ArgumentException("General groups require ray-generation, miss, or callable shaders.", nameof(Groups));
+                hasRayGenerationGroup |= generalStage == GraphicsRayTracingShaderStage.RayGeneration;
             }
             else
             {
                 if (group.GeneralShaderIndex != -1)
-                    throw new ArgumentException("Hit groups cannot specify a general shader.");
+                    throw new ArgumentException("Hit groups cannot specify a general shader.", nameof(Groups));
                 ValidateOptionalShaderIndex(group.ClosestHitShaderIndex, stages.Length, GraphicsRayTracingShaderStage.ClosestHit, stages);
                 ValidateOptionalShaderIndex(group.AnyHitShaderIndex, stages.Length, GraphicsRayTracingShaderStage.AnyHit, stages);
                 ValidateOptionalShaderIndex(group.IntersectionShaderIndex, stages.Length, GraphicsRayTracingShaderStage.Intersection, stages);
                 if (group.Type == GraphicsRayTracingShaderGroupType.TrianglesHitGroup && group.IntersectionShaderIndex != -1)
-                    throw new ArgumentException("Triangle hit groups cannot specify an intersection shader.");
+                    throw new ArgumentException("Triangle hit groups cannot specify an intersection shader.", nameof(Groups));
                 if (group.Type == GraphicsRayTracingShaderGroupType.ProceduralHitGroup && group.IntersectionShaderIndex < 0)
-                    throw new ArgumentException("Procedural hit groups require an intersection shader.");
-                if (group.ClosestHitShaderIndex == -1 && group.AnyHitShaderIndex == -1)
-                    throw new ArgumentException("A hit group must contain a closest-hit or any-hit shader.");
+                    throw new ArgumentException("Procedural hit groups require an intersection shader.", nameof(Groups));
             }
         }
+
+        if (!hasRayGenerationGroup)
+            throw new ArgumentException("A ray-tracing pipeline must contain at least one ray-generation shader group.", nameof(Groups));
     }
+
+    private static GraphicsShaderStage ToGraphicsShaderStage(GraphicsRayTracingShaderStage stage) =>
+        stage switch
+        {
+            GraphicsRayTracingShaderStage.RayGeneration => GraphicsShaderStage.RayGeneration,
+            GraphicsRayTracingShaderStage.Miss => GraphicsShaderStage.Miss,
+            GraphicsRayTracingShaderStage.ClosestHit => GraphicsShaderStage.ClosestHit,
+            GraphicsRayTracingShaderStage.AnyHit => GraphicsShaderStage.AnyHit,
+            GraphicsRayTracingShaderStage.Intersection => GraphicsShaderStage.Intersection,
+            GraphicsRayTracingShaderStage.Callable => GraphicsShaderStage.Callable,
+            _ => throw new ArgumentOutOfRangeException(nameof(stage))
+        };
 
     private static void ValidateShaderIndex(int index, int count, string parameterName)
     {

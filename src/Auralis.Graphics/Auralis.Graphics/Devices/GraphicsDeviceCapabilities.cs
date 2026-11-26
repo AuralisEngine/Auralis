@@ -19,7 +19,12 @@ public readonly record struct GraphicsDeviceLimits(
     uint MaxComputeWorkGroupSizeY,
     uint MaxComputeWorkGroupSizeZ,
     float MaxSamplerAnisotropy,
-    uint MaxTessellationPatchSize = 0);
+    uint MaxTessellationPatchSize = 0,
+    uint MaxRayRecursionDepth = 0,
+    uint MaxRayPayloadSizeInBytes = 0,
+    uint MaxRayHitAttributeSizeInBytes = 0,
+    ulong MinUniformBufferOffsetAlignment = 0,
+    ulong MinStorageBufferOffsetAlignment = 0);
 
 /// <summary>Describes the operations supported for a particular texture format.</summary>
 public readonly record struct GraphicsFormatCapabilities(
