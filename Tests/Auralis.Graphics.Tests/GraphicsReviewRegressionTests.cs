@@ -36,7 +36,7 @@ public sealed class GraphicsReviewRegressionTests
     [Fact]
     public void BarrierAccessCompatibilityValidatesResourceKindUsageAndStage()
     {
-        var device = CreateDevice();
+        var device = CreateRayTracingDevice();
         var buffer = new TestBuffer(device,
             new GraphicsBufferDescription(
                 1024,
@@ -97,7 +97,7 @@ public sealed class GraphicsReviewRegressionTests
     [Fact]
     public void BarrierValidatesTextureLayoutsAgainstDeclaredUsage()
     {
-        var device = CreateDevice();
+        var device = CreateRayTracingDevice();
         var sampledTexture = new TestTexture(device, CreateTextureDescription(GraphicsTextureUsage.Sampled));
 
         var invalidColorAttachmentTransition = new GraphicsResourceBarrier(
@@ -137,7 +137,7 @@ public sealed class GraphicsReviewRegressionTests
     [Fact]
     public void HostBarrierAccessRequiresMatchingCpuMemoryAccess()
     {
-        var device = CreateDevice();
+        var device = CreateRayTracingDevice();
         var gpuOnly = new TestBuffer(device,
             new GraphicsBufferDescription(256, GraphicsBufferUsage.Storage));
         var cpuToGpu = new TestBuffer(device,
@@ -461,7 +461,7 @@ public sealed class GraphicsReviewRegressionTests
     [Fact]
     public void PresentationSurfaceSelectsQueueBySurfaceCompatibility()
     {
-        var device = CreateDevice();
+        var device = CreateRayTracingDevice();
         var foreignDevice = CreateDevice();
         var target = new TestTarget();
         var surface = new TestPresentationSurface(device, target);
@@ -653,6 +653,26 @@ public sealed class GraphicsReviewRegressionTests
             Flags = GraphicsAccelerationStructureBuildFlags.AllowUpdate,
             Geometries = geometries
         };
+    }
+
+    private static GraphicsDeviceFactoryTests.TestDevice CreateRayTracingDevice()
+    {
+        const GraphicsFeature features = GraphicsFeature.RayTracing;
+        GraphicsFormatCapabilities[] formats =
+        [
+            new(GraphicsFormat.RGB32Float,
+                GraphicsFormatSupport.AccelerationStructureVertex,
+                GraphicsSampleCountFlags.One)
+        ];
+        var capabilities = new GraphicsDeviceCapabilities(
+            new GraphicsFeatureSet(features),
+            GraphicsQueueCapabilities.Graphics | GraphicsQueueCapabilities.Compute,
+            default,
+            formats);
+        return new GraphicsDeviceFactoryTests.TestDevice(
+            GraphicsBackend.Vulkan, features,
+            GraphicsQueueCapabilities.Graphics | GraphicsQueueCapabilities.Compute,
+            capabilities);
     }
 
     private static GraphicsDeviceFactoryTests.TestDevice CreateDevice(

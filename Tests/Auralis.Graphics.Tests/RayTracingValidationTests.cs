@@ -233,10 +233,7 @@ public sealed class RayTracingValidationTests
     [Fact]
     public void DeviceAwareAccelerationStructureValidationRequiresRayTracingAndVertexFormatSupport()
     {
-        var vertexBuffer = new TestBuffer(CreateDevice(),
-            new GraphicsBufferDescription(36, GraphicsBufferUsage.AccelerationStructureBuildInput),
-            0x1000);
-        var description = new GraphicsAccelerationStructureDescription
+        static GraphicsAccelerationStructureDescription CreateBlas(TestBuffer buffer) => new()
         {
             IsTopLevel = false,
             Flags = GraphicsAccelerationStructureBuildFlags.None,
@@ -244,20 +241,29 @@ public sealed class RayTracingValidationTests
             {
                 new(
                     GraphicsAccelerationStructureGeometryType.Triangles,
-                    new GraphicsRayTracingTriangleGeometry(vertexBuffer, 0, 12, 3, GraphicsFormat.RGB32Float),
+                    new GraphicsRayTracingTriangleGeometry(buffer, 0, 12, 3, GraphicsFormat.RGB32Float),
                     default)
             }
         };
 
         var noRayTracing = new GraphicsDeviceFactoryTests.TestDevice(
             GraphicsBackend.Vulkan, GraphicsFeature.None, GraphicsQueueCapabilities.Graphics);
-        Assert.Throws<GraphicsFeatureNotSupportedException>(() => description.Validate(noRayTracing));
+        var noRayTracingBuffer = new TestBuffer(noRayTracing,
+            new GraphicsBufferDescription(36, GraphicsBufferUsage.AccelerationStructureBuildInput), 0x1000);
+        Assert.Throws<GraphicsFeatureNotSupportedException>(() =>
+            CreateBlas(noRayTracingBuffer).Validate(noRayTracing));
 
         var rayTracingWithoutFormatCapabilities = new GraphicsDeviceFactoryTests.TestDevice(
             GraphicsBackend.Vulkan, GraphicsFeature.RayTracing, GraphicsQueueCapabilities.Graphics);
-        Assert.Throws<GraphicsException>(() => description.Validate(rayTracingWithoutFormatCapabilities));
+        var unsupportedFormatBuffer = new TestBuffer(rayTracingWithoutFormatCapabilities,
+            new GraphicsBufferDescription(36, GraphicsBufferUsage.AccelerationStructureBuildInput), 0x1000);
+        Assert.Throws<GraphicsException>(() =>
+            CreateBlas(unsupportedFormatBuffer).Validate(rayTracingWithoutFormatCapabilities));
 
-        description.Validate(CreateDevice());
+        var supportedDevice = CreateDevice();
+        var supportedBuffer = new TestBuffer(supportedDevice,
+            new GraphicsBufferDescription(36, GraphicsBufferUsage.AccelerationStructureBuildInput), 0x1000);
+        CreateBlas(supportedBuffer).Validate(supportedDevice);
     }
 
     [Fact]
