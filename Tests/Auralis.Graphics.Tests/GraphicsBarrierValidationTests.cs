@@ -224,6 +224,13 @@ public sealed class GraphicsBarrierValidationTests
             GraphicsResourceAccess.AccelerationStructureWrite,
             GraphicsResourceAccess.AccelerationStructureRead).Validate();
 
+        new GraphicsResourceBarrier(
+            accelerationStructure,
+            GraphicsPipelineStage.RayTracingShader,
+            GraphicsPipelineStage.AccelerationStructureBuild,
+            GraphicsResourceAccess.MemoryRead,
+            GraphicsResourceAccess.MemoryWrite).Validate();
+
         var buildToTrace = new GraphicsResourceBarrier(
             accelerationStructure,
             GraphicsPipelineStage.AccelerationStructureBuild,

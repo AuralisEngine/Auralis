@@ -56,6 +56,11 @@ public sealed class SparseResourceValidationTests
             (depthRequirements with { Aspect = GraphicsSparseTextureAspect.Color }).Validate(texture.Description));
         Assert.Throws<ArgumentOutOfRangeException>(() =>
             (depthRequirements with { Aspect = GraphicsSparseTextureAspect.None }).Validate(texture.Description));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            (depthRequirements with
+            {
+                Aspect = GraphicsSparseTextureAspect.Depth | GraphicsSparseTextureAspect.Stencil
+            }).Validate(texture.Description));
     }
 
     [Fact]

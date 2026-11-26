@@ -262,9 +262,11 @@ internal static class GraphicsBarrierCompatibility
             GraphicsBufferUsage.None, GraphicsTextureUsage.None,
             GraphicsPipelineStage.Host),
         new(GraphicsResourceAccess.MemoryRead, true, true,
-            GraphicsBufferUsage.None, GraphicsTextureUsage.None, ExecutionStages),
+            GraphicsBufferUsage.None, GraphicsTextureUsage.None, ExecutionStages,
+            SupportsAccelerationStructure: true),
         new(GraphicsResourceAccess.MemoryWrite, true, true,
-            GraphicsBufferUsage.None, GraphicsTextureUsage.None, ExecutionStages),
+            GraphicsBufferUsage.None, GraphicsTextureUsage.None, ExecutionStages,
+            SupportsAccelerationStructure: true),
         new(GraphicsResourceAccess.ShadingRateAttachmentRead, false, true,
             GraphicsBufferUsage.None, GraphicsTextureUsage.ShadingRateAttachment,
             GraphicsPipelineStage.FragmentShadingRate | GraphicsPipelineStage.AllCommands),
@@ -406,7 +408,9 @@ public readonly record struct GraphicsQueueOwnershipTransfer(
 /// One resource dependency to be translated into backend-native synchronization.
 /// Range fields are mutually exclusive. Null ranges select the whole resource. Acceleration structures are
 /// first-class synchronization resources with dedicated access intents and execution stages, but no buffer
-/// byte ranges or texture layouts. Texture views must be resolved to their underlying texture.
+/// byte ranges or texture layouts. Generic MemoryRead/MemoryWrite dependencies are also valid. AS creation
+/// owns full description validation, so barrier validation checks resource kind and synchronization semantics
+/// without walking BLAS geometry again. Texture views must be resolved to their underlying texture.
 /// </summary>
 public readonly record struct GraphicsResourceBarrier(
     IGraphicsResource Resource,
@@ -556,7 +560,7 @@ public readonly record struct GraphicsResourceBarrier(
                 break;
 
             case IGraphicsAccelerationStructure accelerationStructure:
-                accelerationStructure.Description.Validate(accelerationStructure.Device);
+                ArgumentNullException.ThrowIfNull(accelerationStructure.Description);
                 if (accelerationStructure.IsTopLevel != accelerationStructure.Description.IsTopLevel)
                     throw new ArgumentException("The acceleration-structure kind does not match its description.", nameof(Resource));
                 if (BufferRange is not null)

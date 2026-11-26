@@ -468,7 +468,12 @@ public enum GraphicsRayTracingInstanceFlags : uint
     ForceNonOpaque = 1 << 3
 }
 
-/// <summary>One top-level acceleration-structure instance, snapshotted by the backend during command recording.</summary>
+/// <summary>
+/// One top-level acceleration-structure instance, snapshotted by the backend during command recording.
+/// The referenced BLAS must be a live resource returned by a successfully validated
+/// IGraphicsRayTracingDevice.CreateAccelerationStructure call; instance validation checks identity/lifetime
+/// and packed fields but does not re-walk the BLAS geometry description for every instance.
+/// </summary>
 public readonly record struct GraphicsRayTracingInstance(
     IGraphicsAccelerationStructure BottomLevel,
     GraphicsTransform3x4 Transform,
@@ -489,7 +494,6 @@ public readonly record struct GraphicsRayTracingInstance(
             BottomLevel.Description is null || BottomLevel.Description.IsTopLevel ||
             BottomLevel.DeviceAddress == 0)
             throw new ArgumentException("A TLAS instance must reference a live, device-addressable BLAS from the same device.");
-        BottomLevel.Description.Validate(device);
         if (InstanceCustomIndex > 0x00FF_FFFF)
             throw new ArgumentOutOfRangeException(nameof(InstanceCustomIndex),
                 "Instance custom indices are limited to 24 bits.");

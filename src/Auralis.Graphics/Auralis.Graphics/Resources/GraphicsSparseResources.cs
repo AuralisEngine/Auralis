@@ -46,10 +46,9 @@ public readonly record struct GraphicsSparseTextureRequirements(
             throw new ArgumentOutOfRangeException(nameof(TileWidth), "Sparse tile dimensions and tile size must be non-zero.");
         if (texture.Dimension == GraphicsTextureDimension.Texture1D)
             throw new ArgumentException("Sparse texture requirements are not available for 1D textures.");
-        const GraphicsSparseTextureAspect allAspects =
-            GraphicsSparseTextureAspect.Color | GraphicsSparseTextureAspect.Depth | GraphicsSparseTextureAspect.Stencil;
-        if (Aspect == GraphicsSparseTextureAspect.None || (Aspect & ~allAspects) != 0)
-            throw new ArgumentOutOfRangeException(nameof(Aspect));
+        if (!Enum.IsDefined(Aspect) || Aspect == GraphicsSparseTextureAspect.None)
+            throw new ArgumentOutOfRangeException(nameof(Aspect),
+                "Sparse texture requirements must identify exactly one color, depth, or stencil aspect.");
         GraphicsSparseTextureAspect availableAspects = texture.Format switch
         {
             GraphicsFormat.D16UNorm or GraphicsFormat.D32Float => GraphicsSparseTextureAspect.Depth,
@@ -418,6 +417,10 @@ public static class GraphicsSparseResourceValidation
                 throw new ArgumentException("Sparse texture bindings cannot contain a null texture.", nameof(bindings));
             if (!ReferenceEquals(texture.Device, sparseDevice.Device))
                 throw new ArgumentException("All sparse textures must belong to the sparse resource device.", nameof(bindings));
+            if (!Enum.IsDefined(bindings[i].Region.Aspect) ||
+                bindings[i].Region.Aspect == GraphicsSparseTextureAspect.None)
+                throw new ArgumentOutOfRangeException(nameof(bindings),
+                    "Each sparse texture binding must identify exactly one image aspect.");
             GraphicsSparseTextureRequirements requirements =
                 sparseDevice.GetSparseTextureRequirements(texture, bindings[i].Region.Aspect);
             bindings[i].Validate(requirements);

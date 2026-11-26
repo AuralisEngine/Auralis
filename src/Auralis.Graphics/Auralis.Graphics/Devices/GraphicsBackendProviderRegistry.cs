@@ -4,7 +4,10 @@ namespace Auralis.Graphics.Devices;
 
 /// <summary>
 /// Implemented by a backend assembly to advertise availability, enumerate adapters, and create devices.
-/// Implementations must not create a window or presentation surface as part of device creation.
+/// Implementations must not create a window or presentation surface as part of device creation. Adapter
+/// enumeration reports physical support (including SupportedDescriptorIndexing); CreateDeviceAsync must
+/// negotiate requested RequiredFeatures and RequiredDescriptorIndexing against the selected adapter,
+/// enable what is requested, and report only features actually enabled in GraphicsDeviceCapabilities.
 /// </summary>
 public interface IGraphicsBackendProvider
 {
@@ -14,9 +17,15 @@ public interface IGraphicsBackendProvider
 
     string? UnavailableReason { get; }
 
+    /// <summary>Returns physical-adapter capabilities before logical-device feature enablement.</summary>
     ValueTask<ReadOnlyMemory<GraphicsAdapterInfo>> EnumerateAdaptersAsync(
         CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Creates a logical device and enables the requested feature subset. Implementations compare
+    /// RequiredDescriptorIndexing with the selected adapter's SupportedDescriptorIndexing and reject
+    /// unsupported requests; the factory independently checks the resulting enabled device capabilities.
+    /// </summary>
     ValueTask<IGraphicsDevice> CreateDeviceAsync(
         GraphicsDeviceOptions options,
         CancellationToken cancellationToken = default);

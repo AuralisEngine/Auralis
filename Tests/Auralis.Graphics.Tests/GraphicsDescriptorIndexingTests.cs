@@ -330,6 +330,48 @@ public sealed class GraphicsDescriptorIndexingRequestTests
     }
 
     [Fact]
+    public async Task AutomaticProviderSelectionFallsBackWhenDescriptorCapabilitiesCannotBeEnabled()
+    {
+        var required = new GraphicsDescriptorIndexingCapabilities(
+            PartiallyBound: true, UpdateUnusedWhilePending: true, VariableDescriptorCount: true,
+            UniformBufferUpdateAfterBind: false, SampledImageUpdateAfterBind: false,
+            StorageImageUpdateAfterBind: false, StorageBufferUpdateAfterBind: false);
+        var insufficient = new GraphicsDescriptorIndexingCapabilities(
+            PartiallyBound: true, UpdateUnusedWhilePending: false, VariableDescriptorCount: false,
+            UniformBufferUpdateAfterBind: false, SampledImageUpdateAfterBind: false,
+            StorageImageUpdateAfterBind: false, StorageBufferUpdateAfterBind: false);
+
+        GraphicsDeviceFactoryTests.TestDevice CreateDevice(
+            GraphicsBackend backend, GraphicsDescriptorIndexingCapabilities enabled) =>
+            new(backend, GraphicsFeature.DescriptorIndexing, GraphicsQueueCapabilities.Graphics,
+                new GraphicsDeviceCapabilities(
+                    new GraphicsFeatureSet(GraphicsFeature.DescriptorIndexing),
+                    GraphicsQueueCapabilities.Graphics, default,
+                    ReadOnlySpan<GraphicsFormatCapabilities>.Empty, enabled));
+
+        var firstDevice = CreateDevice(GraphicsBackend.Vulkan, insufficient);
+        var secondDevice = CreateDevice(GraphicsBackend.Direct3D12, required);
+        var firstProvider = new GraphicsDeviceFactoryTests.TestProvider(GraphicsBackend.Vulkan, firstDevice);
+        var secondProvider = new GraphicsDeviceFactoryTests.TestProvider(GraphicsBackend.Direct3D12, secondDevice);
+        var registry = new GraphicsBackendProviderRegistry();
+        registry.Register(firstProvider);
+        registry.Register(secondProvider);
+
+        using IGraphicsDevice selected = await GraphicsDeviceFactory.CreateAsync(
+            registry,
+            new GraphicsDeviceOptions
+            {
+                RequiredFeatures = GraphicsFeature.DescriptorIndexing,
+                RequiredDescriptorIndexing = required
+            });
+
+        Assert.Same(secondDevice, selected);
+        Assert.True(firstDevice.IsDisposed);
+        Assert.Equal(1, firstProvider.CreateCount);
+        Assert.Equal(1, secondProvider.CreateCount);
+    }
+
+    [Fact]
     public async Task FactoryAcceptsDeviceThatEnablesAllRequestedDescriptorCapabilities()
     {
         var enabled = new GraphicsDescriptorIndexingCapabilities(
