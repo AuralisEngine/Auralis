@@ -5,9 +5,10 @@ using Auralis.Graphics.Synchronization;
 namespace Auralis.Graphics.Resources;
 
 /// <summary>
-/// Backend-reported sparse texture tile and mip-tail requirements. Multisample sparse image support is
-/// backend/adapter-specific; structural validation does not assume every sparse implementation supports
-/// every sample count.
+/// Backend-reported sparse texture tile and mip-tail requirements. Tile extents are opaque backend
+/// granularities and are not constrained to powers of two; Vulkan can explicitly report non-standard
+/// sparse block dimensions. Multisample sparse image support is backend/adapter-specific; structural
+/// validation does not assume every sparse implementation supports every sample count.
 /// </summary>
 public readonly record struct GraphicsSparseTextureRequirements(
     uint TileWidth,

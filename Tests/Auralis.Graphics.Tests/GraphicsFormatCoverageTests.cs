@@ -43,13 +43,21 @@ public sealed class GraphicsFormatCoverageTests
             new GraphicsFeatureSet(GraphicsFeature.RayTracing),
             GraphicsQueueCapabilities.Graphics,
             default,
-            [new GraphicsFormatCapabilities(
-                GraphicsFormat.RG16Float,
-                GraphicsFormatSupport.AccelerationStructureVertex,
-                GraphicsSampleCountFlags.One)]);
+            [
+                new GraphicsFormatCapabilities(
+                    GraphicsFormat.RG16Float,
+                    GraphicsFormatSupport.AccelerationStructureVertex,
+                    GraphicsSampleCountFlags.One),
+                new GraphicsFormatCapabilities(
+                    GraphicsFormat.RGB16Float,
+                    GraphicsFormatSupport.AccelerationStructureVertex,
+                    GraphicsSampleCountFlags.One)
+            ]);
 
         Assert.True(capabilities.SupportsFormat(
             GraphicsFormat.RG16Float, GraphicsFormatSupport.AccelerationStructureVertex));
+        Assert.True(capabilities.SupportsFormat(
+            GraphicsFormat.RGB16Float, GraphicsFormatSupport.AccelerationStructureVertex));
         Assert.False(capabilities.SupportsFormat(
             GraphicsFormat.RGBA16Float, GraphicsFormatSupport.AccelerationStructureVertex));
     }

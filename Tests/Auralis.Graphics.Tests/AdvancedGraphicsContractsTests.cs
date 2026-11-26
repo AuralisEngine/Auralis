@@ -365,6 +365,19 @@ public sealed class AdvancedGraphicsTests
     }
 
     [Fact]
+    public void SparseTextureRequirements_AcceptsBackendReportedNonPowerOfTwoTileExtents()
+    {
+        var texture = new GraphicsTextureDescription(
+            GraphicsTextureDimension.Texture2D, GraphicsFormat.RGBA8UNorm,
+            256, 256, 1, 9, 1, 1, GraphicsTextureUsage.Sampled,
+            GraphicsResourceCreationOptions.SparseResidency);
+        var requirements = new GraphicsSparseTextureRequirements(
+            48, 24, 1, 65536, 4, 65536, 0, 0, false);
+
+        requirements.Validate(texture);
+    }
+
+    [Fact]
     public void SparseTextureRequirements_RejectZeroTileSize()
     {
         var texture = new GraphicsTextureDescription(

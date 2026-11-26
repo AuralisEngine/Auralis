@@ -624,6 +624,7 @@ public sealed class GraphicsReviewRegressionTests
     {
         var vertexBuffer = new TestBuffer(CreateDevice(), new GraphicsBufferDescription(64, GraphicsBufferUsage.AccelerationStructureBuildInput));
         new GraphicsRayTracingTriangleGeometry(vertexBuffer, 0, 4, 3, GraphicsFormat.RG16SNorm).Validate();
+        new GraphicsRayTracingTriangleGeometry(vertexBuffer, 0, 6, 3, GraphicsFormat.RGB16Float).Validate();
         new GraphicsRayTracingTriangleGeometry(vertexBuffer, 0, 8, 3, GraphicsFormat.RGBA16UNorm).Validate();
     }
 

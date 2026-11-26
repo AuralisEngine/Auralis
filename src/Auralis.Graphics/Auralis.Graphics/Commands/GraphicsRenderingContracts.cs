@@ -203,6 +203,10 @@ public sealed class GraphicsRenderingDescription
         format is GraphicsFormat.S8UInt or GraphicsFormat.D24UNormS8UInt or GraphicsFormat.D32FloatS8UInt;
 }
 
+/// <summary>
+/// Portable viewport contract. Width and height must be positive; negative-height Y inversion is not
+/// currently exposed as a common feature because backend support is capability-dependent.
+/// </summary>
 public readonly record struct GraphicsViewport(
     float X, float Y, float Width, float Height, float MinimumDepth = 0, float MaximumDepth = 1)
 {

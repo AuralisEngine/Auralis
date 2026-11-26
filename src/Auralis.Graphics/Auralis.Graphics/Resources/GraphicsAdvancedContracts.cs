@@ -264,15 +264,17 @@ public readonly record struct GraphicsRayTracingTriangleGeometry(
         ulong vertexElementSize = VertexFormat switch
         {
             GraphicsFormat.RG16Float or GraphicsFormat.RG16UNorm or GraphicsFormat.RG16SNorm => 4UL,
+            GraphicsFormat.RGB16Float or GraphicsFormat.RGB16UNorm or GraphicsFormat.RGB16SNorm => 6UL,
             GraphicsFormat.RGBA16Float or GraphicsFormat.RGBA16UNorm or GraphicsFormat.RGBA16SNorm => 8UL,
             GraphicsFormat.RGB32Float => 12UL,
             GraphicsFormat.RGBA32Float => 16UL,
             _ => throw new ArgumentException(
-                "Triangle positions must use supported two-/four-component 16-bit or three-/four-component 32-bit formats.",
+                "Triangle positions must use supported two-/three-/four-component 16-bit or three-/four-component 32-bit formats.",
                 nameof(VertexFormat))
         };
         uint alignment = VertexFormat is
             GraphicsFormat.RG16Float or GraphicsFormat.RG16UNorm or GraphicsFormat.RG16SNorm or
+            GraphicsFormat.RGB16Float or GraphicsFormat.RGB16UNorm or GraphicsFormat.RGB16SNorm or
             GraphicsFormat.RGBA16Float or GraphicsFormat.RGBA16UNorm or GraphicsFormat.RGBA16SNorm
             ? 2u
             : 4u;
@@ -739,6 +741,8 @@ public enum GraphicsAccelerationStructureCopyMode
 /// TLAS instance data is supplied at build time; BLAS builds pass an empty instance span. For updates,
 /// source and destination may be the same acceleration-structure object to request an in-place update.
 /// Callers must still order prior uses and the update with the appropriate queue submissions and barriers.
+/// For distinct source/destination objects, their backing storage ranges must not overlap; implementations
+/// must enforce the corresponding native API aliasing requirements.
 /// </summary>
 
 /// <summary>
