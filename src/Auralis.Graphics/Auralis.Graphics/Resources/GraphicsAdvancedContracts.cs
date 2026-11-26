@@ -284,7 +284,7 @@ public readonly record struct GraphicsRayTracingTriangleGeometry(
         ulong vertexDataSize = checked((ulong)(VertexCount - 1) * VertexStride + positionDataSize);
         GraphicsRayTracingBufferValidation.Validate(
             VertexBuffer, VertexOffset, vertexDataSize, nameof(VertexBuffer));
-        GraphicsRayTracingBufferValidation.RequireAddressAlignment(VertexBuffer, VertexOffset, alignment, nameof(VertexOffset));
+        GraphicsRayTracingBufferValidation.RequireAddressAlignment(VertexBuffer, VertexOffset, componentAlignment, nameof(VertexOffset));
 
         if (IndexBuffer is null)
         {
