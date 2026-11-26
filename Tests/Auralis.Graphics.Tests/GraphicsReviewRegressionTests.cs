@@ -712,7 +712,7 @@ public sealed class GraphicsReviewRegressionTests
     {
         public string? DebugName => null;
         public GraphicsAccelerationStructureDescription Description { get; } = description;
-        public bool IsTopLevel => description.IsTopLevel;
+        public bool IsTopLevel => Description.IsTopLevel;
         public uint InstanceCount => 0;
         public ulong DeviceAddress => 0x20000;
         protected override void DisposeCore() { }
