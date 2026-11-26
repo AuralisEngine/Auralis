@@ -112,6 +112,7 @@ public static class GraphicsDeviceFactory
         GraphicsBackendUnavailableException? lastUnavailable = null;
         GraphicsFeatureNotSupportedException? lastFeatureMismatch = null;
         GraphicsQueueCapabilitiesNotSupportedException? lastQueueMismatch = null;
+        GraphicsDescriptorIndexingNotSupportedException? lastDescriptorMismatch = null;
 
         IGraphicsBackendProvider[] providers = registry.GetProvidersSnapshot();
         for (int i = 0; i < providers.Length; i++)
@@ -140,12 +141,18 @@ public static class GraphicsDeviceFactory
             {
                 lastQueueMismatch = exception;
             }
+            catch (GraphicsDescriptorIndexingNotSupportedException exception)
+            {
+                lastDescriptorMismatch = exception;
+            }
         }
 
         if (lastFeatureMismatch is not null)
             throw lastFeatureMismatch;
         if (lastQueueMismatch is not null)
             throw lastQueueMismatch;
+        if (lastDescriptorMismatch is not null)
+            throw lastDescriptorMismatch;
         if (lastUnavailable is not null)
             throw lastUnavailable;
 
@@ -190,6 +197,15 @@ public static class GraphicsDeviceFactory
         {
             device.Dispose();
             throw new GraphicsQueueCapabilitiesNotSupportedException(options.RequiredQueues, missingQueues);
+        }
+
+        if (!device.Capabilities.DescriptorIndexing.Includes(options.RequiredDescriptorIndexing))
+        {
+            GraphicsDescriptorIndexingCapabilities missing =
+                device.Capabilities.DescriptorIndexing.MissingFrom(options.RequiredDescriptorIndexing);
+            device.Dispose();
+            throw new GraphicsDescriptorIndexingNotSupportedException(
+                options.RequiredDescriptorIndexing, missing);
         }
 
         return device;

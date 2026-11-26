@@ -35,6 +35,13 @@ public readonly record struct GraphicsAdapterInfo(
 {
     /// <summary>Optional features reported as supported by the physical adapter before logical-device enablement.</summary>
     public GraphicsFeatureSet SupportedFeatures { get; init; }
+
+    /// <summary>
+    /// Fine-grained descriptor-indexing features supported by the physical adapter before device creation.
+    /// These capabilities are distinct from the features requested in GraphicsDeviceOptions and those
+    /// actually enabled and reported by GraphicsDeviceCapabilities.
+    /// </summary>
+    public GraphicsDescriptorIndexingCapabilities SupportedDescriptorIndexing { get; init; }
 }
 
 /// <summary>Describes the selected device and the driver/API versions reported by its backend.</summary>
@@ -87,6 +94,44 @@ public readonly record struct GraphicsFeatureSet(GraphicsFeature Enabled)
     public bool ContainsAll(GraphicsFeature features) => (Enabled & features) == features;
 
     public GraphicsFeature MissingFrom(GraphicsFeature requested) => requested & ~Enabled;
+}
+
+/// <summary>
+/// Fine-grained descriptor-indexing feature set. The same value type is used for physical adapter support,
+/// requested logical-device enablement, and resulting enabled device capabilities; the owning property
+/// determines which of those three states it describes.
+/// </summary>
+public readonly record struct GraphicsDescriptorIndexingCapabilities(
+    bool PartiallyBound,
+    bool UpdateUnusedWhilePending,
+    bool VariableDescriptorCount,
+    bool UniformBufferUpdateAfterBind,
+    bool SampledImageUpdateAfterBind,
+    bool StorageImageUpdateAfterBind,
+    bool StorageBufferUpdateAfterBind)
+{
+    public bool HasAny => PartiallyBound || UpdateUnusedWhilePending || VariableDescriptorCount ||
+        UniformBufferUpdateAfterBind || SampledImageUpdateAfterBind ||
+        StorageImageUpdateAfterBind || StorageBufferUpdateAfterBind;
+
+    public bool Includes(GraphicsDescriptorIndexingCapabilities required) =>
+        (!required.PartiallyBound || PartiallyBound) &&
+        (!required.UpdateUnusedWhilePending || UpdateUnusedWhilePending) &&
+        (!required.VariableDescriptorCount || VariableDescriptorCount) &&
+        (!required.UniformBufferUpdateAfterBind || UniformBufferUpdateAfterBind) &&
+        (!required.SampledImageUpdateAfterBind || SampledImageUpdateAfterBind) &&
+        (!required.StorageImageUpdateAfterBind || StorageImageUpdateAfterBind) &&
+        (!required.StorageBufferUpdateAfterBind || StorageBufferUpdateAfterBind);
+
+    public GraphicsDescriptorIndexingCapabilities MissingFrom(GraphicsDescriptorIndexingCapabilities requested) =>
+        new(
+            requested.PartiallyBound && !PartiallyBound,
+            requested.UpdateUnusedWhilePending && !UpdateUnusedWhilePending,
+            requested.VariableDescriptorCount && !VariableDescriptorCount,
+            requested.UniformBufferUpdateAfterBind && !UniformBufferUpdateAfterBind,
+            requested.SampledImageUpdateAfterBind && !SampledImageUpdateAfterBind,
+            requested.StorageImageUpdateAfterBind && !StorageImageUpdateAfterBind,
+            requested.StorageBufferUpdateAfterBind && !StorageBufferUpdateAfterBind);
 }
 
 /// <summary>Logical role used to request a command-capable queue.</summary>

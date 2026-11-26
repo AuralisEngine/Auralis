@@ -24,6 +24,12 @@ public sealed record GraphicsDeviceOptions
     /// <summary>Optional features that the resulting device must support.</summary>
     public GraphicsFeature RequiredFeatures { get; init; }
 
+    /// <summary>
+    /// Fine-grained descriptor-indexing features that the resulting logical device must enable.
+    /// RequiredFeatures must also include GraphicsFeature.DescriptorIndexing when any are requested.
+    /// </summary>
+    public GraphicsDescriptorIndexingCapabilities RequiredDescriptorIndexing { get; init; }
+
     /// <summary>Queue types that the resulting device must expose.</summary>
     public GraphicsQueueCapabilities RequiredQueues { get; init; } = GraphicsQueueCapabilities.Graphics;
 
@@ -63,6 +69,10 @@ public sealed record GraphicsDeviceOptions
 
         if ((RequiredFeatures & ~allFeatures) != 0)
             throw new ArgumentOutOfRangeException(nameof(RequiredFeatures));
+        if (RequiredDescriptorIndexing.HasAny && (RequiredFeatures & GraphicsFeature.DescriptorIndexing) == 0)
+            throw new ArgumentException(
+                "Fine-grained descriptor-indexing requirements also require GraphicsFeature.DescriptorIndexing.",
+                nameof(RequiredDescriptorIndexing));
 
         if ((RequiredQueues & ~allQueues) != 0)
             throw new ArgumentOutOfRangeException(nameof(RequiredQueues));

@@ -229,3 +229,146 @@ public sealed class GraphicsDescriptorIndexingTests
             ReadOnlySpan<GraphicsFormatCapabilities>.Empty,
             descriptorIndexing);
 }
+
+
+public sealed class GraphicsDescriptorIndexingRequestTests
+{
+    [Fact]
+    public void DeviceOptionsRequireUmbrellaFeatureForFineGrainedDescriptorRequirements()
+    {
+        var options = new GraphicsDeviceOptions
+        {
+            RequiredDescriptorIndexing = new GraphicsDescriptorIndexingCapabilities(
+                PartiallyBound: true,
+                UpdateUnusedWhilePending: false,
+                VariableDescriptorCount: false,
+                UniformBufferUpdateAfterBind: false,
+                SampledImageUpdateAfterBind: false,
+                StorageImageUpdateAfterBind: false,
+                StorageBufferUpdateAfterBind: false)
+        };
+
+        Assert.Throws<ArgumentException>(options.Validate);
+        (options with { RequiredFeatures = GraphicsFeature.DescriptorIndexing }).Validate();
+    }
+
+    [Fact]
+    public void AdapterReportsPhysicalDescriptorIndexingSeparatelyFromEnabledDeviceCapabilities()
+    {
+        var physical = new GraphicsDescriptorIndexingCapabilities(
+            PartiallyBound: true,
+            UpdateUnusedWhilePending: true,
+            VariableDescriptorCount: true,
+            UniformBufferUpdateAfterBind: false,
+            SampledImageUpdateAfterBind: true,
+            StorageImageUpdateAfterBind: false,
+            StorageBufferUpdateAfterBind: true);
+        var adapter = new GraphicsAdapterInfo(
+            new GraphicsAdapterId(1, 2), "Adapter", GraphicsAdapterType.Discrete, 1, 2, 4096)
+        {
+            SupportedDescriptorIndexing = physical
+        };
+        var enabled = new GraphicsDescriptorIndexingCapabilities(
+            PartiallyBound: true,
+            UpdateUnusedWhilePending: false,
+            VariableDescriptorCount: false,
+            UniformBufferUpdateAfterBind: false,
+            SampledImageUpdateAfterBind: false,
+            StorageImageUpdateAfterBind: false,
+            StorageBufferUpdateAfterBind: false);
+
+        Assert.True(adapter.SupportedDescriptorIndexing.Includes(enabled));
+        Assert.False(enabled.Includes(adapter.SupportedDescriptorIndexing));
+    }
+
+    [Fact]
+    public async Task FactoryRejectsAndDisposesDeviceMissingRequestedDescriptorCapabilities()
+    {
+        var enabled = new GraphicsDescriptorIndexingCapabilities(
+            PartiallyBound: true,
+            UpdateUnusedWhilePending: false,
+            VariableDescriptorCount: false,
+            UniformBufferUpdateAfterBind: false,
+            SampledImageUpdateAfterBind: false,
+            StorageImageUpdateAfterBind: false,
+            StorageBufferUpdateAfterBind: false);
+        var device = new GraphicsDeviceFactoryTests.TestDevice(
+            GraphicsBackend.Vulkan,
+            GraphicsFeature.DescriptorIndexing,
+            GraphicsQueueCapabilities.Graphics,
+            new GraphicsDeviceCapabilities(
+                new GraphicsFeatureSet(GraphicsFeature.DescriptorIndexing),
+                GraphicsQueueCapabilities.Graphics,
+                default,
+                ReadOnlySpan<GraphicsFormatCapabilities>.Empty,
+                enabled));
+        var registry = new GraphicsBackendProviderRegistry();
+        registry.Register(new GraphicsDeviceFactoryTests.TestProvider(GraphicsBackend.Vulkan, device));
+
+        var required = new GraphicsDescriptorIndexingCapabilities(
+            PartiallyBound: true,
+            UpdateUnusedWhilePending: false,
+            VariableDescriptorCount: true,
+            UniformBufferUpdateAfterBind: false,
+            SampledImageUpdateAfterBind: false,
+            StorageImageUpdateAfterBind: false,
+            StorageBufferUpdateAfterBind: false);
+
+        GraphicsDescriptorIndexingNotSupportedException exception =
+            await Assert.ThrowsAsync<GraphicsDescriptorIndexingNotSupportedException>(async () =>
+                await GraphicsDeviceFactory.CreateAsync(
+                    registry,
+                    new GraphicsDeviceOptions
+                    {
+                        Backend = GraphicsBackend.Vulkan,
+                        RequiredFeatures = GraphicsFeature.DescriptorIndexing,
+                        RequiredDescriptorIndexing = required
+                    }));
+
+        Assert.True(exception.Missing.VariableDescriptorCount);
+        Assert.True(device.IsDisposed);
+    }
+
+    [Fact]
+    public async Task FactoryAcceptsDeviceThatEnablesAllRequestedDescriptorCapabilities()
+    {
+        var enabled = new GraphicsDescriptorIndexingCapabilities(
+            PartiallyBound: true,
+            UpdateUnusedWhilePending: true,
+            VariableDescriptorCount: true,
+            UniformBufferUpdateAfterBind: false,
+            SampledImageUpdateAfterBind: false,
+            StorageImageUpdateAfterBind: false,
+            StorageBufferUpdateAfterBind: true);
+        var device = new GraphicsDeviceFactoryTests.TestDevice(
+            GraphicsBackend.Vulkan,
+            GraphicsFeature.DescriptorIndexing,
+            GraphicsQueueCapabilities.Graphics,
+            new GraphicsDeviceCapabilities(
+                new GraphicsFeatureSet(GraphicsFeature.DescriptorIndexing),
+                GraphicsQueueCapabilities.Graphics,
+                default,
+                ReadOnlySpan<GraphicsFormatCapabilities>.Empty,
+                enabled));
+        var registry = new GraphicsBackendProviderRegistry();
+        registry.Register(new GraphicsDeviceFactoryTests.TestProvider(GraphicsBackend.Vulkan, device));
+
+        using IGraphicsDevice actual = await GraphicsDeviceFactory.CreateAsync(
+            registry,
+            new GraphicsDeviceOptions
+            {
+                Backend = GraphicsBackend.Vulkan,
+                RequiredFeatures = GraphicsFeature.DescriptorIndexing,
+                RequiredDescriptorIndexing = new GraphicsDescriptorIndexingCapabilities(
+                    PartiallyBound: true,
+                    UpdateUnusedWhilePending: true,
+                    VariableDescriptorCount: true,
+                    UniformBufferUpdateAfterBind: false,
+                    SampledImageUpdateAfterBind: false,
+                    StorageImageUpdateAfterBind: false,
+                    StorageBufferUpdateAfterBind: true)
+            });
+
+        Assert.Same(device, actual);
+    }
+}

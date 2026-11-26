@@ -102,7 +102,7 @@ public sealed class GraphicsDeviceFactoryTests
         Assert.False(device.IsDisposed);
     }
 
-    private sealed class TestProvider(
+    internal sealed class TestProvider(
         GraphicsBackend backend,
         TestDevice? device,
         bool isAvailable = true) : IGraphicsBackendProvider

@@ -81,36 +81,6 @@ public readonly record struct GraphicsFormatCapabilities(
 }
 
 /// <summary>
-/// Independently reported descriptor-indexing capabilities. These properties represent logical-device
-/// enabled capabilities, not merely physical-adapter support.
-/// </summary>
-public readonly record struct GraphicsDescriptorIndexingCapabilities(
-    bool PartiallyBound,
-    bool UpdateUnusedWhilePending,
-    bool VariableDescriptorCount,
-    bool UniformBufferUpdateAfterBind,
-    bool SampledImageUpdateAfterBind,
-    bool StorageImageUpdateAfterBind,
-    bool StorageBufferUpdateAfterBind)
-{
-    public bool HasAny => PartiallyBound || UpdateUnusedWhilePending || VariableDescriptorCount ||
-        UniformBufferUpdateAfterBind || SampledImageUpdateAfterBind ||
-        StorageImageUpdateAfterBind || StorageBufferUpdateAfterBind;
-
-    public bool SupportsUpdateAfterBind(GraphicsDescriptorType type) =>
-        type switch
-        {
-            GraphicsDescriptorType.UniformBuffer => UniformBufferUpdateAfterBind,
-            GraphicsDescriptorType.StorageBuffer => StorageBufferUpdateAfterBind,
-            GraphicsDescriptorType.SampledTexture or GraphicsDescriptorType.Sampler or
-                GraphicsDescriptorType.CombinedTextureSampler => SampledImageUpdateAfterBind,
-            GraphicsDescriptorType.StorageTexture => StorageImageUpdateAfterBind,
-            GraphicsDescriptorType.DynamicUniformBuffer or GraphicsDescriptorType.DynamicStorageBuffer => false,
-            _ => false
-        };
-}
-
-/// <summary>
 /// Immutable, backend-reported feature and limit snapshot. No capability is inferred from the backend name.
 /// </summary>
 public sealed class GraphicsDeviceCapabilities

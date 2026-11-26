@@ -204,6 +204,20 @@ public sealed class GraphicsBindingLayoutDescription
     /// creating the device. Dynamic offset alignment is validated by the device-limits overload and effective buffer
     /// bounds remain a bind-time responsibility.
     /// </summary>
+    private static bool SupportsUpdateAfterBind(
+        GraphicsDescriptorIndexingCapabilities capabilities,
+        GraphicsDescriptorType type) =>
+        type switch
+        {
+            GraphicsDescriptorType.UniformBuffer => capabilities.UniformBufferUpdateAfterBind,
+            GraphicsDescriptorType.StorageBuffer => capabilities.StorageBufferUpdateAfterBind,
+            GraphicsDescriptorType.SampledTexture or GraphicsDescriptorType.Sampler or
+                GraphicsDescriptorType.CombinedTextureSampler => capabilities.SampledImageUpdateAfterBind,
+            GraphicsDescriptorType.StorageTexture => capabilities.StorageImageUpdateAfterBind,
+            GraphicsDescriptorType.DynamicUniformBuffer or GraphicsDescriptorType.DynamicStorageBuffer => false,
+            _ => false
+        };
+
     public void Validate(GraphicsDeviceCapabilities capabilities)
     {
         ArgumentNullException.ThrowIfNull(capabilities);
@@ -226,7 +240,7 @@ public sealed class GraphicsBindingLayoutDescription
                 !capabilities.DescriptorIndexing.VariableDescriptorCount)
                 throw new GraphicsException("Variable descriptor counts are not enabled on this device.");
             if ((flags & GraphicsBindingFlags.UpdateAfterBind) != 0 &&
-                !capabilities.DescriptorIndexing.SupportsUpdateAfterBind(entry.Type))
+                !SupportsUpdateAfterBind(capabilities.DescriptorIndexing, entry.Type))
                 throw new GraphicsException($"Update-after-bind is not enabled for descriptor type {entry.Type}.");
         }
 
