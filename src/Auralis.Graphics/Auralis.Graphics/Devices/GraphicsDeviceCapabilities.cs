@@ -24,7 +24,8 @@ public readonly record struct GraphicsDeviceLimits(
     uint MaxRayPayloadSizeInBytes = 0,
     uint MaxRayHitAttributeSizeInBytes = 0,
     ulong MinUniformBufferOffsetAlignment = 0,
-    ulong MinStorageBufferOffsetAlignment = 0)
+    ulong MinStorageBufferOffsetAlignment = 0,
+    uint MaxMultiviewViewCount = 0)
 {
     /// <summary>Validates optional alignment limits. Zero denotes an unreported limit.</summary>
     public void Validate()
@@ -116,7 +117,7 @@ public sealed class GraphicsDeviceCapabilities
             GraphicsFeature.MultiViewport | GraphicsFeature.DepthBoundsTest |
             GraphicsFeature.LogicOperations | GraphicsFeature.WideLines |
             GraphicsFeature.DepthClamp | GraphicsFeature.FillModeNonSolid |
-            GraphicsFeature.DeviceGroups;
+            GraphicsFeature.DeviceGroups | GraphicsFeature.Multiview;
         const GraphicsQueueCapabilities allQueues =
             GraphicsQueueCapabilities.Graphics | GraphicsQueueCapabilities.Compute |
             GraphicsQueueCapabilities.Copy | GraphicsQueueCapabilities.Present;
@@ -138,6 +139,10 @@ public sealed class GraphicsDeviceCapabilities
         if ((queueCapabilities & ~allQueues) != 0)
             throw new ArgumentOutOfRangeException(nameof(queueCapabilities));
         limits.Validate();
+        if (features.Supports(GraphicsFeature.Multiview) && limits.MaxMultiviewViewCount < 2)
+            throw new ArgumentException(
+                "An enabled multiview feature must report a maximum view count of at least two.",
+                nameof(limits));
         if (limits.MaxSamplerAnisotropy != 0 &&
             (!float.IsFinite(limits.MaxSamplerAnisotropy) || limits.MaxSamplerAnisotropy < 1))
             throw new ArgumentOutOfRangeException(nameof(limits));
@@ -167,6 +172,18 @@ public sealed class GraphicsDeviceCapabilities
             if ((_formats[i].Support & ~allFormatSupport) != 0 ||
                 (_formats[i].SampleCounts & ~allSampleCounts) != 0)
                 throw new ArgumentException("A format capability entry contains unknown flags.", nameof(formats));
+
+            GraphicsTextureAspect aspects = GraphicsFormatInfo.GetAspects(_formats[i].Format);
+            if (aspects == GraphicsTextureAspect.Color &&
+                (_formats[i].Support & GraphicsFormatSupport.DepthStencilAttachment) != 0)
+                throw new ArgumentException(
+                    $"Color format {_formats[i].Format} cannot advertise depth/stencil attachment support.",
+                    nameof(formats));
+            if (aspects != GraphicsTextureAspect.Color &&
+                (_formats[i].Support & (GraphicsFormatSupport.ColorAttachment | GraphicsFormatSupport.Blend)) != 0)
+                throw new ArgumentException(
+                    $"Depth/stencil format {_formats[i].Format} cannot advertise color-attachment or blend support.",
+                    nameof(formats));
 
             ReadOnlySpan<GraphicsFormat> compatibleFormats = _formats[i].ViewCompatibleFormats.Span;
             for (int compatibleIndex = 0; compatibleIndex < compatibleFormats.Length; compatibleIndex++)
@@ -232,6 +249,14 @@ public sealed class GraphicsDeviceCapabilities
         description.Validate();
 
         ValidateTextureDimensions(description);
+
+        GraphicsTextureAspect aspects = GraphicsFormatInfo.GetAspects(description.Format);
+        if ((description.Usage & GraphicsTextureUsage.ColorAttachment) != 0 &&
+            aspects != GraphicsTextureAspect.Color)
+            throw new GraphicsException($"Format {description.Format} does not expose a color aspect.");
+        if ((description.Usage & GraphicsTextureUsage.DepthStencilAttachment) != 0 &&
+            (aspects & (GraphicsTextureAspect.Depth | GraphicsTextureAspect.Stencil)) == 0)
+            throw new GraphicsException($"Format {description.Format} does not expose a depth or stencil aspect.");
 
         if (!TryGetFormatCapabilities(description.Format, out GraphicsFormatCapabilities format))
             throw new GraphicsException($"The device did not report support information for format {description.Format}.");

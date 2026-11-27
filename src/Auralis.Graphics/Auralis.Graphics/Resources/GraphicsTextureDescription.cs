@@ -121,8 +121,20 @@ public readonly record struct GraphicsTextureViewDescription(
     uint BaseMipLevel,
     uint MipLevelCount,
     uint BaseArrayLayer,
-    uint ArrayLayerCount)
+    uint ArrayLayerCount,
+    GraphicsTextureAspect Aspects = GraphicsTextureAspect.None)
 {
+    /// <summary>
+    /// Returns the selected aspects. None means all aspects exposed by the effective view format.
+    /// </summary>
+    public GraphicsTextureAspect GetEffectiveAspects(in GraphicsTextureDescription texture)
+    {
+        GraphicsFormat viewFormat = Format == GraphicsFormat.Unknown ? texture.Format : Format;
+        return Aspects == GraphicsTextureAspect.None
+            ? GraphicsFormatInfo.GetAspects(viewFormat)
+            : Aspects;
+    }
+
     public void Validate(in GraphicsTextureDescription texture)
     {
         texture.Validate();
@@ -131,6 +143,10 @@ public readonly record struct GraphicsTextureViewDescription(
             throw new ArgumentOutOfRangeException(nameof(ViewType));
         if (Format != GraphicsFormat.Unknown && !Enum.IsDefined(Format))
             throw new ArgumentOutOfRangeException(nameof(Format));
+        const GraphicsTextureAspect allAspects =
+            GraphicsTextureAspect.Color | GraphicsTextureAspect.Depth | GraphicsTextureAspect.Stencil;
+        if ((Aspects & ~allAspects) != 0)
+            throw new ArgumentOutOfRangeException(nameof(Aspects));
         if (MipLevelCount == 0 || BaseMipLevel >= texture.MipLevels ||
             MipLevelCount > texture.MipLevels - BaseMipLevel)
             throw new ArgumentOutOfRangeException(nameof(MipLevelCount));
@@ -139,6 +155,18 @@ public readonly record struct GraphicsTextureViewDescription(
             throw new ArgumentOutOfRangeException(nameof(ArrayLayerCount));
 
         GraphicsFormat viewFormat = Format == GraphicsFormat.Unknown ? texture.Format : Format;
+        GraphicsTextureAspect parentAspects = GraphicsFormatInfo.GetAspects(texture.Format);
+        GraphicsTextureAspect viewFormatAspects = GraphicsFormatInfo.GetAspects(viewFormat);
+        GraphicsTextureAspect selectedAspects = Aspects == GraphicsTextureAspect.None
+            ? viewFormatAspects
+            : Aspects;
+        if (selectedAspects == GraphicsTextureAspect.None ||
+            (selectedAspects & ~viewFormatAspects) != 0 ||
+            (selectedAspects & ~parentAspects) != 0)
+            throw new ArgumentException(
+                "A texture view must select one or more aspects present in both its resource format and effective view format.",
+                nameof(Aspects));
+
         if (viewFormat != texture.Format)
         {
             if ((texture.CreationOptions & GraphicsResourceCreationOptions.MutableFormat) == 0)

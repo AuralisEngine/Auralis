@@ -195,3 +195,29 @@ public enum GraphicsBufferUsage
     ShaderBindingTable = 1 << 7,
     AccelerationStructureBuildInput = 1 << 8
 }
+
+
+/// <summary>Selectable texture format aspects used consistently by texture views, attachments, and barriers.</summary>
+[Flags]
+public enum GraphicsTextureAspect
+{
+    None = 0,
+    Color = 1 << 0,
+    Depth = 1 << 1,
+    Stencil = 1 << 2
+}
+
+/// <summary>Central format metadata shared by resource, rendering, and synchronization validation.</summary>
+public static class GraphicsFormatInfo
+{
+    /// <summary>Returns the aspects physically represented by a concrete format, or None for Unknown.</summary>
+    public static GraphicsTextureAspect GetAspects(GraphicsFormat format) => format switch
+    {
+        GraphicsFormat.D16UNorm or GraphicsFormat.D32Float => GraphicsTextureAspect.Depth,
+        GraphicsFormat.S8UInt => GraphicsTextureAspect.Stencil,
+        GraphicsFormat.D24UNormS8UInt or GraphicsFormat.D32FloatS8UInt =>
+            GraphicsTextureAspect.Depth | GraphicsTextureAspect.Stencil,
+        GraphicsFormat.Unknown => GraphicsTextureAspect.None,
+        _ => GraphicsTextureAspect.Color
+    };
+}

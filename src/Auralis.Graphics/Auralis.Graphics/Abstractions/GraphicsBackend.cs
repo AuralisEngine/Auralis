@@ -82,7 +82,9 @@ public enum GraphicsFeature : ulong
     DepthClamp = 1UL << 20,
     FillModeNonSolid = 1UL << 21,
     TaskShaders = 1UL << 22,
-    DeviceGroups = 1UL << 23
+    DeviceGroups = 1UL << 23,
+    /// <summary>Array-layer multiview rendering with per-view shader-visible view indices.</summary>
+    Multiview = 1UL << 24
 }
 
 /// <summary>A strongly typed set of optional graphics features reported by a device.</summary>

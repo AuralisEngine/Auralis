@@ -51,7 +51,7 @@ public sealed record GraphicsDeviceOptions
             GraphicsFeature.MultiViewport | GraphicsFeature.DepthBoundsTest |
             GraphicsFeature.LogicOperations | GraphicsFeature.WideLines |
             GraphicsFeature.DepthClamp | GraphicsFeature.FillModeNonSolid |
-            GraphicsFeature.DeviceGroups;
+            GraphicsFeature.DeviceGroups | GraphicsFeature.Multiview;
 
         const GraphicsQueueCapabilities allQueues =
             GraphicsQueueCapabilities.Graphics | GraphicsQueueCapabilities.Compute |

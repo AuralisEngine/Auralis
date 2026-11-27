@@ -110,6 +110,19 @@ public sealed class GraphicsRenderingDescription
             }
         }
 
+        if (ViewMask != 0)
+        {
+            IGraphicsDevice renderingDevice = device ??
+                throw new ArgumentException("Multiview rendering requires at least one valid attachment.");
+            if (!renderingDevice.Capabilities.Features.Supports(GraphicsFeature.Multiview))
+                throw new GraphicsFeatureNotSupportedException(
+                    GraphicsFeature.Multiview, GraphicsFeature.Multiview);
+            uint maximumViewCount = renderingDevice.Capabilities.Limits.MaxMultiviewViewCount;
+            if (maximumViewCount == 0 || requiredLayers > maximumViewCount)
+                throw new GraphicsException(
+                    $"View mask requires {requiredLayers} view indices, but the device reports a maximum multiview view count of {maximumViewCount}.");
+        }
+
         if (DepthStencilAttachment is { } depth)
         {
             ValidateAttachmentView(depth.View, GraphicsTextureUsage.DepthStencilAttachment,
@@ -118,11 +131,11 @@ public sealed class GraphicsRenderingDescription
                 !Enum.IsDefined(depth.StencilLoadOperation) || !Enum.IsDefined(depth.StencilStoreOperation))
                 throw new ArgumentOutOfRangeException(nameof(DepthStencilAttachment));
 
-            GraphicsFormat format = GetViewFormat(depth.View);
-            if (!IsDepthStencilFormat(format))
-                throw new ArgumentException("Depth/stencil attachments must use a depth or stencil format.", nameof(DepthStencilAttachment));
-            bool hasDepth = HasDepth(format);
-            bool hasStencil = HasStencil(format);
+            GraphicsTextureAspect aspects = depth.View.Description.GetEffectiveAspects(depth.View.Texture.Description);
+            bool hasDepth = (aspects & GraphicsTextureAspect.Depth) != 0;
+            bool hasStencil = (aspects & GraphicsTextureAspect.Stencil) != 0;
+            if (aspects == GraphicsTextureAspect.None || (aspects & GraphicsTextureAspect.Color) != 0)
+                throw new ArgumentException("Depth/stencil attachments must expose depth and/or stencil aspects.", nameof(DepthStencilAttachment));
             if ((!hasDepth && (depth.DepthLoadOperation != GraphicsAttachmentLoadOperation.DontCare ||
                                depth.DepthStoreOperation != GraphicsAttachmentStoreOperation.DontCare)) ||
                 (!hasStencil && (depth.StencilLoadOperation != GraphicsAttachmentLoadOperation.DontCare ||
@@ -159,7 +172,7 @@ public sealed class GraphicsRenderingDescription
         }
 
         GraphicsTextureDescription texture = view.Texture.Description;
-        view.Description.Validate(texture);
+        view.Device.Capabilities.ValidateTextureViewDescription(texture, view.Description);
         if (view.Description.MipLevelCount != 1)
             throw new ArgumentException("Rendering attachment views must select exactly one mip level.");
         if ((texture.Usage & requiredUsage) != requiredUsage)
@@ -174,6 +187,18 @@ public sealed class GraphicsRenderingDescription
             else if (commonSamples.Value != samples)
                 throw new ArgumentException("All rendering attachments must use the same sample count.");
         }
+        GraphicsTextureAspect selectedAspects = view.Description.GetEffectiveAspects(texture);
+        if (requiredUsage == GraphicsTextureUsage.ColorAttachment)
+        {
+            if (selectedAspects != GraphicsTextureAspect.Color)
+                throw new ArgumentException("Color attachments must expose only the color aspect.");
+        }
+        else if (selectedAspects == GraphicsTextureAspect.None ||
+                 (selectedAspects & GraphicsTextureAspect.Color) != 0)
+        {
+            throw new ArgumentException("Depth/stencil attachments must expose depth and/or stencil aspects.");
+        }
+
         if (GetViewWidth(view) < Width || GetViewHeight(view) < Height)
             throw new ArgumentException("The rendering extent exceeds an attachment view's selected mip extent.");
     }
@@ -194,13 +219,6 @@ public sealed class GraphicsRenderingDescription
         return index;
     }
 
-    private static bool IsDepthStencilFormat(GraphicsFormat format) => HasDepth(format) || HasStencil(format);
-
-    private static bool HasDepth(GraphicsFormat format) =>
-        format is GraphicsFormat.D16UNorm or GraphicsFormat.D24UNormS8UInt or GraphicsFormat.D32Float or GraphicsFormat.D32FloatS8UInt;
-
-    private static bool HasStencil(GraphicsFormat format) =>
-        format is GraphicsFormat.S8UInt or GraphicsFormat.D24UNormS8UInt or GraphicsFormat.D32FloatS8UInt;
 }
 
 /// <summary>

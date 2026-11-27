@@ -110,16 +110,6 @@ public readonly record struct GraphicsBufferRange(ulong Offset, ulong Size)
     }
 }
 
-/// <summary>Texture aspects that can be selected by a subresource range.</summary>
-[Flags]
-public enum GraphicsTextureAspect
-{
-    None = 0,
-    Color = 1 << 0,
-    Depth = 1 << 1,
-    Stencil = 1 << 2
-}
-
 /// <summary>
 /// A range of texture mip levels and array layers. A null range on a barrier represents the entire texture.
 /// Array layers are texture array layers (cube faces are individual layers); 3D textures use their single array layer.
@@ -141,7 +131,7 @@ public readonly record struct GraphicsTextureSubresourceRange(
         if (Aspects == GraphicsTextureAspect.None || (Aspects & ~allAspects) != 0)
             throw new ArgumentOutOfRangeException(nameof(Aspects), "A texture range must select one or more valid aspects.");
 
-        GraphicsTextureAspect availableAspects = GetAvailableAspects(texture.Format);
+        GraphicsTextureAspect availableAspects = GraphicsFormatInfo.GetAspects(texture.Format);
         if ((Aspects & ~availableAspects) != 0)
             throw new ArgumentException(
                 $"Format {texture.Format} does not contain all requested texture aspects ({Aspects}).",
@@ -156,16 +146,6 @@ public readonly record struct GraphicsTextureSubresourceRange(
             throw new ArgumentOutOfRangeException(nameof(ArrayLayerCount), "The array-layer range exceeds the texture bounds.");
     }
 
-    private static GraphicsTextureAspect GetAvailableAspects(GraphicsFormat format) => format switch
-    {
-        GraphicsFormat.D16UNorm or GraphicsFormat.D32Float =>
-            GraphicsTextureAspect.Depth,
-        GraphicsFormat.S8UInt => GraphicsTextureAspect.Stencil,
-        GraphicsFormat.D24UNormS8UInt or GraphicsFormat.D32FloatS8UInt =>
-            GraphicsTextureAspect.Depth | GraphicsTextureAspect.Stencil,
-        GraphicsFormat.Unknown => GraphicsTextureAspect.None,
-        _ => GraphicsTextureAspect.Color
-    };
 }
 
 /// <summary>

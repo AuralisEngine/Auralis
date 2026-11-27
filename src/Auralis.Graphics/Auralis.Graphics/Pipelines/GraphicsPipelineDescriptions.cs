@@ -774,6 +774,8 @@ public sealed class GraphicsRenderPipelineDescription
             GraphicsFormat format = _colorFormats[i];
             if (format == GraphicsFormat.Unknown || !Enum.IsDefined(format))
                 throw new ArgumentOutOfRangeException(nameof(ColorFormats));
+            if (GraphicsFormatInfo.GetAspects(format) != GraphicsTextureAspect.Color)
+                throw new ArgumentException($"Color attachment format {format} must expose only the color aspect.", nameof(ColorFormats));
             if (!Layout.Device.Capabilities.SupportsFormat(format, GraphicsFormatSupport.ColorAttachment) ||
                 !Layout.Device.Capabilities.SupportsSampleCount(format, SampleCount))
                 throw new GraphicsException(
@@ -783,16 +785,23 @@ public sealed class GraphicsRenderPipelineDescription
         {
             if (!Enum.IsDefined(DepthStencilFormat))
                 throw new ArgumentOutOfRangeException(nameof(DepthStencilFormat));
+            GraphicsTextureAspect depthStencilAspects = GraphicsFormatInfo.GetAspects(DepthStencilFormat);
+            if ((depthStencilAspects & (GraphicsTextureAspect.Depth | GraphicsTextureAspect.Stencil)) == 0)
+                throw new ArgumentException(
+                    $"Depth/stencil attachment format {DepthStencilFormat} must contain a depth or stencil aspect.",
+                    nameof(DepthStencilFormat));
             if (!Layout.Device.Capabilities.SupportsFormat(
                     DepthStencilFormat, GraphicsFormatSupport.DepthStencilAttachment) ||
                 !Layout.Device.Capabilities.SupportsSampleCount(DepthStencilFormat, SampleCount))
                 throw new GraphicsException(
                     $"The device does not support {DepthStencilFormat} as a {SampleCount}-sample depth/stencil attachment.");
         }
-        if (DepthStencil.DepthTestEnabled && DepthStencilFormat == GraphicsFormat.Unknown)
-            throw new ArgumentException("Depth testing requires a depth/stencil attachment format.", nameof(DepthStencil));
-        if (DepthStencil.StencilTestEnabled && DepthStencilFormat == GraphicsFormat.Unknown)
-            throw new ArgumentException("Stencil testing requires a depth/stencil attachment format.", nameof(DepthStencil));
+        if ((DepthStencil.DepthTestEnabled || DepthStencil.DepthWriteEnabled || DepthStencil.DepthBoundsTestEnabled) &&
+            (depthStencilAspects & GraphicsTextureAspect.Depth) == 0)
+            throw new ArgumentException("Depth testing, writes, and depth-bounds testing require a format with a depth aspect.", nameof(DepthStencil));
+        if (DepthStencil.StencilTestEnabled &&
+            (depthStencilAspects & GraphicsTextureAspect.Stencil) == 0)
+            throw new ArgumentException("Stencil testing requires a format with a stencil aspect.", nameof(DepthStencil));
         if (Blend.Attachments.Length != 0 && Blend.Attachments.Length != _colorFormats.Length)
             throw new ArgumentException("Blend attachment count must match the number of color formats.", nameof(Blend));
 
