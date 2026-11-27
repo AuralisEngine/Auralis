@@ -1,3 +1,4 @@
+using Auralis.Graphics.Commands;
 using System.Runtime.InteropServices;
 using Auralis.Graphics.Resources;
 using Auralis.Graphics.Pipelines;
@@ -225,6 +226,40 @@ public sealed class AdvancedGraphicsTests
 
         Assert.Throws<ArgumentException>(() =>
             layout.ValidateDynamicOffsets([new GraphicsDynamicBufferOffset(0, 0, 256)]));
+    }
+
+    [Fact]
+    public void ResourceMemoryBindingChecksLifetimeBeforeReadingDescriptions()
+    {
+        var device = new GraphicsDeviceFactoryTests.TestDevice(
+            GraphicsBackend.Vulkan,
+            GraphicsFeature.None,
+            GraphicsQueueCapabilities.Graphics);
+        var description = new GraphicsBufferDescription(
+            4096,
+            GraphicsBufferUsage.Storage,
+            CreationOptions: GraphicsResourceCreationOptions.RequireExplicitMemoryBinding);
+        var requirements = new GraphicsMemoryRequirements(4096, 256, 1, false, false);
+        var allocation = new TestMemoryBindingAllocation(device, 8192);
+        var disposedBuffer = new TestMemoryBindingBuffer(device, description);
+        disposedBuffer.Dispose();
+
+        Assert.Throws<ObjectDisposedException>(() =>
+            new GraphicsResourceMemoryBinding(disposedBuffer, allocation, 0).Validate(requirements));
+        Assert.Equal(0, disposedBuffer.DescriptionReadCount);
+
+        var liveBuffer = new TestMemoryBindingBuffer(device, description);
+        var disposedAllocation = new TestMemoryBindingAllocation(device, 8192);
+        disposedAllocation.Dispose();
+        Assert.Throws<ObjectDisposedException>(() =>
+            new GraphicsResourceMemoryBinding(liveBuffer, disposedAllocation, 0).Validate(requirements));
+        Assert.Equal(0, liveBuffer.DescriptionReadCount);
+
+        new GraphicsResourceMemoryBinding(
+            liveBuffer,
+            new TestMemoryBindingAllocation(device, 8192),
+            256).Validate(requirements);
+        Assert.Equal(1, liveBuffer.DescriptionReadCount);
     }
 
     [Fact]
@@ -717,6 +752,55 @@ public sealed class AdvancedGraphicsTests
             aliasedBytes[..(records.Length * sizeof(uint))]);
         GraphicsShaderBindingTableWriter.WriteRecords(
             device, pipeline, records, aliasedBytes, handleScratch, aliasedIndices);
+    }
+
+
+
+    private sealed class TestMemoryBindingBuffer(
+        IGraphicsDevice device,
+        GraphicsBufferDescription description)
+        : GraphicsDeviceObject(device), IGraphicsBuffer
+    {
+        public int DescriptionReadCount { get; private set; }
+        public string? DebugName => null;
+
+        public GraphicsBufferDescription Description
+        {
+            get
+            {
+                DescriptionReadCount++;
+                if (IsDisposed)
+                    throw new InvalidOperationException("A disposed buffer description must not be accessed.");
+                return description;
+            }
+        }
+
+        public Memory<byte> Map(GraphicsMapMode mode, ulong offset = 0, ulong size = ulong.MaxValue) =>
+            throw new NotSupportedException();
+
+        public void Unmap() => throw new NotSupportedException();
+
+        protected override void DisposeCore() { }
+    }
+
+    private sealed class TestMemoryBindingAllocation(
+        IGraphicsDevice device,
+        ulong sizeInBytes)
+        : GraphicsDeviceObject(device), IGraphicsMemoryAllocation
+    {
+        public ulong SizeInBytes { get; } = sizeInBytes;
+        public ulong OffsetInBytes => 0;
+        public uint MemoryTypeIndex => 0;
+        public GraphicsMemoryProperty Properties => GraphicsMemoryProperty.DeviceLocal;
+        public bool IsDedicated => false;
+        public bool IsMapped => false;
+
+        public Memory<byte> Map(ulong offset = 0, ulong size = ulong.MaxValue) =>
+            throw new NotSupportedException();
+
+        public void Unmap() => throw new NotSupportedException();
+
+        protected override void DisposeCore() { }
     }
 
 

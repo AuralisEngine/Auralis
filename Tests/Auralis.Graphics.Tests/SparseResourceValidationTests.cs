@@ -100,6 +100,37 @@ public sealed class SparseResourceValidationTests
     }
 
     [Fact]
+    public void SparseTextureBindingRejectsTileVolumeOverflowBeforeCheckingAllocationSize()
+    {
+        var device = CreateDevice(GraphicsFeature.SparseResources);
+        var texture = new TestTexture(
+            device,
+            new GraphicsTextureDescription(
+                GraphicsTextureDimension.Texture3D,
+                GraphicsFormat.RGBA8UNorm,
+                uint.MaxValue, uint.MaxValue, uint.MaxValue,
+                32, 1, 1,
+                GraphicsTextureUsage.Sampled,
+                GraphicsResourceCreationOptions.SparseResidency));
+        var requirements = new GraphicsSparseTextureRequirements(
+            1, 1, 1,
+            1, 1,
+            32,
+            0, 0, 0,
+            false);
+        var allocation = new TestMemoryAllocation(device, ulong.MaxValue);
+        var binding = new GraphicsSparseTextureBinding(
+            texture,
+            new GraphicsSparseTextureRegion(
+                0, 0, 0, 0, 0,
+                uint.MaxValue, uint.MaxValue, uint.MaxValue),
+            allocation,
+            0);
+
+        Assert.Throws<ArgumentOutOfRangeException>(() => binding.Validate(requirements));
+    }
+
+    [Fact]
     public void SparseTextureRequirementsAreAspectSpecific()
     {
         var texture = CreateTexture(GraphicsFormat.D24UNormS8UInt);

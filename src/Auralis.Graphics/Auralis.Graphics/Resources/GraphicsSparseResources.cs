@@ -173,9 +173,16 @@ public readonly record struct GraphicsSparseTextureBinding(
         }
         else
         {
-            ulong tileCount = (ulong)Region.TileWidth * Region.TileHeight * Region.TileDepth;
-            if (requirements.TileSizeInBytes != 0 &&
-                tileCount > ulong.MaxValue / requirements.TileSizeInBytes)
+            ulong tileCount = Region.TileWidth;
+            if (Region.TileHeight > ulong.MaxValue / tileCount)
+                throw new ArgumentOutOfRangeException(nameof(Region),
+                    "The sparse tile region volume exceeds the addressable range.");
+            tileCount *= Region.TileHeight;
+            if (Region.TileDepth > ulong.MaxValue / tileCount)
+                throw new ArgumentOutOfRangeException(nameof(Region),
+                    "The sparse tile region volume exceeds the addressable range.");
+            tileCount *= Region.TileDepth;
+            if (tileCount > ulong.MaxValue / requirements.TileSizeInBytes)
                 throw new ArgumentOutOfRangeException(nameof(Region),
                     "The sparse tile region byte size exceeds the addressable range.");
             requiredSize = tileCount * requirements.TileSizeInBytes;

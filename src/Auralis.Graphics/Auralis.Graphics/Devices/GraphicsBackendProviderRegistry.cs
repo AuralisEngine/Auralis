@@ -89,18 +89,23 @@ public sealed class GraphicsBackendProviderRegistry
 /// <summary>Common device creation, adapter enumeration, and backend-selection entry point.</summary>
 public static class GraphicsDeviceFactory
 {
-    public static ValueTask<ReadOnlyMemory<GraphicsAdapterInfo>> EnumerateAdaptersAsync(
+    public static async ValueTask<ReadOnlyMemory<GraphicsAdapterInfo>> EnumerateAdaptersAsync(
         GraphicsBackendProviderRegistry registry,
         GraphicsBackend backend,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(registry);
+        cancellationToken.ThrowIfCancellationRequested();
         IGraphicsBackendProvider provider = registry.GetProvider(backend);
 
         if (!provider.IsAvailable)
             throw new GraphicsBackendUnavailableException(backend, provider.UnavailableReason);
 
-        return provider.EnumerateAdaptersAsync(cancellationToken);
+        ReadOnlyMemory<GraphicsAdapterInfo> adapters = await provider
+            .EnumerateAdaptersAsync(cancellationToken)
+            .ConfigureAwait(false);
+        cancellationToken.ThrowIfCancellationRequested();
+        return adapters;
     }
 
     public static async ValueTask<IGraphicsDevice> CreateAsync(
@@ -111,6 +116,7 @@ public static class GraphicsDeviceFactory
         ArgumentNullException.ThrowIfNull(registry);
         ArgumentNullException.ThrowIfNull(options);
         options.Validate();
+        cancellationToken.ThrowIfCancellationRequested();
 
         if (options.Backend is { } requestedBackend)
         {
@@ -127,6 +133,7 @@ public static class GraphicsDeviceFactory
         for (int i = 0; i < providers.Length; i++)
         {
             IGraphicsBackendProvider provider = providers[i];
+            cancellationToken.ThrowIfCancellationRequested();
             if (!provider.IsAvailable)
             {
                 lastUnavailable = new GraphicsBackendUnavailableException(
@@ -176,7 +183,14 @@ public static class GraphicsDeviceFactory
         if (!provider.IsAvailable)
             throw new GraphicsBackendUnavailableException(provider.Backend, provider.UnavailableReason);
 
+        cancellationToken.ThrowIfCancellationRequested();
         IGraphicsDevice device = await provider.CreateDeviceAsync(options, cancellationToken).ConfigureAwait(false);
+
+        if (cancellationToken.IsCancellationRequested)
+        {
+            device.Dispose();
+            cancellationToken.ThrowIfCancellationRequested();
+        }
 
         if (device.Backend != provider.Backend)
         {

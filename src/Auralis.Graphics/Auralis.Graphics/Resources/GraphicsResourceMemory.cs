@@ -56,11 +56,9 @@ public readonly record struct GraphicsResourceMemoryBinding(
     {
         ArgumentNullException.ThrowIfNull(Resource);
         ArgumentNullException.ThrowIfNull(Allocation);
-        if (Resource is IGraphicsBuffer resourceBuffer)
-            requirements.Validate(resourceBuffer.Description);
-        else
-            requirements.Validate();
 
+        // Lifetime and ownership take precedence over querying resource descriptions. Some backends
+        // invalidate description access when a native resource or allocation has been destroyed.
         if (Resource.IsDisposed || Resource.Device.IsDisposed)
             throw new ObjectDisposedException(nameof(Resource));
         if (Allocation.IsDisposed || Allocation.Device.IsDisposed)
@@ -68,14 +66,29 @@ public readonly record struct GraphicsResourceMemoryBinding(
         if (!ReferenceEquals(Resource.Device, Allocation.Device))
             throw new ArgumentException("Resource and memory allocation must belong to the same device.");
 
-        bool requiresExplicitBinding = Resource switch
+        bool requiresExplicitBinding;
+        if (Resource is IGraphicsBuffer resourceBuffer)
         {
-            IGraphicsBuffer buffer =>
-                (buffer.Description.CreationOptions & GraphicsResourceCreationOptions.RequireExplicitMemoryBinding) != 0,
-            IGraphicsTexture texture =>
-                (texture.Description.CreationOptions & GraphicsResourceCreationOptions.RequireExplicitMemoryBinding) != 0,
-            _ => false
-        };
+            GraphicsBufferDescription description = resourceBuffer.Description;
+            requirements.Validate(description);
+            requiresExplicitBinding =
+                (description.CreationOptions & GraphicsResourceCreationOptions.RequireExplicitMemoryBinding) != 0;
+        }
+        else if (Resource is IGraphicsTexture resourceTexture)
+        {
+            GraphicsTextureDescription description = resourceTexture.Description;
+            description.Validate();
+            requirements.Validate();
+            requiresExplicitBinding =
+                (description.CreationOptions & GraphicsResourceCreationOptions.RequireExplicitMemoryBinding) != 0;
+        }
+        else
+        {
+            throw new ArgumentException(
+                "Only buffers or textures can be placed in explicit graphics memory.",
+                nameof(Resource));
+        }
+
         if (!requiresExplicitBinding)
             throw new ArgumentException("Only buffers or textures created with RequireExplicitMemoryBinding can use explicit placement.");
         if (OffsetInBytes % requirements.Alignment != 0)
