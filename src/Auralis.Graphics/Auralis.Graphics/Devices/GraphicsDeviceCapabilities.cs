@@ -29,7 +29,13 @@ public readonly record struct GraphicsDeviceLimits(
     /// <summary>Maximum cube-map face dimension; zero means this limit is not reported.</summary>
     uint MaxCubeTextureDimension = 0,
     /// <summary>Maximum simultaneous color attachments; zero means this limit is not reported.</summary>
-    uint MaxColorAttachments = 0)
+    uint MaxColorAttachments = 0,
+    /// <summary>Maximum dispatch workgroup count along the X axis; zero means unreported.</summary>
+    uint MaxComputeWorkGroupCountX = 0,
+    /// <summary>Maximum dispatch workgroup count along the Y axis; zero means unreported.</summary>
+    uint MaxComputeWorkGroupCountY = 0,
+    /// <summary>Maximum dispatch workgroup count along the Z axis; zero means unreported.</summary>
+    uint MaxComputeWorkGroupCountZ = 0)
 {
     /// <summary>Validates optional alignment limits. Zero denotes an unreported limit.</summary>
     public void Validate()
@@ -277,6 +283,28 @@ public sealed class GraphicsDeviceCapabilities
             description.SizeInBytes > Limits.MaxBufferSizeInBytes)
             throw new GraphicsException(
                 $"Buffer size {description.SizeInBytes} exceeds the device limit of {Limits.MaxBufferSizeInBytes} bytes.");
+    }
+
+    /// <summary>
+    /// Validates direct compute-dispatch workgroup counts against every per-axis limit reported by this device.
+    /// A zero limit is unreported, not unlimited; backends must additionally enforce any native constraint
+    /// that their API does not expose through the common limit fields.
+    /// </summary>
+    public void ValidateComputeDispatch(
+        uint groupCountX,
+        uint groupCountY,
+        uint groupCountZ)
+    {
+        ValidateComputeWorkGroupCount(groupCountX, Limits.MaxComputeWorkGroupCountX, nameof(groupCountX));
+        ValidateComputeWorkGroupCount(groupCountY, Limits.MaxComputeWorkGroupCountY, nameof(groupCountY));
+        ValidateComputeWorkGroupCount(groupCountZ, Limits.MaxComputeWorkGroupCountZ, nameof(groupCountZ));
+    }
+
+    private static void ValidateComputeWorkGroupCount(uint requested, uint maximum, string parameterName)
+    {
+        if (maximum != 0 && requested > maximum)
+            throw new GraphicsException(
+                $"Compute dispatch {parameterName} count {requested} exceeds the reported device limit of {maximum}.");
     }
 
     /// <summary>Validates texture structure, implementation limits, and reported format/usage/sample support.</summary>

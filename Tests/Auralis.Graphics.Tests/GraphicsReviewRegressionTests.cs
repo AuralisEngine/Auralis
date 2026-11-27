@@ -216,6 +216,29 @@ public sealed class GraphicsReviewRegressionTests
     }
 
     [Fact]
+    public void ComputeDispatchValidatesEachReportedDimensionIndependently()
+    {
+        GraphicsDeviceLimits limits = default(GraphicsDeviceLimits) with
+        {
+            MaxComputeWorkGroupCountX = 64,
+            MaxComputeWorkGroupCountY = 32,
+            MaxComputeWorkGroupCountZ = 8
+        };
+        GraphicsDeviceCapabilities capabilities = CreateCapabilities(
+            GraphicsFeature.ComputeShaders, limits);
+
+        capabilities.ValidateComputeDispatch(64, 32, 8);
+        capabilities.ValidateComputeDispatch(0, 0, 0);
+        Assert.Throws<GraphicsException>(() => capabilities.ValidateComputeDispatch(65, 1, 1));
+        Assert.Throws<GraphicsException>(() => capabilities.ValidateComputeDispatch(1, 33, 1));
+        Assert.Throws<GraphicsException>(() => capabilities.ValidateComputeDispatch(1, 1, 9));
+
+        GraphicsDeviceCapabilities unreported = CreateCapabilities(
+            GraphicsFeature.ComputeShaders, default);
+        unreported.ValidateComputeDispatch(uint.MaxValue, uint.MaxValue, uint.MaxValue);
+    }
+
+    [Fact]
     public void DeviceCapabilitiesEnforceBufferAndTextureLimits()
     {
         GraphicsDeviceLimits limits = default(GraphicsDeviceLimits) with

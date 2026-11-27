@@ -480,12 +480,8 @@ public sealed class AdvancedGraphicsTests
 
         uint[] aliasedStorage = [0xAABBCCDD, 0x11223344, 0x55667788, 0x99AABBCC, 0xDDEEFF00, 0x12345678];
         uint[] originalAliasedStorage = [.. aliasedStorage];
-        Span<byte> aliasedBytes = MemoryMarshal.AsBytes(aliasedStorage.AsSpan());
-        Span<uint> aliasedIndices = MemoryMarshal.Cast<byte, uint>(
-            aliasedBytes[..(records.Length * sizeof(uint))]);
-        Assert.Throws<ArgumentException>(() =>
-            GraphicsShaderBindingTableWriter.WriteRecords(
-                tableDevice, pipeline, records, aliasedBytes, handleScratch, aliasedIndices));
+        Assert.Throws<ArgumentException>(() => InvokeShaderTableWriterWithAliasedSpans(
+            tableDevice, pipeline, records, handleScratch, aliasedStorage));
         Assert.Equal(originalAliasedStorage, aliasedStorage);
 
         GraphicsShaderBindingTableWriter.WriteRecords(
@@ -674,6 +670,23 @@ public sealed class AdvancedGraphicsTests
                 destination.Slice(checked((int)group * handleSize), handleSize)
                     .Fill(checked((byte)(firstGroup + group)));
         }
+    }
+
+
+
+    /// <summary>Invokes the SBT writer with destination and index scratch deliberately aliased.</summary>
+    private static void InvokeShaderTableWriterWithAliasedSpans(
+        IGraphicsRayTracingShaderTableDevice device,
+        IGraphicsRayTracingPipeline pipeline,
+        ReadOnlySpan<GraphicsShaderBindingTableRecord> records,
+        byte[] handleScratch,
+        uint[] aliasedStorage)
+    {
+        Span<byte> aliasedBytes = MemoryMarshal.AsBytes(aliasedStorage.AsSpan());
+        Span<uint> aliasedIndices = MemoryMarshal.Cast<byte, uint>(
+            aliasedBytes[..(records.Length * sizeof(uint))]);
+        GraphicsShaderBindingTableWriter.WriteRecords(
+            device, pipeline, records, aliasedBytes, handleScratch, aliasedIndices);
     }
 
 
