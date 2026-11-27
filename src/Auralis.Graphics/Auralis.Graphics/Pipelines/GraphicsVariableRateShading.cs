@@ -33,6 +33,8 @@ public readonly record struct GraphicsShadingRateCapabilities(
     uint MaximumFragmentSizeHeight,
     ulong SupportedRatesMask)
 {
+    private const ulong AllSupportedRatesMask = (1UL << 7) - 1;
+
     public bool Supports(GraphicsShadingRate rate) =>
         Enum.IsDefined(rate) && (SupportedRatesMask & (1UL << (int)rate)) != 0;
 
@@ -47,8 +49,7 @@ public readonly record struct GraphicsShadingRateCapabilities(
         if ((AttachmentTileWidth & (AttachmentTileWidth - 1)) != 0 ||
             (AttachmentTileHeight & (AttachmentTileHeight - 1)) != 0)
             throw new ArgumentException("Shading-rate attachment tile dimensions must be powers of two.");
-        if (SupportedRatesMask == 0 ||
-            (SupportedRatesMask & ~((1UL << Enum.GetValues<GraphicsShadingRate>().Length) - 1)) != 0)
+        if (SupportedRatesMask == 0 || (SupportedRatesMask & ~AllSupportedRatesMask) != 0)
             throw new ArgumentOutOfRangeException(nameof(SupportedRatesMask));
         if (!Supports(GraphicsShadingRate.Rate1x1))
             throw new ArgumentException("Devices must report support for the 1x1 baseline shading rate.");

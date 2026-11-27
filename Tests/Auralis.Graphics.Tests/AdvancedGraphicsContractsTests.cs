@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using Auralis.Graphics.Resources;
 using Auralis.Graphics.Pipelines;
 using Auralis.Graphics.Devices;
@@ -476,6 +477,17 @@ public sealed class AdvancedGraphicsTests
 
         Assert.Equal(12,
             GraphicsShaderBindingTableWriter.GetHandleScratchSizeUpperBound(records.Length, properties));
+
+        uint[] aliasedStorage = [0xAABBCCDD, 0x11223344, 0x55667788, 0x99AABBCC, 0xDDEEFF00, 0x12345678];
+        uint[] originalAliasedStorage = [.. aliasedStorage];
+        Span<byte> aliasedBytes = MemoryMarshal.AsBytes(aliasedStorage.AsSpan());
+        Span<uint> aliasedIndices = MemoryMarshal.Cast<byte, uint>(
+            aliasedBytes[..(records.Length * sizeof(uint))]);
+        Assert.Throws<ArgumentException>(() =>
+            GraphicsShaderBindingTableWriter.WriteRecords(
+                tableDevice, pipeline, records, aliasedBytes, handleScratch, aliasedIndices));
+        Assert.Equal(originalAliasedStorage, aliasedStorage);
+
         GraphicsShaderBindingTableWriter.WriteRecords(
             tableDevice, pipeline, records, destination, handleScratch, groupIndexScratch);
 
@@ -547,6 +559,15 @@ public sealed class AdvancedGraphicsTests
         Assert.Throws<ArgumentException>(missingBaseline.Validate);
         Assert.Throws<ArgumentException>(invalidTile.Validate);
         Assert.Throws<ArgumentException>(invalidFragmentSize.Validate);
+    }
+
+    [Fact]
+    public void ShadingRateCapabilitiesRejectUnknownRateBits()
+    {
+        GraphicsShadingRateCapabilities capabilities = new(
+            16, 16, 4, 4,
+            (1UL << (int)GraphicsShadingRate.Rate1x1) | (1UL << 63));
+        Assert.Throws<ArgumentOutOfRangeException>(capabilities.Validate);
     }
 
     [Fact]

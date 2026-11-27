@@ -231,17 +231,12 @@ public static class GraphicsShaderBindingTableWriter
             throw new ArgumentException("Group-index scratch storage must hold one index per record.", nameof(groupIndexScratch));
 
         int handleSize = checked((int)properties.ShaderGroupHandleSize);
-        for (int i = 0; i < records.Length; i++)
-        {
-            if (records[i].ShaderGroupIndex >= pipeline.Description.Groups.Length)
-                throw new ArgumentOutOfRangeException(nameof(records),
-                    "A record references a shader group outside the pipeline.");
-            groupIndexScratch[i] = records[i].ShaderGroupIndex;
-        }
-
         Span<uint> groupIndices = groupIndexScratch[..records.Length];
         Span<byte> destinationSpan = destination[..checked((int)layout.SizeInBytes)];
         Span<byte> groupIndexBytes = MemoryMarshal.AsBytes(groupIndices);
+
+        // Validate every overlap before modifying any caller-owned span. Rejected aliasing inputs
+        // must not have their destination or scratch contents changed as a side effect.
         if (destinationSpan.Overlaps(handleScratch) ||
             destinationSpan.Overlaps(groupIndexBytes) ||
             handleScratch.Overlaps(groupIndexBytes))
@@ -249,6 +244,10 @@ public static class GraphicsShaderBindingTableWriter
 
         for (int i = 0; i < records.Length; i++)
         {
+            if (records[i].ShaderGroupIndex >= pipeline.Description.Groups.Length)
+                throw new ArgumentOutOfRangeException(nameof(records),
+                    "A record references a shader group outside the pipeline.");
+
             ReadOnlySpan<byte> localData = records[i].LocalData.Span;
             if (localData.Overlaps(destinationSpan) ||
                 localData.Overlaps(handleScratch) ||
@@ -256,6 +255,9 @@ public static class GraphicsShaderBindingTableWriter
                 throw new ArgumentException(
                     "Record local data must not overlap destination or scratch storage.", nameof(records));
         }
+
+        for (int i = 0; i < records.Length; i++)
+            groupIndices[i] = records[i].ShaderGroupIndex;
 
         groupIndices.Sort();
         int uniqueGroupCount = 0;
