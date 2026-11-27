@@ -17,13 +17,24 @@ public readonly record struct GraphicsTimestampProperties(
             throw new ArgumentException("Unsupported timestamps must report zero frequency and valid bits.");
     }
 
-    public ulong ValidMask => !Supported ? 0 : ValidBits == 64 ? ulong.MaxValue : (1UL << (int)ValidBits) - 1;
+    /// <summary>Mask selecting the valid low bits of the hardware counter.</summary>
+    public ulong ValidMask
+    {
+        get
+        {
+            Validate();
+            return !Supported ? 0 : ValidBits == 64 ? ulong.MaxValue : (1UL << (int)ValidBits) - 1;
+        }
+    }
 
+    /// <summary>Returns elapsed counter ticks, accounting for wraparound at the reported counter width.</summary>
     public ulong GetElapsedTicks(ulong startTimestamp, ulong endTimestamp)
     {
-        if (!Supported || TimestampFrequencyHz == 0)
+        Validate();
+        if (!Supported)
             throw new InvalidOperationException("Timestamp queries are not supported for this queue.");
-        return unchecked(endTimestamp - startTimestamp) & ValidMask;
+        ulong validMask = ValidBits == 64 ? ulong.MaxValue : (1UL << (int)ValidBits) - 1;
+        return unchecked(endTimestamp - startTimestamp) & validMask;
     }
 
     public double GetElapsedMilliseconds(ulong startTimestamp, ulong endTimestamp) =>

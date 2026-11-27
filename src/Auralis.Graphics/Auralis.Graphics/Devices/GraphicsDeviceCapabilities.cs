@@ -143,6 +143,7 @@ public sealed class GraphicsDeviceCapabilities
         if ((queueCapabilities & ~allQueues) != 0)
             throw new ArgumentOutOfRangeException(nameof(queueCapabilities));
         limits.Validate();
+        descriptorIndexing.Validate();
         if (features.Supports(GraphicsFeature.Multiview) && limits.MaxMultiviewViewCount < 2)
             throw new ArgumentException(
                 "An enabled multiview feature must report a maximum view count of at least two.",
@@ -304,10 +305,6 @@ public sealed class GraphicsDeviceCapabilities
     }
 
     /// <summary>
-    /// Validates a texture view against its parent texture, mutable-format compatibility rules,
-    /// device limits, and the capabilities reported for the effective view format.
-    /// </summary>
-    /// <summary>
     /// Validates whether a view can be created for the resource: subresource/aspect rules,
     /// mutable-format compatibility, effective-format availability, and sample-count compatibility.
     /// It deliberately does not require the view format to support every usage of its parent resource.
@@ -408,8 +405,8 @@ public sealed class GraphicsDeviceCapabilities
                 ValidateDimension(description.Height, Limits.MaxTextureDimension2D, "2D texture height");
                 break;
             case GraphicsTextureDimension.Cube:
-                ValidateDimension(description.Width, Limits.MaxTextureDimension2D, "cube texture width");
-                ValidateDimension(description.Height, Limits.MaxTextureDimension2D, "cube texture height");
+                // Cube-map dimensions are independently reported by native APIs; do not constrain
+                // this resource by the non-cube 2D image limit.
                 ValidateDimension(description.Width, Limits.MaxCubeTextureDimension, "cube texture dimension");
                 break;
             case GraphicsTextureDimension.Texture3D:

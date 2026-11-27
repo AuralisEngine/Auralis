@@ -117,6 +117,14 @@ public readonly record struct GraphicsDescriptorIndexingCapabilities(
         UniformBufferUpdateAfterBind || SampledImageUpdateAfterBind ||
         StorageImageUpdateAfterBind || StorageBufferUpdateAfterBind || ZeroVariableDescriptorCount;
 
+    /// <summary>Validates dependencies between independently enabled descriptor-indexing features.</summary>
+    public void Validate()
+    {
+        if (ZeroVariableDescriptorCount && !VariableDescriptorCount)
+            throw new ArgumentException(
+                "Zero-sized variable descriptor allocations require variable descriptor count support.");
+    }
+
     public bool Includes(GraphicsDescriptorIndexingCapabilities required) =>
         (!required.PartiallyBound || PartiallyBound) &&
         (!required.UpdateUnusedWhilePending || UpdateUnusedWhilePending) &&

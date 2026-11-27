@@ -213,13 +213,19 @@ public enum GraphicsTextureAspect
 public static class GraphicsFormatInfo
 {
     /// <summary>Returns the aspects physically represented by a concrete format, or None for Unknown.</summary>
-    public static GraphicsTextureAspect GetAspects(GraphicsFormat format) => format switch
+    public static GraphicsTextureAspect GetAspects(GraphicsFormat format)
     {
-        GraphicsFormat.D16UNorm or GraphicsFormat.D32Float => GraphicsTextureAspect.Depth,
-        GraphicsFormat.S8UInt => GraphicsTextureAspect.Stencil,
-        GraphicsFormat.D24UNormS8UInt or GraphicsFormat.D32FloatS8UInt =>
-            GraphicsTextureAspect.Depth | GraphicsTextureAspect.Stencil,
-        GraphicsFormat.Unknown => GraphicsTextureAspect.None,
-        _ => GraphicsTextureAspect.Color
-    };
+        if (!Enum.IsDefined(format))
+            throw new ArgumentOutOfRangeException(nameof(format));
+
+        return format switch
+        {
+            GraphicsFormat.D16UNorm or GraphicsFormat.D32Float => GraphicsTextureAspect.Depth,
+            GraphicsFormat.S8UInt => GraphicsTextureAspect.Stencil,
+            GraphicsFormat.D24UNormS8UInt or GraphicsFormat.D32FloatS8UInt =>
+                GraphicsTextureAspect.Depth | GraphicsTextureAspect.Stencil,
+            GraphicsFormat.Unknown => GraphicsTextureAspect.None,
+            _ => GraphicsTextureAspect.Color
+        };
+    }
 }

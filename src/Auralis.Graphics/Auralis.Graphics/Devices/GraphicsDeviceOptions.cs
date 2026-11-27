@@ -69,6 +69,7 @@ public sealed record GraphicsDeviceOptions
 
         if ((RequiredFeatures & ~allFeatures) != 0)
             throw new ArgumentOutOfRangeException(nameof(RequiredFeatures));
+        RequiredDescriptorIndexing.Validate();
         if (RequiredDescriptorIndexing.HasAny && (RequiredFeatures & GraphicsFeature.DescriptorIndexing) == 0)
             throw new ArgumentException(
                 "Fine-grained descriptor-indexing requirements also require GraphicsFeature.DescriptorIndexing.",
