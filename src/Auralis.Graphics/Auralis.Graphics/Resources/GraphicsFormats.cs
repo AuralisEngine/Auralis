@@ -193,7 +193,9 @@ public enum GraphicsBufferUsage
     CopySource = 1 << 5,
     CopyDestination = 1 << 6,
     ShaderBindingTable = 1 << 7,
-    AccelerationStructureBuildInput = 1 << 8
+    AccelerationStructureBuildInput = 1 << 8,
+    /// <summary>Scratch storage read and written by acceleration-structure build/update commands.</summary>
+    AccelerationStructureScratch = 1 << 9
 }
 
 

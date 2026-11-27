@@ -290,8 +290,7 @@ public readonly record struct GraphicsRayTracingTriangleGeometry(
                 "The triangle vertex range exceeds the addressable byte range.");
         ulong vertexDataSize = vertexIntervals * VertexStride + positionDataSize;
         GraphicsRayTracingBufferValidation.Validate(
-            VertexBuffer, VertexOffset, vertexDataSize, nameof(VertexBuffer));
-        GraphicsRayTracingBufferValidation.RequireAddressAlignment(VertexBuffer, VertexOffset, componentAlignment, nameof(VertexOffset));
+            VertexBuffer, VertexOffset, vertexDataSize, nameof(VertexBuffer), componentAlignment);
 
         if (IndexBuffer is null)
         {
@@ -305,22 +304,20 @@ public readonly record struct GraphicsRayTracingTriangleGeometry(
             if (!Enum.IsDefined(IndexFormat) || IndexCount == 0 || IndexCount % 3 != 0)
                 throw new ArgumentException("Indexed triangle geometry requires a valid index format and a non-zero multiple-of-three index count.");
             ulong indexElementSize = IndexFormat == GraphicsIndexFormat.UInt16 ? 2UL : 4UL;
-            GraphicsRayTracingBufferValidation.Validate(
-                IndexBuffer, IndexOffset, checked((ulong)IndexCount * indexElementSize), nameof(IndexBuffer));
             if (IndexOffset % indexElementSize != 0)
                 throw new ArgumentOutOfRangeException(nameof(IndexOffset));
-            GraphicsRayTracingBufferValidation.RequireAddressAlignment(
-                IndexBuffer, IndexOffset, indexElementSize, nameof(IndexOffset));
+            GraphicsRayTracingBufferValidation.Validate(
+                IndexBuffer, IndexOffset, checked((ulong)IndexCount * indexElementSize),
+                nameof(IndexBuffer), indexElementSize);
             GraphicsRayTracingBufferValidation.RequireSameDevice(VertexBuffer, IndexBuffer, nameof(IndexBuffer));
         }
 
         if (TransformBuffer is not null)
         {
-            GraphicsRayTracingBufferValidation.Validate(TransformBuffer, TransformOffset, 48, nameof(TransformBuffer));
             if ((TransformOffset & 15) != 0)
                 throw new ArgumentOutOfRangeException(nameof(TransformOffset), "The 3x4 transform must be 16-byte aligned.");
-            GraphicsRayTracingBufferValidation.RequireAddressAlignment(
-                TransformBuffer, TransformOffset, 16, nameof(TransformOffset));
+            GraphicsRayTracingBufferValidation.Validate(
+                TransformBuffer, TransformOffset, 48, nameof(TransformBuffer), 16);
             GraphicsRayTracingBufferValidation.RequireSameDevice(VertexBuffer, TransformBuffer, nameof(TransformBuffer));
         }
         if (!Enum.IsDefined(IndexFormat))
@@ -345,8 +342,7 @@ public readonly record struct GraphicsRayTracingAabbGeometry(
             throw new ArgumentOutOfRangeException(nameof(Count),
                 "The AABB vertex range exceeds the addressable byte range.");
         ulong aabbDataSize = aabbIntervals * Stride + 24UL;
-        GraphicsRayTracingBufferValidation.Validate(Buffer, Offset, aabbDataSize, nameof(Buffer));
-        GraphicsRayTracingBufferValidation.RequireAddressAlignment(Buffer, Offset, 8, nameof(Offset));
+        GraphicsRayTracingBufferValidation.Validate(Buffer, Offset, aabbDataSize, nameof(Buffer), 8);
     }
 }
 
@@ -406,32 +402,15 @@ public readonly record struct GraphicsAccelerationStructureGeometry(
 
 internal static class GraphicsRayTracingBufferValidation
 {
-    public static void Validate(IGraphicsBuffer buffer, ulong offset, ulong size, string parameterName)
-    {
-        ArgumentNullException.ThrowIfNull(buffer);
-        if (buffer.IsDisposed || buffer.Device.IsDisposed)
-            throw new ObjectDisposedException(parameterName);
-        buffer.Description.Validate();
-        if ((buffer.Description.Usage & GraphicsBufferUsage.AccelerationStructureBuildInput) == 0)
-            throw new ArgumentException("Ray-tracing geometry buffers must declare AccelerationStructureBuildInput usage.", parameterName);
-        if (buffer is not IGraphicsBufferDeviceAddress address || address.DeviceAddress == 0)
-            throw new ArgumentException("Ray-tracing geometry buffers must expose a non-zero GPU device address.", parameterName);
-        if (offset > ulong.MaxValue - address.DeviceAddress)
-            throw new ArgumentOutOfRangeException(parameterName, "Ray-tracing geometry GPU address overflows.");
-        ulong deviceAddress = address.DeviceAddress + offset;
-        if (size == 0 || offset > buffer.Description.SizeInBytes ||
-            size > buffer.Description.SizeInBytes - offset)
-            throw new ArgumentOutOfRangeException(parameterName, "Ray-tracing geometry range exceeds its buffer.");
-        if (size - 1 > ulong.MaxValue - deviceAddress)
-            throw new ArgumentOutOfRangeException(parameterName, "Ray-tracing geometry GPU address range overflows.");
-    }
-
-    public static void RequireAddressAlignment(IGraphicsBuffer buffer, ulong offset, ulong alignment, string parameterName)
-    {
-        if (buffer is not IGraphicsBufferDeviceAddress address ||
-            alignment == 0 || checked(address.DeviceAddress + offset) % alignment != 0)
-            throw new ArgumentException("The resulting GPU device address does not satisfy the required alignment.", parameterName);
-    }
+    public static void Validate(
+        IGraphicsBuffer buffer,
+        ulong offset,
+        ulong size,
+        string parameterName,
+        ulong alignment = 1) =>
+        GraphicsBufferAddressRangeValidation.Validate(
+            buffer, null, offset, size, alignment,
+            GraphicsBufferUsage.AccelerationStructureBuildInput, parameterName);
 
     public static void RequireSameDevice(IGraphicsBuffer first, IGraphicsBuffer second, string parameterName)
     {

@@ -75,7 +75,9 @@ public enum GraphicsResourceAccess
     /// <summary>Reads an acceleration structure from a ray-tracing shader, build, or AS copy operation.</summary>
     AccelerationStructureRead = 1 << 17,
     /// <summary>Writes an acceleration structure during a build, update, or AS copy operation.</summary>
-    AccelerationStructureWrite = 1 << 18
+    AccelerationStructureWrite = 1 << 18,
+    /// <summary>Reads geometry and instance input buffers during acceleration-structure builds.</summary>
+    AccelerationStructureBuildInputRead = 1 << 19
 }
 
 /// <summary>
@@ -214,6 +216,9 @@ internal static class GraphicsBarrierCompatibility
         new(GraphicsResourceAccess.ShaderRead, true, true,
             GraphicsBufferUsage.Storage, GraphicsTextureUsage.Sampled | GraphicsTextureUsage.Storage,
             ShaderStages, AnyTextureUsage: true),
+        new(GraphicsResourceAccess.AccelerationStructureBuildInputRead, true, false,
+            GraphicsBufferUsage.AccelerationStructureBuildInput, GraphicsTextureUsage.None,
+            GraphicsPipelineStage.AccelerationStructureBuild | GraphicsPipelineStage.AllCommands),
         new(GraphicsResourceAccess.ShaderWrite, true, true,
             GraphicsBufferUsage.Storage, GraphicsTextureUsage.Storage,
             ShaderStages),
@@ -250,11 +255,17 @@ internal static class GraphicsBarrierCompatibility
         new(GraphicsResourceAccess.ShadingRateAttachmentRead, false, true,
             GraphicsBufferUsage.None, GraphicsTextureUsage.ShadingRateAttachment,
             GraphicsPipelineStage.FragmentShadingRate | GraphicsPipelineStage.AllCommands),
+        new(GraphicsResourceAccess.AccelerationStructureRead, true, false,
+            GraphicsBufferUsage.Storage | GraphicsBufferUsage.AccelerationStructureScratch, GraphicsTextureUsage.None,
+            GraphicsPipelineStage.AccelerationStructureBuild | GraphicsPipelineStage.AllCommands),
         new(GraphicsResourceAccess.AccelerationStructureRead, false, false,
             GraphicsBufferUsage.None, GraphicsTextureUsage.None,
             GraphicsPipelineStage.RayTracingShader | GraphicsPipelineStage.AccelerationStructureBuild |
             GraphicsPipelineStage.AccelerationStructureCopy | GraphicsPipelineStage.AllCommands,
             SupportsAccelerationStructure: true),
+        new(GraphicsResourceAccess.AccelerationStructureWrite, true, false,
+            GraphicsBufferUsage.Storage | GraphicsBufferUsage.AccelerationStructureScratch, GraphicsTextureUsage.None,
+            GraphicsPipelineStage.AccelerationStructureBuild | GraphicsPipelineStage.AllCommands),
         new(GraphicsResourceAccess.AccelerationStructureWrite, false, false,
             GraphicsBufferUsage.None, GraphicsTextureUsage.None,
             GraphicsPipelineStage.AccelerationStructureBuild | GraphicsPipelineStage.AccelerationStructureCopy |
@@ -282,19 +293,23 @@ internal static class GraphicsBarrierCompatibility
         GraphicsTextureDescription texture = isTexture
             ? ((IGraphicsTexture)resource).Description
             : default;
+        GraphicsResourceAccess remaining = access;
 
+        // Access intents may have multiple resource-specific mappings. For example, AS read/write
+        // applies to both build scratch buffers and acceleration-structure storage, but not to
+        // arbitrary buffers. Consume each intent only after a rule matches the concrete resource.
         for (int i = 0; i < s_accessRules.Length; i++)
         {
             AccessRule rule = s_accessRules[i];
-            if ((access & rule.Access) == 0)
+            if ((remaining & rule.Access) == 0)
                 continue;
 
-            if ((isBuffer && !rule.SupportsBuffer) ||
-                (isTexture && !rule.SupportsTexture) ||
-                (isAccelerationStructure && !rule.SupportsAccelerationStructure))
-                throw new ArgumentException(
-                    $"Access {rule.Access} is not valid for resource type {resource.GetType().Name}.",
-                    nameof(access));
+            bool supportsResource =
+                (isBuffer && rule.SupportsBuffer) ||
+                (isTexture && rule.SupportsTexture) ||
+                (isAccelerationStructure && rule.SupportsAccelerationStructure);
+            if (!supportsResource)
+                continue;
 
             if ((stages & rule.Stages) == 0)
                 throw new ArgumentException(
@@ -325,7 +340,14 @@ internal static class GraphicsBarrierCompatibility
             if (rule.Access == GraphicsResourceAccess.HostWrite &&
                 buffer.MemoryAccess is not (GraphicsMemoryAccess.CpuToGpu or GraphicsMemoryAccess.CpuReadWrite))
                 throw new ArgumentException("HostWrite requires a CPU-writable buffer memory access mode.", nameof(resource));
+
+            remaining &= ~rule.Access;
         }
+
+        if (remaining != GraphicsResourceAccess.None)
+            throw new ArgumentException(
+                $"Access {remaining} is not valid for resource type {resource.GetType().Name}.",
+                nameof(access));
     }
 
     public static void ValidateTextureLayout(
@@ -458,7 +480,8 @@ public readonly record struct GraphicsResourceBarrier(
             GraphicsResourceAccess.HostRead | GraphicsResourceAccess.HostWrite |
             GraphicsResourceAccess.MemoryRead | GraphicsResourceAccess.MemoryWrite |
             GraphicsResourceAccess.ShadingRateAttachmentRead |
-            GraphicsResourceAccess.AccelerationStructureRead | GraphicsResourceAccess.AccelerationStructureWrite;
+            GraphicsResourceAccess.AccelerationStructureRead | GraphicsResourceAccess.AccelerationStructureWrite |
+            GraphicsResourceAccess.AccelerationStructureBuildInputRead;
 
         if (Resource.IsDisposed || Resource.Device.IsDisposed)
             throw new ObjectDisposedException(nameof(Resource));
