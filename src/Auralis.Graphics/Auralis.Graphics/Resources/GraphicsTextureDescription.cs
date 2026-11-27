@@ -112,8 +112,9 @@ public enum GraphicsTextureViewType
 }
 
 /// <summary>
-/// Subresource and format selection for a texture view. Unknown format inherits the texture format.
-/// Reinterpretation requires MutableFormat; exact compatibility is device-reported through GraphicsFormatCapabilities.
+/// Subresource, format, and aspect selection for a texture view. Unknown format inherits the texture format.
+/// None aspects selects every aspect exposed by the effective view format. Reinterpretation requires MutableFormat;
+/// exact compatibility is device-reported through GraphicsFormatCapabilities.
 /// </summary>
 public readonly record struct GraphicsTextureViewDescription(
     GraphicsFormat Format,

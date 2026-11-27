@@ -151,6 +151,45 @@ public sealed class GraphicsAspectAndMultiviewTests
             formats);
     }
 
+    [Fact]
+    public void MutableFormatViewCreationDoesNotRequireEveryParentUsageOnViewFormat()
+    {
+        GraphicsFormatCapabilities[] formats =
+        [
+            new(GraphicsFormat.RGBA8UNorm,
+                GraphicsFormatSupport.Sampled | GraphicsFormatSupport.ColorAttachment,
+                GraphicsSampleCountFlags.One,
+                new[] { GraphicsFormat.RGBA8UNormSrgb }),
+            new(GraphicsFormat.RGBA8UNormSrgb,
+                GraphicsFormatSupport.Sampled,
+                GraphicsSampleCountFlags.One)
+        ];
+        var capabilities = new GraphicsDeviceCapabilities(
+            new GraphicsFeatureSet(GraphicsFeature.None),
+            GraphicsQueueCapabilities.Graphics,
+            default,
+            formats);
+        _ = new GraphicsDeviceFactoryTests.TestDevice(
+            GraphicsBackend.Vulkan, GraphicsFeature.None, GraphicsQueueCapabilities.Graphics, capabilities);
+        GraphicsTextureDescription texture = new(
+            GraphicsTextureDimension.Texture2D,
+            GraphicsFormat.RGBA8UNorm,
+            64, 64, 1, 1, 1, 1,
+            GraphicsTextureUsage.Sampled | GraphicsTextureUsage.ColorAttachment,
+            GraphicsResourceCreationOptions.MutableFormat);
+        GraphicsTextureViewDescription view = new(
+            GraphicsFormat.RGBA8UNormSrgb,
+            GraphicsTextureViewType.Texture2D,
+            0, 1, 0, 1);
+
+        capabilities.ValidateTextureViewDescription(texture, view);
+        capabilities.ValidateTextureViewUsage(texture, view, GraphicsTextureUsage.Sampled);
+        Assert.Throws<GraphicsException>(() =>
+            capabilities.ValidateTextureViewUsage(texture, view, GraphicsTextureUsage.ColorAttachment));
+        Assert.Throws<GraphicsException>(() =>
+            capabilities.ValidateTextureViewUsage(texture, view, GraphicsTextureUsage.Storage));
+    }
+
     private static GraphicsRenderPipelineDescription CreatePipeline(
         IGraphicsDevice device, GraphicsFormat[] colors, GraphicsFormat depth,
         GraphicsDepthStencilState depthStencil) =>

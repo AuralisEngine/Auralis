@@ -173,7 +173,7 @@ public sealed class GraphicsRenderingDescription
         }
 
         GraphicsTextureDescription texture = view.Texture.Description;
-        view.Device.Capabilities.ValidateTextureViewDescription(texture, view.Description);
+        view.Device.Capabilities.ValidateTextureViewUsage(texture, view.Description, requiredUsage);
         if (view.Description.MipLevelCount != 1)
             throw new ArgumentException("Rendering attachment views must select exactly one mip level.");
         if ((texture.Usage & requiredUsage) != requiredUsage)

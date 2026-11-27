@@ -272,6 +272,11 @@ public sealed class GraphicsDeviceCapabilities
     /// Validates a texture view against its parent texture, mutable-format compatibility rules,
     /// device limits, and the capabilities reported for the effective view format.
     /// </summary>
+    /// <summary>
+    /// Validates whether a view can be created for the resource: subresource/aspect rules,
+    /// mutable-format compatibility, effective-format availability, and sample-count compatibility.
+    /// It deliberately does not require the view format to support every usage of its parent resource.
+    /// </summary>
     public void ValidateTextureViewDescription(
         in GraphicsTextureDescription texture,
         in GraphicsTextureViewDescription view)
@@ -285,14 +290,49 @@ public sealed class GraphicsDeviceCapabilities
             throw new GraphicsException($"The device does not report {viewFormat} as a compatible view format for {texture.Format}.");
         if (!TryGetFormatCapabilities(viewFormat, out GraphicsFormatCapabilities format))
             throw new GraphicsException($"The device did not report support information for texture-view format {viewFormat}.");
-
-        GraphicsFormatSupport required = GetRequiredFormatSupport(texture.Usage);
-        if (required != GraphicsFormatSupport.None && !format.Supports(required))
-            throw new GraphicsException(
-                $"Texture-view format {viewFormat} does not support the parent texture usages: {required}.");
         if (!format.SupportsSampleCount(texture.SampleCount))
             throw new GraphicsException(
                 $"Texture-view format {viewFormat} does not support {texture.SampleCount} sample(s).");
+    }
+
+    /// <summary>
+    /// Validates that an already compatible view can be used for a particular operation. The requested usage
+    /// must be present on the parent resource, supported by the view format, and compatible with the selected aspects.
+    /// </summary>
+    public void ValidateTextureViewUsage(
+        in GraphicsTextureDescription texture,
+        in GraphicsTextureViewDescription view,
+        GraphicsTextureUsage requiredUsage)
+    {
+        ValidateTextureViewDescription(texture, view);
+        const GraphicsTextureUsage allUsage =
+            GraphicsTextureUsage.Sampled | GraphicsTextureUsage.Storage |
+            GraphicsTextureUsage.ColorAttachment | GraphicsTextureUsage.DepthStencilAttachment |
+            GraphicsTextureUsage.CopySource | GraphicsTextureUsage.CopyDestination |
+            GraphicsTextureUsage.Present | GraphicsTextureUsage.ShadingRateAttachment;
+        if (requiredUsage == GraphicsTextureUsage.None || (requiredUsage & ~allUsage) != 0)
+            throw new ArgumentOutOfRangeException(nameof(requiredUsage));
+        if ((texture.Usage & requiredUsage) != requiredUsage)
+            throw new GraphicsException($"The parent texture does not declare required usage {requiredUsage}.");
+
+        GraphicsFormat viewFormat = view.Format == GraphicsFormat.Unknown ? texture.Format : view.Format;
+        if (!TryGetFormatCapabilities(viewFormat, out GraphicsFormatCapabilities format))
+            throw new GraphicsException($"The device did not report support information for texture-view format {viewFormat}.");
+
+        GraphicsFormatSupport requiredSupport = GetRequiredFormatSupport(requiredUsage);
+        if (requiredSupport != GraphicsFormatSupport.None && !format.Supports(requiredSupport))
+            throw new GraphicsException(
+                $"Texture-view format {viewFormat} does not support the requested operation usage: {requiredUsage}.");
+
+        GraphicsTextureAspect selectedAspects = view.GetEffectiveAspects(texture);
+        if ((requiredUsage & GraphicsTextureUsage.ColorAttachment) != 0 &&
+            selectedAspects != GraphicsTextureAspect.Color)
+            throw new GraphicsException("Color-attachment views must expose only the color aspect.");
+        if ((requiredUsage & GraphicsTextureUsage.DepthStencilAttachment) != 0 &&
+            (selectedAspects == GraphicsTextureAspect.None ||
+             (selectedAspects & GraphicsTextureAspect.Color) != 0 ||
+             (selectedAspects & (GraphicsTextureAspect.Depth | GraphicsTextureAspect.Stencil)) == 0))
+            throw new GraphicsException("Depth/stencil attachment views must expose depth and/or stencil aspects.");
     }
 
     /// <summary>Validates vertex input counts and every attribute format against this device's limits.</summary>
