@@ -551,7 +551,7 @@ public sealed class GraphicsReviewRegressionTests
             new GraphicsBufferDescription(256, GraphicsBufferUsage.AccelerationStructureBuildInput));
         var description = CreateBlasDescription(vertexBuffer, 3);
         var accelerationStructure = new TestAccelerationStructure(device, description);
-        var scratch = new TestBuffer(device, new GraphicsBufferDescription(128, GraphicsBufferUsage.Storage));
+        var scratch = new TestBuffer(device, new GraphicsBufferDescription(128, GraphicsBufferUsage.Storage | GraphicsBufferUsage.AccelerationStructureScratch));
         var sizes = new GraphicsAccelerationStructureSizes(1024, 256, 128, 256, 256);
 
         GraphicsRayTracingCommandValidation.ValidateBuild(
@@ -599,7 +599,7 @@ public sealed class GraphicsReviewRegressionTests
         var source = new TestAccelerationStructure(device, CreateBlasDescription(vertices, 3));
         var destinationWithPrimitiveCountChange = new TestAccelerationStructure(device, CreateBlasDescription(vertices, 6));
         var destinationWithGeometryCountChange = new TestAccelerationStructure(device, CreateBlasDescription(vertices, 3, secondVertexCount: 6));
-        var scratch = new TestBuffer(device, new GraphicsBufferDescription(512, GraphicsBufferUsage.Storage));
+        var scratch = new TestBuffer(device, new GraphicsBufferDescription(512, GraphicsBufferUsage.Storage | GraphicsBufferUsage.AccelerationStructureScratch));
         var sizes = new GraphicsAccelerationStructureSizes(1024, 256, 128, 256, 256);
 
         Assert.Throws<ArgumentException>(() => GraphicsRayTracingCommandValidation.ValidateBuild(
