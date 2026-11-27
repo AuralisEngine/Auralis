@@ -179,7 +179,7 @@ public sealed class GraphicsAsSynchronizationAndAddressTests
         Assert.Equal(0x10040UL, region.DeviceAddress);
     }
 
-    private static TestDevice CreateDevice()
+    private static GraphicsDeviceFactoryTests.TestDevice CreateDevice()
     {
         var capabilities = new GraphicsDeviceCapabilities(
             new GraphicsFeatureSet(GraphicsFeature.RayTracing),
@@ -191,14 +191,14 @@ public sealed class GraphicsAsSynchronizationAndAddressTests
                     GraphicsFormatSupport.AccelerationStructureVertex,
                     GraphicsSampleCountFlags.One)
             ]);
-        return new TestDevice(
+        return new GraphicsDeviceFactoryTests.TestDevice(
             GraphicsBackend.Vulkan,
             GraphicsFeature.RayTracing,
             GraphicsQueueCapabilities.Graphics | GraphicsQueueCapabilities.Compute,
             capabilities);
     }
 
-    private static TestAccelerationStructure CreateBlas(TestDevice device, TestBuffer vertexBuffer)
+    private static TestAccelerationStructure CreateBlas(GraphicsDeviceFactoryTests.TestDevice device, TestBuffer vertexBuffer)
     {
         var geometry = new GraphicsAccelerationStructureGeometry(
             GraphicsAccelerationStructureGeometryType.Triangles,
