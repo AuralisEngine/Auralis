@@ -9,6 +9,21 @@ namespace Auralis.Graphics.Tests;
 public sealed class AdvancedGraphicsTests
 {
     [Fact]
+    public void TimestampPropertiesValidateCounterWidthBeforeComputingMasks()
+    {
+        GraphicsTimestampProperties valid = new(true, 1_000_000, 32);
+        Assert.Equal(0xFFFF_FFFFUL, valid.ValidMask);
+        Assert.Equal(32UL, valid.GetElapsedTicks(0xFFFF_FFF0, 0x10));
+
+        GraphicsTimestampProperties invalidWidth = new(true, 1_000_000, 65);
+        Assert.Throws<ArgumentException>(() => _ = invalidWidth.ValidMask);
+        Assert.Throws<ArgumentException>(() => invalidWidth.GetElapsedTicks(0, 1));
+
+        GraphicsTimestampProperties inconsistentUnsupported = new(false, 1_000_000, 0);
+        Assert.Throws<ArgumentException>(() => _ = inconsistentUnsupported.ValidMask);
+    }
+
+    [Fact]
     public void MemoryAllocationDescription_AcceptsPowerOfTwoAlignment()
     {
         var description = new GraphicsMemoryAllocationDescription(

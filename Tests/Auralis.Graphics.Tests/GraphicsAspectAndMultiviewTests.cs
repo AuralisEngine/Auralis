@@ -9,6 +9,13 @@ namespace Auralis.Graphics.Tests;
 
 public sealed class GraphicsAspectAndMultiviewTests
 {
+    [Fact]
+    public void FormatAspectClassificationRejectsUndefinedEnumValues()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            GraphicsFormatInfo.GetAspects((GraphicsFormat)int.MaxValue));
+    }
+
     [Theory]
     [InlineData(GraphicsFormat.D16UNorm, GraphicsTextureAspect.Depth)]
     [InlineData(GraphicsFormat.D32Float, GraphicsTextureAspect.Depth)]

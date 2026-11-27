@@ -34,6 +34,31 @@ public sealed class GraphicsReviewRegressionTests
     }
 
     [Fact]
+    public void ZeroVariableDescriptorCountRequiresVariableDescriptorCountSupport()
+    {
+        GraphicsDescriptorIndexingCapabilities invalid = new(
+            false, false, false, false, false, false, false, ZeroVariableDescriptorCount: true);
+        Assert.Throws<ArgumentException>(invalid.Validate);
+
+        GraphicsDeviceOptions options = new()
+        {
+            RequiredFeatures = GraphicsFeature.DescriptorIndexing,
+            RequiredDescriptorIndexing = invalid
+        };
+        Assert.Throws<ArgumentException>(options.Validate);
+
+        Assert.Throws<ArgumentException>(() => new GraphicsDeviceCapabilities(
+            new GraphicsFeatureSet(GraphicsFeature.DescriptorIndexing),
+            GraphicsQueueCapabilities.Graphics,
+            default,
+            ReadOnlySpan<GraphicsFormatCapabilities>.Empty,
+            invalid));
+
+        GraphicsDescriptorIndexingCapabilities valid = invalid with { VariableDescriptorCount = true };
+        valid.Validate();
+    }
+
+    [Fact]
     public void BarrierAccessCompatibilityValidatesResourceKindUsageAndStage()
     {
         var device = CreateDevice();
@@ -157,6 +182,37 @@ public sealed class GraphicsReviewRegressionTests
             GraphicsPipelineStage.ComputeShader,
             GraphicsResourceAccess.HostWrite,
             GraphicsResourceAccess.ShaderRead).Validate();
+    }
+
+    [Fact]
+    public void CubeTextureUsesIndependentCubeDimensionLimit()
+    {
+        GraphicsDeviceLimits limits = default(GraphicsDeviceLimits) with
+        {
+            MaxTextureDimension2D = 512,
+            MaxCubeTextureDimension = 1024,
+            MaxTextureArrayLayers = 6
+        };
+        GraphicsFormatCapabilities format = new(
+            GraphicsFormat.RGBA8UNorm,
+            GraphicsFormatSupport.Sampled,
+            GraphicsSampleCountFlags.One);
+        GraphicsDeviceCapabilities capabilities = CreateCapabilities(
+            GraphicsFeature.None, limits, format);
+        GraphicsTextureDescription cube = new(
+            GraphicsTextureDimension.Cube,
+            GraphicsFormat.RGBA8UNorm,
+            1024, 1024, 1, 11, 6, 1,
+            GraphicsTextureUsage.Sampled);
+
+        capabilities.ValidateTextureDescription(cube);
+
+        GraphicsDeviceCapabilities smallerCubeLimit = CreateCapabilities(
+            GraphicsFeature.None,
+            limits with { MaxCubeTextureDimension = 512 },
+            format);
+        Assert.Throws<GraphicsException>(() =>
+            smallerCubeLimit.ValidateTextureDescription(cube));
     }
 
     [Fact]
