@@ -25,7 +25,11 @@ public readonly record struct GraphicsDeviceLimits(
     uint MaxRayHitAttributeSizeInBytes = 0,
     ulong MinUniformBufferOffsetAlignment = 0,
     ulong MinStorageBufferOffsetAlignment = 0,
-    uint MaxMultiviewViewCount = 0)
+    uint MaxMultiviewViewCount = 0,
+    /// <summary>Maximum cube-map face dimension; zero means this limit is not reported.</summary>
+    uint MaxCubeTextureDimension = 0,
+    /// <summary>Maximum simultaneous color attachments; zero means this limit is not reported.</summary>
+    uint MaxColorAttachments = 0)
 {
     /// <summary>Validates optional alignment limits. Zero denotes an unreported limit.</summary>
     public void Validate()
@@ -146,6 +150,10 @@ public sealed class GraphicsDeviceCapabilities
         if (limits.MaxSamplerAnisotropy != 0 &&
             (!float.IsFinite(limits.MaxSamplerAnisotropy) || limits.MaxSamplerAnisotropy < 1))
             throw new ArgumentOutOfRangeException(nameof(limits));
+        if (features.Supports(GraphicsFeature.SamplerAnisotropy) && limits.MaxSamplerAnisotropy <= 1)
+            throw new ArgumentException(
+                "An enabled anisotropy feature must report a maximum anisotropy greater than one.",
+                nameof(limits));
         if (descriptorIndexing.HasAny && !features.Supports(GraphicsFeature.DescriptorIndexing))
             throw new ArgumentException(
                 "Fine-grained descriptor-indexing capabilities require GraphicsFeature.DescriptorIndexing to be enabled.",
@@ -231,6 +239,33 @@ public sealed class GraphicsDeviceCapabilities
     public bool SupportsSampleCount(GraphicsFormat format, uint sampleCount) =>
         TryGetFormatCapabilities(format, out GraphicsFormatCapabilities capabilities) &&
         capabilities.SupportsSampleCount(sampleCount);
+
+    /// <summary>
+    /// Validates a concrete pipeline layout against the reported binding-set count limit and verifies
+    /// that every contained binding layout is live and owned by the pipeline layout's device.
+    /// </summary>
+    public void ValidatePipelineLayout(IGraphicsPipelineLayout layout)
+    {
+        ArgumentNullException.ThrowIfNull(layout);
+        if (layout.IsDisposed || layout.Device.IsDisposed)
+            throw new ObjectDisposedException(nameof(layout));
+
+        ReadOnlySpan<IGraphicsBindingLayout> bindingLayouts = layout.BindingLayouts.Span;
+        if (Limits.MaxBoundDescriptorSets != 0 &&
+            (uint)bindingLayouts.Length > Limits.MaxBoundDescriptorSets)
+            throw new GraphicsException(
+                $"Pipeline layout contains {bindingLayouts.Length} binding sets; the device limit is {Limits.MaxBoundDescriptorSets}.");
+
+        for (int i = 0; i < bindingLayouts.Length; i++)
+        {
+            IGraphicsBindingLayout bindingLayout = bindingLayouts[i] ??
+                throw new ArgumentException("Pipeline layouts cannot contain null binding layouts.", nameof(layout));
+            if (bindingLayout.IsDisposed || bindingLayout.Device.IsDisposed)
+                throw new ObjectDisposedException(nameof(layout));
+            if (!ReferenceEquals(bindingLayout.Device, layout.Device))
+                throw new ArgumentException("All binding layouts in a pipeline layout must belong to its device.", nameof(layout));
+        }
+    }
 
     /// <summary>Validates a buffer descriptor against structural rules and the limits reported by this device.</summary>
     public void ValidateBufferDescription(in GraphicsBufferDescription description)
@@ -369,9 +404,13 @@ public sealed class GraphicsDeviceCapabilities
                 ValidateDimension(description.Width, Limits.MaxTextureDimension1D, "1D texture width");
                 break;
             case GraphicsTextureDimension.Texture2D:
-            case GraphicsTextureDimension.Cube:
                 ValidateDimension(description.Width, Limits.MaxTextureDimension2D, "2D texture width");
                 ValidateDimension(description.Height, Limits.MaxTextureDimension2D, "2D texture height");
+                break;
+            case GraphicsTextureDimension.Cube:
+                ValidateDimension(description.Width, Limits.MaxTextureDimension2D, "cube texture width");
+                ValidateDimension(description.Height, Limits.MaxTextureDimension2D, "cube texture height");
+                ValidateDimension(description.Width, Limits.MaxCubeTextureDimension, "cube texture dimension");
                 break;
             case GraphicsTextureDimension.Texture3D:
                 ValidateDimension(description.Width, Limits.MaxTextureDimension3D, "3D texture width");
@@ -413,7 +452,7 @@ public sealed class GraphicsDeviceCapabilities
         {
             if (!Features.Supports(GraphicsFeature.SamplerAnisotropy))
                 throw new GraphicsException("Sampler anisotropy is not supported by this device.");
-            if (Limits.MaxSamplerAnisotropy > 0 && description.MaxAnisotropy > Limits.MaxSamplerAnisotropy)
+            if (description.MaxAnisotropy > Limits.MaxSamplerAnisotropy)
                 throw new GraphicsException($"Requested anisotropy exceeds the device limit of {Limits.MaxSamplerAnisotropy}.");
         }
     }

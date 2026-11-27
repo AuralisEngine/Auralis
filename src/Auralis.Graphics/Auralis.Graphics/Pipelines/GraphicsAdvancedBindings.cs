@@ -3,7 +3,6 @@ using Auralis.Graphics.Resources;
 
 namespace Auralis.Graphics.Pipelines;
 
-/// <summary>Runtime descriptor count for a variable-count binding in a layout.</summary>
 /// <summary>
 /// Runtime descriptor count for a variable-count binding. Zero is structurally valid and represents
 /// an empty variable descriptor array; device support is checked against enabled descriptor-indexing capabilities.

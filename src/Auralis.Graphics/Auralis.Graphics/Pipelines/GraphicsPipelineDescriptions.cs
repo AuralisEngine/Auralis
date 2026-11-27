@@ -686,6 +686,7 @@ public sealed class GraphicsRenderPipelineDescription
     {
         if (Layout.IsDisposed || Layout.Device.IsDisposed)
             throw new ObjectDisposedException(nameof(Layout));
+        Layout.Device.Capabilities.ValidatePipelineLayout(Layout);
         if (_shaders.Length == 0)
             throw new ArgumentException("A render pipeline must contain at least one graphics shader.", nameof(Shaders));
         if (!Enum.IsDefined(Topology))
@@ -787,6 +788,10 @@ public sealed class GraphicsRenderPipelineDescription
 
         if (_colorFormats.Length == 0 && DepthStencilFormat == GraphicsFormat.Unknown)
             throw new ArgumentException("A render pipeline must declare at least one color or depth/stencil format.");
+        uint maximumColorAttachments = Layout.Device.Capabilities.Limits.MaxColorAttachments;
+        if (maximumColorAttachments != 0 && (uint)_colorFormats.Length > maximumColorAttachments)
+            throw new GraphicsException(
+                $"Pipeline declares {_colorFormats.Length} color attachments; the device limit is {maximumColorAttachments}.");
         for (int i = 0; i < _colorFormats.Length; i++)
         {
             GraphicsFormat format = _colorFormats[i];
@@ -896,6 +901,7 @@ public sealed class GraphicsComputePipelineDescription
             throw new ArgumentException("Pipeline layout and compute shader must belong to the same graphics device.");
         if (ComputeShader.IsDisposed || Layout.IsDisposed || Layout.Device.IsDisposed)
             throw new ObjectDisposedException(nameof(ComputeShader));
+        Layout.Device.Capabilities.ValidatePipelineLayout(Layout);
         ComputeShader.Description.Validate();
         if (ComputeShader.Description.Stage != GraphicsShaderStage.Compute)
             throw new ArgumentException("A compute pipeline requires a Compute-stage shader.", nameof(ComputeShader));

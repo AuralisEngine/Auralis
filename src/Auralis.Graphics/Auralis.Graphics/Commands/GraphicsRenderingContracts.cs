@@ -37,6 +37,7 @@ public sealed class GraphicsRenderingDescription
     public uint Width { get; }
     public uint Height { get; }
     public uint LayerCount { get; }
+    /// <summary>Bit mask of array views rendered. A nonzero value requires GraphicsFeature.Multiview and uses highestSetBit+1 view indices.</summary>
     public uint ViewMask { get; }
 
     public GraphicsRenderingDescription(
@@ -110,6 +111,12 @@ public sealed class GraphicsRenderingDescription
                     throw new ArgumentException("Resolve source and destination formats, extents and layer counts must match.", nameof(ColorAttachments));
             }
         }
+
+        if (device is not null &&
+            device.Capabilities.Limits.MaxColorAttachments != 0 &&
+            (uint)_colors.Length > device.Capabilities.Limits.MaxColorAttachments)
+            throw new GraphicsException(
+                $"Rendering declares {_colors.Length} color attachments; the device limit is {device.Capabilities.Limits.MaxColorAttachments}.");
 
         if (ViewMask != 0)
         {
