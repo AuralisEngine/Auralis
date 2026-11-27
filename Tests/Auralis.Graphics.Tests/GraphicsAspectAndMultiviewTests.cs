@@ -134,6 +134,59 @@ public sealed class GraphicsAspectAndMultiviewTests
     }
 
     [Fact]
+    public void DepthOnlyRenderingSupportsMultiviewAndValidatesCapabilities()
+    {
+        GraphicsDeviceFactoryTests.TestDevice multiviewDevice = CreateDevice(
+            GraphicsFeature.Multiview, maxMultiviewViews: 2);
+        GraphicsTextureDescription texture = CreateTexture(
+            GraphicsFormat.D16UNorm, GraphicsTextureUsage.DepthStencilAttachment, layers: 2);
+        var view = new TestTextureView(
+            multiviewDevice,
+            new TestTexture(multiviewDevice, texture),
+            new GraphicsTextureViewDescription(
+                GraphicsFormat.D16UNorm,
+                GraphicsTextureViewType.Texture2DArray,
+                0, 1, 0, 2,
+                GraphicsTextureAspect.Depth));
+
+        _ = new GraphicsRenderingDescription(
+            64, 64, [],
+            new GraphicsDepthStencilAttachment(
+                view,
+                GraphicsAttachmentLoadOperation.DontCare,
+                GraphicsAttachmentStoreOperation.DontCare,
+                GraphicsAttachmentLoadOperation.DontCare,
+                GraphicsAttachmentStoreOperation.DontCare,
+                default),
+            layerCount: 1,
+            viewMask: 0b0011);
+
+        GraphicsDeviceFactoryTests.TestDevice unsupportedDevice = CreateDevice(
+            GraphicsFeature.None, maxMultiviewViews: 2);
+        var unsupportedTexture = new TestTexture(unsupportedDevice, texture);
+        var unsupportedView = new TestTextureView(
+            unsupportedDevice, unsupportedTexture,
+            new GraphicsTextureViewDescription(
+                GraphicsFormat.D16UNorm,
+                GraphicsTextureViewType.Texture2DArray,
+                0, 1, 0, 2,
+                GraphicsTextureAspect.Depth));
+
+        Assert.Throws<GraphicsFeatureNotSupportedException>(() =>
+            new GraphicsRenderingDescription(
+                64, 64, [],
+                new GraphicsDepthStencilAttachment(
+                    unsupportedView,
+                    GraphicsAttachmentLoadOperation.DontCare,
+                    GraphicsAttachmentStoreOperation.DontCare,
+                    GraphicsAttachmentLoadOperation.DontCare,
+                    GraphicsAttachmentStoreOperation.DontCare,
+                    default),
+                layerCount: 1,
+                viewMask: 0b0011));
+    }
+
+    [Fact]
     public void EnablingMultiviewRequiresAReportedMeaningfulViewLimit()
     {
         var formats = new[] { new GraphicsFormatCapabilities(
@@ -239,7 +292,7 @@ public sealed class GraphicsAspectAndMultiviewTests
         var otherDevice = CreateDevice();
         Assert.Throws<ArgumentException>(() =>
             capabilities.ValidatePipelineLayout(new TestPipelineLayout(
-                device, [new TestBindingLayout(otherDevice)])));
+                device, new IGraphicsBindingLayout[] { new TestBindingLayout(otherDevice) })));
     }
 
     [Fact]

@@ -118,19 +118,6 @@ public sealed class GraphicsRenderingDescription
             throw new GraphicsException(
                 $"Rendering declares {_colors.Length} color attachments; the device limit is {device.Capabilities.Limits.MaxColorAttachments}.");
 
-        if (ViewMask != 0)
-        {
-            IGraphicsDevice renderingDevice = device ??
-                throw new ArgumentException("Multiview rendering requires at least one valid attachment.");
-            if (!renderingDevice.Capabilities.Features.Supports(GraphicsFeature.Multiview))
-                throw new GraphicsFeatureNotSupportedException(
-                    GraphicsFeature.Multiview, GraphicsFeature.Multiview);
-            uint maximumViewCount = renderingDevice.Capabilities.Limits.MaxMultiviewViewCount;
-            if (maximumViewCount == 0 || requiredLayers > maximumViewCount)
-                throw new GraphicsException(
-                    $"View mask requires {requiredLayers} view indices, but the device reports a maximum multiview view count of {maximumViewCount}.");
-        }
-
         if (DepthStencilAttachment is { } depth)
         {
             ValidateAttachmentView(depth.View, GraphicsTextureUsage.DepthStencilAttachment,
@@ -155,6 +142,20 @@ public sealed class GraphicsRenderingDescription
             if (depth.StencilLoadOperation == GraphicsAttachmentLoadOperation.Clear && depth.ClearValue.Stencil > byte.MaxValue)
                 throw new ArgumentOutOfRangeException(nameof(DepthStencilAttachment), "Stencil clear values are limited to eight bits.");
         }
+
+        if (ViewMask != 0)
+        {
+            IGraphicsDevice renderingDevice = device ??
+                throw new ArgumentException("Multiview rendering requires at least one valid attachment.");
+            if (!renderingDevice.Capabilities.Features.Supports(GraphicsFeature.Multiview))
+                throw new GraphicsFeatureNotSupportedException(
+                    GraphicsFeature.Multiview, GraphicsFeature.Multiview);
+            uint maximumViewCount = renderingDevice.Capabilities.Limits.MaxMultiviewViewCount;
+            if (maximumViewCount == 0 || requiredLayers > maximumViewCount)
+                throw new GraphicsException(
+                    $"View mask requires {requiredLayers} view indices, but the device reports a maximum multiview view count of {maximumViewCount}.");
+        }
+
     }
 
     private void ValidateAttachmentView(

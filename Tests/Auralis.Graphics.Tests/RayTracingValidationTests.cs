@@ -10,6 +10,138 @@ namespace Auralis.Graphics.Tests;
 public sealed class RayTracingValidationTests
 {
     [Fact]
+    public void RawShaderTableRegionsRejectFullGpuAddressRangeOverflow()
+    {
+        var region = new GraphicsShaderTableRegion(
+            ulong.MaxValue - 7, 16, 16);
+
+        Assert.Throws<ArgumentOutOfRangeException>(region.Validate);
+        var dispatch = new GraphicsRayDispatchDescription(
+            region, default, default, default, 1, 1, 1);
+        Assert.Throws<ArgumentOutOfRangeException>(dispatch.Validate);
+    }
+
+    [Fact]
+    public void RayTracingPipelineValidatesPipelineLayoutLimitsAndBindingOwnership()
+    {
+        GraphicsDeviceLimits limits = default(GraphicsDeviceLimits) with { MaxBoundDescriptorSets = 1 };
+        var device = CreateDevice(limits);
+        IGraphicsBindingLayout[] excessiveLayouts =
+        [
+            new TestBindingLayout(device),
+            new TestBindingLayout(device)
+        ];
+        GraphicsRayTracingPipelineDescription excessive = CreatePipeline(
+            device,
+            [new(new TestShader(device, GraphicsShaderStage.RayGeneration),
+                GraphicsRayTracingShaderStage.RayGeneration, "raygen")],
+            [GeneralRayGeneration()],
+            new TestPipelineLayout(device, excessiveLayouts));
+        Assert.Throws<GraphicsException>(excessive.Validate);
+
+        var foreignDevice = CreateDevice();
+        GraphicsRayTracingPipelineDescription foreign = CreatePipeline(
+            device,
+            [new(new TestShader(device, GraphicsShaderStage.RayGeneration),
+                GraphicsRayTracingShaderStage.RayGeneration, "raygen")],
+            [GeneralRayGeneration()],
+            new TestPipelineLayout(device,
+                new IGraphicsBindingLayout[] { new TestBindingLayout(foreignDevice) }));
+        Assert.Throws<ArgumentException>(foreign.Validate);
+    }
+
+    [Fact]
+    public void AccelerationStructureCopyAndCompactedSizeValidationCheckOwnershipAndSemantics()
+    {
+        var device = CreateDevice();
+        var input = new TestBuffer(device,
+            new GraphicsBufferDescription(36, GraphicsBufferUsage.AccelerationStructureBuildInput), 0x1000);
+        GraphicsAccelerationStructureDescription compactableDescription = new()
+        {
+            IsTopLevel = false,
+            Flags = GraphicsAccelerationStructureBuildFlags.AllowCompaction,
+            Geometries = new GraphicsAccelerationStructureGeometry[]
+            {
+                new(
+                    GraphicsAccelerationStructureGeometryType.Triangles,
+                    new GraphicsRayTracingTriangleGeometry(input, 0, 12, 3, GraphicsFormat.RGB32Float),
+                    default)
+            }
+        };
+        var source = new TestAccelerationStructure(device, compactableDescription);
+        var destination = new TestAccelerationStructure(device, compactableDescription);
+
+        GraphicsRayTracingCommandValidation.ValidateCopy(
+            source, destination, GraphicsAccelerationStructureCopyMode.Clone);
+        GraphicsRayTracingCommandValidation.ValidateCopy(
+            source, destination, GraphicsAccelerationStructureCopyMode.Compact);
+        Assert.Throws<ArgumentException>(() => GraphicsRayTracingCommandValidation.ValidateCopy(
+            source, source, GraphicsAccelerationStructureCopyMode.Clone));
+        Assert.Throws<ArgumentOutOfRangeException>(() => GraphicsRayTracingCommandValidation.ValidateCopy(
+            source, destination, (GraphicsAccelerationStructureCopyMode)99));
+
+        GraphicsAccelerationStructureDescription nonCompactableDescription = compactableDescription with
+        {
+            Flags = GraphicsAccelerationStructureBuildFlags.None
+        };
+        var nonCompactable = new TestAccelerationStructure(device, nonCompactableDescription);
+        Assert.Throws<ArgumentException>(() => GraphicsRayTracingCommandValidation.ValidateCopy(
+            nonCompactable, destination, GraphicsAccelerationStructureCopyMode.Compact));
+
+        var foreignDevice = CreateDevice();
+        var foreignDestination = new TestAccelerationStructure(foreignDevice, compactableDescription);
+        Assert.Throws<ArgumentException>(() => GraphicsRayTracingCommandValidation.ValidateCopy(
+            source, foreignDestination, GraphicsAccelerationStructureCopyMode.Clone));
+
+        var queryPool = new TestQueryPool(
+            device,
+            new GraphicsQueryPoolDescription(GraphicsQueryType.AccelerationStructureCompactedSize, 2));
+        GraphicsRayTracingCommandValidation.ValidateCompactedSizeWrite(source, queryPool, 1);
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            GraphicsRayTracingCommandValidation.ValidateCompactedSizeWrite(source, queryPool, 2));
+        var wrongTypePool = new TestQueryPool(
+            device,
+            new GraphicsQueryPoolDescription(GraphicsQueryType.Timestamp, 2));
+        Assert.Throws<ArgumentException>(() =>
+            GraphicsRayTracingCommandValidation.ValidateCompactedSizeWrite(source, wrongTypePool, 0));
+        Assert.Throws<ArgumentException>(() =>
+            GraphicsRayTracingCommandValidation.ValidateCompactedSizeWrite(
+                nonCompactable, queryPool, 0));
+    }
+
+    [Fact]
+    public void BuildValidationChecksAccelerationStructureStorageAddressAlignmentAndRange()
+    {
+        var device = CreateDevice();
+        var input = new TestBuffer(device,
+            new GraphicsBufferDescription(36, GraphicsBufferUsage.AccelerationStructureBuildInput), 0x1000);
+        GraphicsAccelerationStructureDescription description = new()
+        {
+            IsTopLevel = false,
+            Flags = GraphicsAccelerationStructureBuildFlags.None,
+            Geometries = new GraphicsAccelerationStructureGeometry[]
+            {
+                new(
+                    GraphicsAccelerationStructureGeometryType.Triangles,
+                    new GraphicsRayTracingTriangleGeometry(input, 0, 12, 3, GraphicsFormat.RGB32Float),
+                    default)
+            }
+        };
+        var misaligned = new TestAccelerationStructure(device, description, 0x8001);
+        var overflowing = new TestAccelerationStructure(device, description, ulong.MaxValue - 15);
+        var scratch = new TestBuffer(device,
+            new GraphicsBufferDescription(512, GraphicsBufferUsage.AccelerationStructureScratch), 0x10000);
+        var sizes = new GraphicsAccelerationStructureSizes(1024, 256, 128, 256, 256);
+
+        Assert.Throws<ArgumentException>(() => GraphicsRayTracingCommandValidation.ValidateBuild(
+            misaligned, null, scratch, 0, sizes, GraphicsAccelerationStructureBuildFlags.None,
+            ReadOnlySpan<GraphicsRayTracingInstance>.Empty));
+        Assert.Throws<ArgumentOutOfRangeException>(() => GraphicsRayTracingCommandValidation.ValidateBuild(
+            overflowing, null, scratch, 0, sizes, GraphicsAccelerationStructureBuildFlags.None,
+            ReadOnlySpan<GraphicsRayTracingInstance>.Empty));
+    }
+
+    [Fact]
     public void TriangleHitGroupsAllowEveryClosestAnyHitCombination()
     {
         var device = CreateDevice();
@@ -403,10 +535,38 @@ public sealed class RayTracingValidationTests
             capabilities);
     }
 
-    private sealed class TestPipelineLayout(IGraphicsDevice device)
+    private sealed class TestPipelineLayout(
+        IGraphicsDevice device,
+        ReadOnlyMemory<IGraphicsBindingLayout> bindingLayouts = default)
         : GraphicsDeviceObject(device), IGraphicsPipelineLayout
     {
-        public ReadOnlyMemory<IGraphicsBindingLayout> BindingLayouts => ReadOnlyMemory<IGraphicsBindingLayout>.Empty;
+        public ReadOnlyMemory<IGraphicsBindingLayout> BindingLayouts { get; } = bindingLayouts;
+        protected override void DisposeCore() { }
+    }
+
+    private sealed class TestBindingLayout(IGraphicsDevice device)
+        : GraphicsDeviceObject(device), IGraphicsBindingLayout
+    {
+        public GraphicsBindingLayoutDescription Description { get; } = new([]);
+        protected override void DisposeCore() { }
+    }
+
+    private sealed class TestQueryPool(
+        IGraphicsDevice device,
+        GraphicsQueryPoolDescription description)
+        : GraphicsDeviceObject(device), IGraphicsQueryPool
+    {
+        public GraphicsQueryPoolDescription Description { get; } = description;
+
+        public void Reset(uint firstQuery, uint queryCount) =>
+            throw new NotSupportedException();
+
+        public bool TryGetResult(uint queryIndex, out GraphicsQueryResult result)
+        {
+            result = default;
+            throw new NotSupportedException();
+        }
+
         protected override void DisposeCore() { }
     }
 
@@ -439,13 +599,14 @@ public sealed class RayTracingValidationTests
 
     private sealed class TestAccelerationStructure(
         IGraphicsDevice device,
-        GraphicsAccelerationStructureDescription description) : GraphicsDeviceObject(device), IGraphicsAccelerationStructure
+        GraphicsAccelerationStructureDescription description,
+        ulong deviceAddress = 0x8000) : GraphicsDeviceObject(device), IGraphicsAccelerationStructure
     {
         public string? DebugName => null;
         public GraphicsAccelerationStructureDescription Description { get; } = description;
         public bool IsTopLevel => Description.IsTopLevel;
         public uint InstanceCount => 0;
-        public ulong DeviceAddress => 0x8000;
+        public ulong DeviceAddress { get; } = deviceAddress;
         protected override void DisposeCore() { }
     }
 }

@@ -22,6 +22,8 @@ internal static class GraphicsBufferAddressRangeValidation
         ArgumentNullException.ThrowIfNull(buffer);
         if (buffer.IsDisposed || buffer.Device.IsDisposed)
             throw new ObjectDisposedException(parameterName);
+        if (expectedDevice?.IsDisposed == true)
+            throw new ObjectDisposedException(nameof(expectedDevice));
         if (expectedDevice is not null && !ReferenceEquals(buffer.Device, expectedDevice))
             throw new ArgumentException("The buffer and consuming GPU object must belong to the same device.", parameterName);
 

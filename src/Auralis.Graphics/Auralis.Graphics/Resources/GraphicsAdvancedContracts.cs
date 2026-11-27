@@ -680,6 +680,9 @@ public readonly record struct GraphicsShaderTableRegion(ulong DeviceAddress, ulo
         }
         if (DeviceAddress == 0 || StrideInBytes == 0 || SizeInBytes % StrideInBytes != 0)
             throw new ArgumentException("A non-empty shader table region requires a non-zero address and stride, and an integral record count.");
+        if (SizeInBytes - 1 > ulong.MaxValue - DeviceAddress)
+            throw new ArgumentOutOfRangeException(nameof(SizeInBytes),
+                "The complete shader table GPU-address range overflows the address space.");
     }
 
     public void Validate(in GraphicsShaderBindingTableProperties properties)
@@ -767,6 +770,82 @@ public enum GraphicsAccelerationStructureCopyMode
 /// </summary>
 public static class GraphicsRayTracingCommandValidation
 {
+    /// <summary>
+    /// Validates a compacted-size query write against the acceleration structure and query pool.
+    /// The query pool must be a live, same-device acceleration-structure compacted-size pool.
+    /// </summary>
+    public static void ValidateCompactedSizeWrite(
+        IGraphicsAccelerationStructure accelerationStructure,
+        IGraphicsQueryPool queryPool,
+        uint queryIndex)
+    {
+        ArgumentNullException.ThrowIfNull(accelerationStructure);
+        ArgumentNullException.ThrowIfNull(queryPool);
+        if (accelerationStructure.IsDisposed || accelerationStructure.Device.IsDisposed)
+            throw new ObjectDisposedException(nameof(accelerationStructure));
+        if (queryPool.IsDisposed || queryPool.Device.IsDisposed)
+            throw new ObjectDisposedException(nameof(queryPool));
+        if (!ReferenceEquals(accelerationStructure.Device, queryPool.Device))
+            throw new ArgumentException(
+                "The acceleration structure and compacted-size query pool must belong to the same device.",
+                nameof(queryPool));
+        ArgumentNullException.ThrowIfNull(accelerationStructure.Description);
+        if (accelerationStructure.IsTopLevel != accelerationStructure.Description.IsTopLevel)
+            throw new ArgumentException("The acceleration-structure kind does not match its description.", nameof(accelerationStructure));
+        if (accelerationStructure.DeviceAddress == 0)
+            throw new ArgumentException("The acceleration structure must expose a non-zero GPU device address.", nameof(accelerationStructure));
+        if ((accelerationStructure.Description.Flags & GraphicsAccelerationStructureBuildFlags.AllowCompaction) == 0)
+            throw new ArgumentException(
+                "The acceleration structure must be created with AllowCompaction before its compacted size can be queried.",
+                nameof(accelerationStructure));
+
+        queryPool.Description.Validate();
+        if (queryPool.Description.Type != GraphicsQueryType.AccelerationStructureCompactedSize)
+            throw new ArgumentException(
+                "The query pool must use the AccelerationStructureCompactedSize query type.",
+                nameof(queryPool));
+        if (queryIndex >= queryPool.Description.QueryCount)
+            throw new ArgumentOutOfRangeException(nameof(queryIndex));
+    }
+
+    /// <summary>
+    /// Validates a clone or compaction copy between distinct live acceleration structures on one device.
+    /// The backend must additionally verify that the source has been built and that the destination
+    /// backing storage is large enough for the native copy operation.
+    /// </summary>
+    public static void ValidateCopy(
+        IGraphicsAccelerationStructure source,
+        IGraphicsAccelerationStructure destination,
+        GraphicsAccelerationStructureCopyMode mode)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        ArgumentNullException.ThrowIfNull(destination);
+        if (source.IsDisposed || source.Device.IsDisposed)
+            throw new ObjectDisposedException(nameof(source));
+        if (destination.IsDisposed || destination.Device.IsDisposed)
+            throw new ObjectDisposedException(nameof(destination));
+        if (!Enum.IsDefined(mode))
+            throw new ArgumentOutOfRangeException(nameof(mode));
+        if (!ReferenceEquals(source.Device, destination.Device))
+            throw new ArgumentException("Source and destination acceleration structures must belong to the same device.");
+        if (ReferenceEquals(source, destination))
+            throw new ArgumentException("Acceleration-structure copy requires distinct source and destination resources.", nameof(destination));
+        ArgumentNullException.ThrowIfNull(source.Description);
+        ArgumentNullException.ThrowIfNull(destination.Description);
+        if (source.IsTopLevel != source.Description.IsTopLevel ||
+            destination.IsTopLevel != destination.Description.IsTopLevel ||
+            source.IsTopLevel != destination.IsTopLevel)
+            throw new ArgumentException(
+                "Source and destination acceleration structures must have matching, description-consistent kinds.");
+        if (source.DeviceAddress == 0 || destination.DeviceAddress == 0)
+            throw new ArgumentException("Source and destination acceleration structures must expose non-zero GPU device addresses.");
+        if (mode == GraphicsAccelerationStructureCopyMode.Compact &&
+            (source.Description.Flags & GraphicsAccelerationStructureBuildFlags.AllowCompaction) == 0)
+            throw new ArgumentException(
+                "Compaction requires a source acceleration structure created with AllowCompaction.",
+                nameof(source));
+    }
+
     public static void ValidateBuild(
         IGraphicsAccelerationStructure destination,
         IGraphicsAccelerationStructure? source,
@@ -787,6 +866,7 @@ public static class GraphicsRayTracingCommandValidation
         if (!ReferenceEquals(destination.Device, scratchBuffer.Device))
             throw new ArgumentException("The destination structure and scratch buffer must belong to the same device.", nameof(scratchBuffer));
         ValidateScratchBuffer(destination.Device, scratchBuffer, scratchOffset, sizes, source is not null);
+        ValidateAccelerationStructureAddress(destination, sizes, nameof(destination));
 
         const GraphicsAccelerationStructureBuildFlags allFlags =
             GraphicsAccelerationStructureBuildFlags.AllowUpdate |
@@ -806,7 +886,7 @@ public static class GraphicsRayTracingCommandValidation
         else if (!instances.IsEmpty)
             throw new ArgumentException("BLAS builds must not provide TLAS instance data.", nameof(instances));
 
-        ValidateUpdateSource(destination, source, (uint)instances.Length);
+        ValidateUpdateSource(destination, source, (uint)instances.Length, sizes);
     }
 
     public static void ValidateBuild(
@@ -829,6 +909,7 @@ public static class GraphicsRayTracingCommandValidation
         if (!ReferenceEquals(destination.Device, scratchBuffer.Device))
             throw new ArgumentException("The destination structure and scratch buffer must belong to the same device.", nameof(scratchBuffer));
         ValidateScratchBuffer(destination.Device, scratchBuffer, scratchOffset, sizes, source is not null);
+        ValidateAccelerationStructureAddress(destination, sizes, nameof(destination));
         const GraphicsAccelerationStructureBuildFlags allFlags =
             GraphicsAccelerationStructureBuildFlags.AllowUpdate |
             GraphicsAccelerationStructureBuildFlags.AllowCompaction |
@@ -842,13 +923,14 @@ public static class GraphicsRayTracingCommandValidation
         if (!destination.IsTopLevel || !destination.Description.IsTopLevel)
             throw new ArgumentException("GPU instance buffers can only be used to build a top-level acceleration structure.", nameof(destination));
         instances.Validate(destination.Device, destination.Description);
-        ValidateUpdateSource(destination, source, instances.InstanceCount);
+        ValidateUpdateSource(destination, source, instances.InstanceCount, sizes);
     }
 
     private static void ValidateUpdateSource(
         IGraphicsAccelerationStructure destination,
         IGraphicsAccelerationStructure? source,
-        uint instanceCount)
+        uint instanceCount,
+        in GraphicsAccelerationStructureSizes sizes)
     {
         if (source is null)
             return;
@@ -860,6 +942,7 @@ public static class GraphicsRayTracingCommandValidation
             source.IsTopLevel != source.Description.IsTopLevel)
             throw new ArgumentException("Source and destination acceleration structures must have matching kinds and valid descriptions.", nameof(source));
         source.Description.Validate(source.Device);
+        ValidateAccelerationStructureAddress(source, sizes, nameof(source));
         if ((source.Description.Flags & GraphicsAccelerationStructureBuildFlags.AllowUpdate) == 0)
             throw new ArgumentException("The source acceleration structure was not created with AllowUpdate.", nameof(source));
         if (source.Description.Flags != destination.Description.Flags)
@@ -913,6 +996,24 @@ public static class GraphicsRayTracingCommandValidation
                 ? geometry.Triangles.VertexCount
                 : geometry.Triangles.IndexCount) / 3
             : geometry.Aabbs.Count;
+
+    private static void ValidateAccelerationStructureAddress(
+        IGraphicsAccelerationStructure accelerationStructure,
+        in GraphicsAccelerationStructureSizes sizes,
+        string parameterName)
+    {
+        ulong address = accelerationStructure.DeviceAddress;
+        if (address == 0)
+            throw new ArgumentException("The acceleration structure must expose a non-zero GPU device address.", parameterName);
+        if (address % sizes.Alignment != 0)
+            throw new ArgumentException(
+                $"The acceleration-structure address must be aligned to {sizes.Alignment} bytes.",
+                parameterName);
+        if (sizes.AccelerationStructureSize == 0 ||
+            sizes.AccelerationStructureSize - 1 > ulong.MaxValue - address)
+            throw new ArgumentOutOfRangeException(parameterName,
+                "The complete acceleration-structure GPU-address range overflows the address space.");
+    }
 
     private static void ValidateScratchBuffer(
         IGraphicsDevice expectedDevice,
@@ -1032,6 +1133,7 @@ public sealed record GraphicsRayTracingPipelineDescription
         if (Layout.IsDisposed || Layout.Device.IsDisposed)
             throw new ObjectDisposedException(nameof(Layout));
         GraphicsDeviceCapabilities capabilities = Layout.Device.Capabilities;
+        capabilities.ValidatePipelineLayout(Layout);
         if (!capabilities.Features.Supports(GraphicsFeature.RayTracing))
             throw new GraphicsFeatureNotSupportedException(GraphicsFeature.RayTracing, GraphicsFeature.RayTracing);
         if (Stages.IsEmpty || Groups.IsEmpty)
