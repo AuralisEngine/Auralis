@@ -37,6 +37,22 @@ public sealed class GraphicsFeatureNotSupportedException : GraphicsException
     }
 }
 
+/// <summary>Thrown when a device lacks one or more requested descriptor-indexing capabilities.</summary>
+public sealed class GraphicsDescriptorIndexingNotSupportedException : GraphicsException
+{
+    public GraphicsDescriptorIndexingCapabilities Requested { get; }
+    public GraphicsDescriptorIndexingCapabilities Missing { get; }
+
+    public GraphicsDescriptorIndexingNotSupportedException(
+        GraphicsDescriptorIndexingCapabilities requested,
+        GraphicsDescriptorIndexingCapabilities missing)
+        : base("The graphics device does not enable every required descriptor-indexing capability.")
+    {
+        Requested = requested;
+        Missing = missing;
+    }
+}
+
 /// <summary>Thrown when a device lacks one or more requested logical queue capabilities.</summary>
 public sealed class GraphicsQueueCapabilitiesNotSupportedException : GraphicsException
 {

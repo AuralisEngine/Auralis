@@ -10,7 +10,13 @@ public enum GraphicsShaderStage
     TessellationControl,
     TessellationEvaluation,
     Task,
-    Mesh
+    Mesh,
+    RayGeneration,
+    Miss,
+    ClosestHit,
+    AnyHit,
+    Intersection,
+    Callable
 }
 
 /// <summary>

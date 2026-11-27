@@ -24,6 +24,12 @@ public sealed record GraphicsDeviceOptions
     /// <summary>Optional features that the resulting device must support.</summary>
     public GraphicsFeature RequiredFeatures { get; init; }
 
+    /// <summary>
+    /// Fine-grained descriptor-indexing features that the resulting logical device must enable.
+    /// RequiredFeatures must also include GraphicsFeature.DescriptorIndexing when any are requested.
+    /// </summary>
+    public GraphicsDescriptorIndexingCapabilities RequiredDescriptorIndexing { get; init; }
+
     /// <summary>Queue types that the resulting device must expose.</summary>
     public GraphicsQueueCapabilities RequiredQueues { get; init; } = GraphicsQueueCapabilities.Graphics;
 
@@ -39,12 +45,13 @@ public sealed record GraphicsDeviceOptions
             GraphicsFeature.SeparateComputeQueue | GraphicsFeature.SeparateTransferQueue |
             GraphicsFeature.TimestampQueries | GraphicsFeature.SamplerAnisotropy |
             GraphicsFeature.TessellationShaders | GraphicsFeature.GeometryShaders |
-            GraphicsFeature.MeshShaders | GraphicsFeature.RayTracing |
+            GraphicsFeature.MeshShaders | GraphicsFeature.TaskShaders | GraphicsFeature.RayTracing |
             GraphicsFeature.VariableRateShading | GraphicsFeature.ConservativeRasterization |
             GraphicsFeature.TimelineSynchronization | GraphicsFeature.SparseResources |
             GraphicsFeature.MultiViewport | GraphicsFeature.DepthBoundsTest |
             GraphicsFeature.LogicOperations | GraphicsFeature.WideLines |
-            GraphicsFeature.DepthClamp | GraphicsFeature.FillModeNonSolid;
+            GraphicsFeature.DepthClamp | GraphicsFeature.FillModeNonSolid |
+            GraphicsFeature.DeviceGroups | GraphicsFeature.Multiview;
 
         const GraphicsQueueCapabilities allQueues =
             GraphicsQueueCapabilities.Graphics | GraphicsQueueCapabilities.Compute |
@@ -62,6 +69,11 @@ public sealed record GraphicsDeviceOptions
 
         if ((RequiredFeatures & ~allFeatures) != 0)
             throw new ArgumentOutOfRangeException(nameof(RequiredFeatures));
+        RequiredDescriptorIndexing.Validate();
+        if (RequiredDescriptorIndexing.HasAny && (RequiredFeatures & GraphicsFeature.DescriptorIndexing) == 0)
+            throw new ArgumentException(
+                "Fine-grained descriptor-indexing requirements also require GraphicsFeature.DescriptorIndexing.",
+                nameof(RequiredDescriptorIndexing));
 
         if ((RequiredQueues & ~allQueues) != 0)
             throw new ArgumentOutOfRangeException(nameof(RequiredQueues));

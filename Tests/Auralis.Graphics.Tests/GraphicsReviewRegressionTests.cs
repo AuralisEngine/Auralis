@@ -34,6 +34,31 @@ public sealed class GraphicsReviewRegressionTests
     }
 
     [Fact]
+    public void ZeroVariableDescriptorCountRequiresVariableDescriptorCountSupport()
+    {
+        GraphicsDescriptorIndexingCapabilities invalid = new(
+            false, false, false, false, false, false, false, ZeroVariableDescriptorCount: true);
+        Assert.Throws<ArgumentException>(invalid.Validate);
+
+        GraphicsDeviceOptions options = new()
+        {
+            RequiredFeatures = GraphicsFeature.DescriptorIndexing,
+            RequiredDescriptorIndexing = invalid
+        };
+        Assert.Throws<ArgumentException>(options.Validate);
+
+        Assert.Throws<ArgumentException>(() => new GraphicsDeviceCapabilities(
+            new GraphicsFeatureSet(GraphicsFeature.DescriptorIndexing),
+            GraphicsQueueCapabilities.Graphics,
+            default,
+            ReadOnlySpan<GraphicsFormatCapabilities>.Empty,
+            invalid));
+
+        GraphicsDescriptorIndexingCapabilities valid = invalid with { VariableDescriptorCount = true };
+        valid.Validate();
+    }
+
+    [Fact]
     public void BarrierAccessCompatibilityValidatesResourceKindUsageAndStage()
     {
         var device = CreateDevice();
@@ -160,6 +185,113 @@ public sealed class GraphicsReviewRegressionTests
     }
 
     [Fact]
+    public void CubeTextureUsesIndependentCubeDimensionLimit()
+    {
+        GraphicsDeviceLimits limits = default(GraphicsDeviceLimits) with
+        {
+            MaxTextureDimension2D = 512,
+            MaxCubeTextureDimension = 1024,
+            MaxTextureArrayLayers = 6
+        };
+        GraphicsFormatCapabilities format = new(
+            GraphicsFormat.RGBA8UNorm,
+            GraphicsFormatSupport.Sampled,
+            GraphicsSampleCountFlags.One);
+        GraphicsDeviceCapabilities capabilities = CreateCapabilities(
+            GraphicsFeature.None, limits, format);
+        GraphicsTextureDescription cube = new(
+            GraphicsTextureDimension.Cube,
+            GraphicsFormat.RGBA8UNorm,
+            1024, 1024, 1, 11, 6, 1,
+            GraphicsTextureUsage.Sampled);
+
+        capabilities.ValidateTextureDescription(cube);
+
+        GraphicsDeviceCapabilities smallerCubeLimit = CreateCapabilities(
+            GraphicsFeature.None,
+            limits with { MaxCubeTextureDimension = 512 },
+            format);
+        Assert.Throws<GraphicsException>(() =>
+            smallerCubeLimit.ValidateTextureDescription(cube));
+    }
+
+    [Fact]
+    public void ComputePipelineValidatesThreadgroupDimensionsAndTotalInvocationCount()
+    {
+        GraphicsDeviceLimits limits = default(GraphicsDeviceLimits) with
+        {
+            MaxComputeWorkGroupInvocations = 64,
+            MaxComputeWorkGroupSizeX = 32,
+            MaxComputeWorkGroupSizeY = 16,
+            MaxComputeWorkGroupSizeZ = 8
+        };
+        GraphicsDeviceFactoryTests.TestDevice device = CreateDevice(
+            GraphicsFeature.ComputeShaders,
+            [],
+            limits);
+        var layout = new TestPipelineLayout(device);
+        var shader = new TestShader(device, GraphicsShaderStage.Compute);
+
+        _ = new GraphicsComputePipelineDescription(
+            layout, shader, new GraphicsComputeThreadGroupSize(8, 4, 2));
+
+        Assert.Throws<GraphicsException>(() => new GraphicsComputePipelineDescription(
+            layout, shader, new GraphicsComputeThreadGroupSize(33, 1, 1)));
+        Assert.Throws<GraphicsException>(() => new GraphicsComputePipelineDescription(
+            layout, shader, new GraphicsComputeThreadGroupSize(1, 17, 1)));
+        Assert.Throws<GraphicsException>(() => new GraphicsComputePipelineDescription(
+            layout, shader, new GraphicsComputeThreadGroupSize(1, 1, 9)));
+        Assert.Throws<GraphicsException>(() => new GraphicsComputePipelineDescription(
+            layout, shader, new GraphicsComputeThreadGroupSize(8, 8, 2)));
+        Assert.Throws<ArgumentOutOfRangeException>(() => new GraphicsComputePipelineDescription(
+            layout, shader, new GraphicsComputeThreadGroupSize(0, 1, 1)));
+
+        GraphicsDeviceFactoryTests.TestDevice unreported = CreateDevice(GraphicsFeature.ComputeShaders);
+        var unreportedDescription = new GraphicsComputePipelineDescription(
+            new TestPipelineLayout(unreported),
+            new TestShader(unreported, GraphicsShaderStage.Compute),
+            new GraphicsComputeThreadGroupSize(1, 1, 1));
+        unreportedDescription.Validate();
+    }
+
+    [Fact]
+    public void ComputeDispatchValidatesEachReportedDimensionIndependently()
+    {
+        GraphicsDeviceLimits limits = default(GraphicsDeviceLimits) with
+        {
+            MaxComputeWorkGroupCountX = 64,
+            MaxComputeWorkGroupCountY = 32,
+            MaxComputeWorkGroupCountZ = 8
+        };
+        GraphicsDeviceCapabilities capabilities = CreateCapabilities(
+            GraphicsFeature.ComputeShaders, limits);
+
+        capabilities.ValidateComputeDispatch(64, 32, 8);
+        capabilities.ValidateComputeDispatch(0, 0, 0);
+        Assert.Throws<GraphicsException>(() => capabilities.ValidateComputeDispatch(65, 1, 1));
+        Assert.Throws<GraphicsException>(() => capabilities.ValidateComputeDispatch(1, 33, 1));
+        Assert.Throws<GraphicsException>(() => capabilities.ValidateComputeDispatch(1, 1, 9));
+
+        GraphicsDeviceCapabilities unreported = CreateCapabilities(
+            GraphicsFeature.ComputeShaders, default);
+        unreported.ValidateComputeDispatch(uint.MaxValue, uint.MaxValue, uint.MaxValue);
+    }
+
+    [Fact]
+    public void DeviceLimitsRejectInvalidSamplerAnisotropyMetadata()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            (default(GraphicsDeviceLimits) with { MaxSamplerAnisotropy = float.NaN }).Validate());
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            (default(GraphicsDeviceLimits) with { MaxSamplerAnisotropy = float.PositiveInfinity }).Validate());
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            (default(GraphicsDeviceLimits) with { MaxSamplerAnisotropy = -1 }).Validate());
+
+        (default(GraphicsDeviceLimits) with { MaxSamplerAnisotropy = 0 }).Validate();
+        (default(GraphicsDeviceLimits) with { MaxSamplerAnisotropy = 16 }).Validate();
+    }
+
+    [Fact]
     public void DeviceCapabilitiesEnforceBufferAndTextureLimits()
     {
         GraphicsDeviceLimits limits = default(GraphicsDeviceLimits) with
@@ -235,7 +367,8 @@ public sealed class GraphicsReviewRegressionTests
             new GraphicsFormatCapabilities(
                 GraphicsFormat.RGBA8UNorm,
                 GraphicsFormatSupport.Sampled,
-                GraphicsSampleCountFlags.One),
+                GraphicsSampleCountFlags.One,
+                new[] { GraphicsFormat.RGBA8UNormSrgb }),
             new GraphicsFormatCapabilities(
                 GraphicsFormat.RGBA8UNormSrgb,
                 GraphicsFormatSupport.Sampled,
@@ -281,6 +414,21 @@ public sealed class GraphicsReviewRegressionTests
                 GraphicsSampleCountFlags.One));
         Assert.Throws<GraphicsException>(() =>
             missingViewFormat.ValidateTextureViewDescription(mutableTexture, srgbView));
+    }
+
+    [Fact]
+    public void DeviceCapabilitiesRejectInvalidMutableViewCompatibilityEntries()
+    {
+        GraphicsFormatCapabilities BaseFormat(ReadOnlyMemory<GraphicsFormat> compatible) =>
+            new(GraphicsFormat.RGBA8UNorm, GraphicsFormatSupport.Sampled,
+                GraphicsSampleCountFlags.One, compatible);
+
+        Assert.Throws<ArgumentException>(() => CreateCapabilities(
+            GraphicsFeature.None, default, BaseFormat(new[] { GraphicsFormat.Unknown })));
+        Assert.Throws<ArgumentException>(() => CreateCapabilities(
+            GraphicsFeature.None, default, BaseFormat(new[] { GraphicsFormat.RGBA8UNormSrgb, GraphicsFormat.RGBA8UNormSrgb })));
+        Assert.Throws<ArgumentException>(() => CreateCapabilities(
+            GraphicsFeature.None, default, BaseFormat(new[] { GraphicsFormat.RGBA8UNorm })));
     }
 
     [Fact]
@@ -381,7 +529,8 @@ public sealed class GraphicsReviewRegressionTests
         Assert.Throws<GraphicsFeatureNotSupportedException>(() =>
             new GraphicsComputePipelineDescription(
                 layout,
-                new TestShader(noOptionalFeatures, GraphicsShaderStage.Compute)));
+                new TestShader(noOptionalFeatures, GraphicsShaderStage.Compute),
+                new GraphicsComputeThreadGroupSize(1, 1, 1)));
 
         // Mesh and task shaders are separate device features, even though task stages require a mesh stage.
         var meshOnlyDevice = CreateDevice(GraphicsFeature.MeshShaders, renderFormats);
@@ -507,7 +656,156 @@ public sealed class GraphicsReviewRegressionTests
         srgbView.Validate(mutable);
 
         var incompatibleView = srgbView with { Format = GraphicsFormat.BGRA8UNormSrgb };
-        Assert.Throws<ArgumentException>(() => incompatibleView.Validate(mutable));
+        var viewCapabilities = CreateCapabilities(
+            GraphicsFeature.None,
+            default,
+            new GraphicsFormatCapabilities(
+                GraphicsFormat.RGBA8UNorm,
+                GraphicsFormatSupport.Sampled,
+                GraphicsSampleCountFlags.One,
+                new[] { GraphicsFormat.RGBA8UNormSrgb }),
+            new GraphicsFormatCapabilities(
+                GraphicsFormat.RGBA8UNormSrgb,
+                GraphicsFormatSupport.Sampled,
+                GraphicsSampleCountFlags.One),
+            new GraphicsFormatCapabilities(
+                GraphicsFormat.BGRA8UNormSrgb,
+                GraphicsFormatSupport.Sampled,
+                GraphicsSampleCountFlags.One));
+        Assert.Throws<GraphicsException>(() =>
+            viewCapabilities.ValidateTextureViewDescription(mutable, incompatibleView));
+    }
+
+    [Fact]
+    public void RayTracingBuildValidationAllowsInPlaceUpdatesAndUsesUpdateScratchRequirements()
+    {
+        var device = CreateRayTracingDevice();
+        var vertexBuffer = new TestBuffer(device,
+            new GraphicsBufferDescription(256, GraphicsBufferUsage.AccelerationStructureBuildInput));
+        var description = CreateBlasDescription(vertexBuffer, 3);
+        var accelerationStructure = new TestAccelerationStructure(device, description);
+        var scratch = new TestBuffer(device, new GraphicsBufferDescription(128, GraphicsBufferUsage.AccelerationStructureScratch));
+        var sizes = new GraphicsAccelerationStructureSizes(1024, 256, 128, 256, 256);
+
+        GraphicsRayTracingCommandValidation.ValidateBuild(
+            accelerationStructure, accelerationStructure, scratch, 0, sizes,
+            GraphicsAccelerationStructureBuildFlags.AllowUpdate,
+            ReadOnlySpan<GraphicsRayTracingInstance>.Empty);
+    }
+
+    [Fact]
+    public void RayTracingBuildValidationRequiresAddressAlignedAndSufficientScratchStorage()
+    {
+        var device = CreateRayTracingDevice();
+        var vertexBuffer = new TestBuffer(device,
+            new GraphicsBufferDescription(256, GraphicsBufferUsage.AccelerationStructureBuildInput));
+        var destination = new TestAccelerationStructure(device, CreateBlasDescription(vertexBuffer, 3));
+        var sizes = new GraphicsAccelerationStructureSizes(1024, 256, 128, 256, 256);
+        var missingAddress = new TestBuffer(device, new GraphicsBufferDescription(512, GraphicsBufferUsage.AccelerationStructureScratch), 0);
+        var misalignedAddress = new TestBuffer(device, new GraphicsBufferDescription(512, GraphicsBufferUsage.AccelerationStructureScratch), 0x10001);
+        var undersized = new TestBuffer(device, new GraphicsBufferDescription(255, GraphicsBufferUsage.AccelerationStructureScratch));
+        var valid = new TestBuffer(device, new GraphicsBufferDescription(512, GraphicsBufferUsage.AccelerationStructureScratch));
+
+        Assert.Throws<ArgumentException>(() => GraphicsRayTracingCommandValidation.ValidateBuild(
+            destination, null, missingAddress, 0, sizes, GraphicsAccelerationStructureBuildFlags.AllowUpdate,
+            ReadOnlySpan<GraphicsRayTracingInstance>.Empty));
+        Assert.Throws<ArgumentException>(() => GraphicsRayTracingCommandValidation.ValidateBuild(
+            destination, null, misalignedAddress, 0, sizes, GraphicsAccelerationStructureBuildFlags.AllowUpdate,
+            ReadOnlySpan<GraphicsRayTracingInstance>.Empty));
+        Assert.Throws<ArgumentOutOfRangeException>(() => GraphicsRayTracingCommandValidation.ValidateBuild(
+            destination, null, undersized, 0, sizes, GraphicsAccelerationStructureBuildFlags.AllowUpdate,
+            ReadOnlySpan<GraphicsRayTracingInstance>.Empty));
+        Assert.Throws<ArgumentException>(() => GraphicsRayTracingCommandValidation.ValidateBuild(
+            destination, null, valid, 1, sizes, GraphicsAccelerationStructureBuildFlags.AllowUpdate,
+            ReadOnlySpan<GraphicsRayTracingInstance>.Empty));
+
+        GraphicsRayTracingCommandValidation.ValidateBuild(
+            destination, null, valid, 0, sizes, GraphicsAccelerationStructureBuildFlags.AllowUpdate,
+            ReadOnlySpan<GraphicsRayTracingInstance>.Empty);
+    }
+
+    [Fact]
+    public void RayTracingBlasUpdateMustPreserveGeometryAndPrimitiveCounts()
+    {
+        var device = CreateRayTracingDevice();
+        var vertices = new TestBuffer(device, new GraphicsBufferDescription(512, GraphicsBufferUsage.AccelerationStructureBuildInput));
+        var source = new TestAccelerationStructure(device, CreateBlasDescription(vertices, 3));
+        var destinationWithPrimitiveCountChange = new TestAccelerationStructure(device, CreateBlasDescription(vertices, 6));
+        var destinationWithGeometryCountChange = new TestAccelerationStructure(device, CreateBlasDescription(vertices, 3, secondVertexCount: 6));
+        var scratch = new TestBuffer(device, new GraphicsBufferDescription(512, GraphicsBufferUsage.AccelerationStructureScratch));
+        var sizes = new GraphicsAccelerationStructureSizes(1024, 256, 128, 256, 256);
+
+        Assert.Throws<ArgumentException>(() => GraphicsRayTracingCommandValidation.ValidateBuild(
+            destinationWithPrimitiveCountChange, source, scratch, 0, sizes,
+            GraphicsAccelerationStructureBuildFlags.AllowUpdate, ReadOnlySpan<GraphicsRayTracingInstance>.Empty));
+        Assert.Throws<ArgumentException>(() => GraphicsRayTracingCommandValidation.ValidateBuild(
+            destinationWithGeometryCountChange, source, scratch, 0, sizes,
+            GraphicsAccelerationStructureBuildFlags.AllowUpdate, ReadOnlySpan<GraphicsRayTracingInstance>.Empty));
+    }
+
+    [Fact]
+    public void ShaderBindingTableLayout_ReportsOversizedStrideAsArgumentError()
+    {
+        var properties = new GraphicsShaderBindingTableProperties(uint.MaxValue - 3, 16, 64, uint.MaxValue);
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            GraphicsShaderBindingTableWriter.GetLayout(
+                [new GraphicsShaderBindingTableRecord(0, ReadOnlyMemory<byte>.Empty)], properties));
+    }
+
+    [Fact]
+    public void RayTracingTriangleGeometry_AcceptsCapabilityGatedSixteenBitNormalizedPositions()
+    {
+        var vertexBuffer = new TestBuffer(CreateDevice(), new GraphicsBufferDescription(64, GraphicsBufferUsage.AccelerationStructureBuildInput));
+        new GraphicsRayTracingTriangleGeometry(vertexBuffer, 0, 4, 3, GraphicsFormat.RG16SNorm).Validate();
+        new GraphicsRayTracingTriangleGeometry(vertexBuffer, 0, 6, 3, GraphicsFormat.RGB16Float).Validate();
+        new GraphicsRayTracingTriangleGeometry(vertexBuffer, 0, 8, 3, GraphicsFormat.RGBA16UNorm).Validate();
+    }
+
+    [Fact]
+    public void RayTracingTransform3x4_HasExplicitTwelveFloatLayout()
+    {
+        Assert.Equal(48, System.Runtime.InteropServices.Marshal.SizeOf<GraphicsTransform3x4>());
+    }
+
+    private static GraphicsAccelerationStructureDescription CreateBlasDescription(
+        TestBuffer vertexBuffer,
+        uint vertexCount,
+        uint? secondVertexCount = null)
+    {
+        static GraphicsAccelerationStructureGeometry Geometry(TestBuffer buffer, uint count) =>
+            new(GraphicsAccelerationStructureGeometryType.Triangles,
+                new GraphicsRayTracingTriangleGeometry(buffer, 0, 12, count, GraphicsFormat.RGB32Float), default);
+
+        GraphicsAccelerationStructureGeometry[] geometries = secondVertexCount is { } second
+            ? [Geometry(vertexBuffer, vertexCount), Geometry(vertexBuffer, second)]
+            : [Geometry(vertexBuffer, vertexCount)];
+
+        return new GraphicsAccelerationStructureDescription
+        {
+            IsTopLevel = false,
+            Flags = GraphicsAccelerationStructureBuildFlags.AllowUpdate,
+            Geometries = geometries
+        };
+    }
+
+    private static GraphicsDeviceFactoryTests.TestDevice CreateRayTracingDevice()
+    {
+        const GraphicsFeature features = GraphicsFeature.RayTracing;
+        GraphicsFormatCapabilities[] formats =
+        [
+            new(GraphicsFormat.RGB32Float,
+                GraphicsFormatSupport.AccelerationStructureVertex,
+                GraphicsSampleCountFlags.One)
+        ];
+        var capabilities = new GraphicsDeviceCapabilities(
+            new GraphicsFeatureSet(features),
+            GraphicsQueueCapabilities.Graphics | GraphicsQueueCapabilities.Compute,
+            default,
+            formats);
+        return new GraphicsDeviceFactoryTests.TestDevice(
+            GraphicsBackend.Vulkan, features,
+            GraphicsQueueCapabilities.Graphics | GraphicsQueueCapabilities.Compute,
+            capabilities);
     }
 
     private static GraphicsDeviceFactoryTests.TestDevice CreateDevice(
@@ -550,13 +848,27 @@ public sealed class GraphicsReviewRegressionTests
 
     private sealed class TestBuffer(
         IGraphicsDevice device,
-        GraphicsBufferDescription description) : GraphicsDeviceObject(device), IGraphicsBuffer
+        GraphicsBufferDescription description,
+        ulong deviceAddress = 0x10000) : GraphicsDeviceObject(device), IGraphicsBuffer, IGraphicsBufferDeviceAddress
     {
         public string? DebugName => null;
         public GraphicsBufferDescription Description { get; } = description;
+        public ulong DeviceAddress { get; } = deviceAddress;
         public Memory<byte> Map(GraphicsMapMode mode, ulong offset = 0, ulong size = ulong.MaxValue) =>
             throw new NotSupportedException();
         public void Unmap() { }
+        protected override void DisposeCore() { }
+    }
+
+    private sealed class TestAccelerationStructure(
+        IGraphicsDevice device,
+        GraphicsAccelerationStructureDescription description) : GraphicsDeviceObject(device), IGraphicsAccelerationStructure
+    {
+        public string? DebugName => null;
+        public GraphicsAccelerationStructureDescription Description { get; } = description;
+        public bool IsTopLevel => Description.IsTopLevel;
+        public uint InstanceCount => 0;
+        public ulong DeviceAddress => 0x20000;
         protected override void DisposeCore() { }
     }
 
@@ -599,6 +911,7 @@ public sealed class GraphicsReviewRegressionTests
         public IGraphicsDevice Device { get; } = device;
         public GraphicsQueueType QueueType { get; } = queueType;
         public uint Index => 0;
+        public uint QueueFamilyIndex => 0;
         public IGraphicsCommandList CreateCommandList(GraphicsCommandListUsage usage = GraphicsCommandListUsage.Reusable) =>
             throw new NotSupportedException();
         public void Submit(ReadOnlySpan<IGraphicsCommandList> commandLists, IGraphicsFence? signalFence = null, ulong signalValue = 0) =>

@@ -14,9 +14,13 @@ public readonly record struct GraphicsBufferDescription(
         const GraphicsBufferUsage allUsage =
             GraphicsBufferUsage.Vertex | GraphicsBufferUsage.Index | GraphicsBufferUsage.Constant |
             GraphicsBufferUsage.Storage | GraphicsBufferUsage.IndirectArguments |
-            GraphicsBufferUsage.CopySource | GraphicsBufferUsage.CopyDestination;
+            GraphicsBufferUsage.CopySource | GraphicsBufferUsage.CopyDestination |
+            GraphicsBufferUsage.ShaderBindingTable | GraphicsBufferUsage.AccelerationStructureBuildInput |
+            GraphicsBufferUsage.AccelerationStructureScratch;
         const GraphicsResourceCreationOptions allOptions =
-            GraphicsResourceCreationOptions.DedicatedAllocation | GraphicsResourceCreationOptions.AllowAliasing;
+            GraphicsResourceCreationOptions.DedicatedAllocation | GraphicsResourceCreationOptions.AllowAliasing |
+            GraphicsResourceCreationOptions.RequireExplicitMemoryBinding |
+            GraphicsResourceCreationOptions.SparseResidency;
 
         if (SizeInBytes == 0)
             throw new ArgumentOutOfRangeException(nameof(SizeInBytes), "Buffer size must be greater than zero.");
@@ -29,9 +33,19 @@ public readonly record struct GraphicsBufferDescription(
 
         if (!Enum.IsDefined(MemoryPreference))
             throw new ArgumentOutOfRangeException(nameof(MemoryPreference));
+        if (MinimumAlignment != 0 && (MinimumAlignment & (MinimumAlignment - 1)) != 0)
+            throw new ArgumentOutOfRangeException(nameof(MinimumAlignment), "Minimum alignment must be zero or a power of two.");
+
+        const GraphicsResourceCreationOptions sparseConflicts =
+            GraphicsResourceCreationOptions.DedicatedAllocation |
+            GraphicsResourceCreationOptions.AllowAliasing |
+            GraphicsResourceCreationOptions.RequireExplicitMemoryBinding;
 
         if ((CreationOptions & ~allOptions) != 0 ||
-            CreationOptions == (GraphicsResourceCreationOptions.DedicatedAllocation | GraphicsResourceCreationOptions.AllowAliasing))
+            (CreationOptions & (GraphicsResourceCreationOptions.DedicatedAllocation | GraphicsResourceCreationOptions.AllowAliasing)) ==
+                (GraphicsResourceCreationOptions.DedicatedAllocation | GraphicsResourceCreationOptions.AllowAliasing) ||
+            ((CreationOptions & GraphicsResourceCreationOptions.SparseResidency) != 0 &&
+             (CreationOptions & sparseConflicts) != 0))
             throw new ArgumentOutOfRangeException(nameof(CreationOptions));
     }
 }

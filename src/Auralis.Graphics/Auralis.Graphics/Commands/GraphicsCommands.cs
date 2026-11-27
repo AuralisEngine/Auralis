@@ -158,7 +158,21 @@ public interface IGraphicsQueue
 {
     IGraphicsDevice Device { get; }
 
+    /// <summary>Queue index within QueueFamilyIndex; the pair identifies a queue on this device.</summary>
     uint Index { get; }
+
+    /// <summary>Backend-reported queue-family identity. Backends without families expose one shared family identity.</summary>
+    uint QueueFamilyIndex { get; }
+}
+
+/// <summary>
+/// Optional marker implemented only by queue instances capable of sparse resource binding.
+/// This capability is queue/family-specific and must not be inferred from device-wide queue flags.
+/// Sparse binding is not implicitly ordered with command-buffer execution, even on the same queue;
+/// callers must express required dependencies with the supplied synchronization primitives.
+/// </summary>
+public interface IGraphicsSparseBindingQueue : IGraphicsQueue
+{
 }
 
 /// <summary>
@@ -222,8 +236,17 @@ public interface IGraphicsCommandList : IGraphicsDeviceObject
 
     void DrawIndexedIndirect(IGraphicsBuffer arguments, ulong offset, uint drawCount = 1, uint stride = 0);
 
+    /// <summary>
+    /// Records a direct compute dispatch. Implementations must validate each dimension against
+    /// <see cref="GraphicsDeviceCapabilities.ValidateComputeDispatch"/> before native command recording
+    /// and enforce any additional backend-specific limits.
+    /// </summary>
     void Dispatch(uint groupCountX, uint groupCountY = 1, uint groupCountZ = 1);
 
+    /// <summary>
+    /// Records an indirect dispatch. Implementations validate the argument buffer usage/range;
+    /// because dispatch counts are GPU-provided, native/backend execution constraints must also be enforced.
+    /// </summary>
     void DispatchIndirect(IGraphicsBuffer arguments, ulong offset);
 
     void CopyBuffer(

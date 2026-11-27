@@ -19,10 +19,11 @@ public readonly record struct GraphicsTextureDescription(
             GraphicsTextureUsage.Sampled | GraphicsTextureUsage.Storage |
             GraphicsTextureUsage.ColorAttachment | GraphicsTextureUsage.DepthStencilAttachment |
             GraphicsTextureUsage.CopySource | GraphicsTextureUsage.CopyDestination |
-            GraphicsTextureUsage.Present;
+            GraphicsTextureUsage.Present | GraphicsTextureUsage.ShadingRateAttachment;
         const GraphicsResourceCreationOptions allOptions =
             GraphicsResourceCreationOptions.DedicatedAllocation | GraphicsResourceCreationOptions.AllowAliasing |
-            GraphicsResourceCreationOptions.MutableFormat;
+            GraphicsResourceCreationOptions.MutableFormat | GraphicsResourceCreationOptions.RequireExplicitMemoryBinding |
+            GraphicsResourceCreationOptions.SparseResidency;
 
         if (!Enum.IsDefined(Dimension))
             throw new ArgumentOutOfRangeException(nameof(Dimension));
@@ -36,10 +37,31 @@ public readonly record struct GraphicsTextureDescription(
             throw new ArgumentOutOfRangeException(nameof(ArrayLayers));
         if (Usage == GraphicsTextureUsage.None || (Usage & ~allUsage) != 0)
             throw new ArgumentOutOfRangeException(nameof(Usage));
+
+        GraphicsTextureAspect formatAspects = GraphicsFormatInfo.GetAspects(Format);
+        const GraphicsTextureUsage colorAspectUsages =
+            GraphicsTextureUsage.ColorAttachment |
+            GraphicsTextureUsage.Present |
+            GraphicsTextureUsage.ShadingRateAttachment;
+        if ((Usage & colorAspectUsages) != 0 && formatAspects != GraphicsTextureAspect.Color)
+            throw new ArgumentException(
+                "Color, presentation, and shading-rate usages require a color-aspect texture format.",
+                nameof(Usage));
+        if ((Usage & GraphicsTextureUsage.DepthStencilAttachment) != 0 &&
+            (formatAspects & (GraphicsTextureAspect.Depth | GraphicsTextureAspect.Stencil)) == 0)
+            throw new ArgumentException(
+                "Depth/stencil attachment usage requires a depth or stencil texture format.",
+                nameof(Usage));
         const GraphicsResourceCreationOptions conflictingOptions =
             GraphicsResourceCreationOptions.DedicatedAllocation | GraphicsResourceCreationOptions.AllowAliasing;
+        const GraphicsResourceCreationOptions sparseConflicts =
+            GraphicsResourceCreationOptions.DedicatedAllocation |
+            GraphicsResourceCreationOptions.AllowAliasing |
+            GraphicsResourceCreationOptions.RequireExplicitMemoryBinding;
         if ((CreationOptions & ~allOptions) != 0 ||
-            (CreationOptions & conflictingOptions) == conflictingOptions)
+            (CreationOptions & conflictingOptions) == conflictingOptions ||
+            ((CreationOptions & GraphicsResourceCreationOptions.SparseResidency) != 0 &&
+             (CreationOptions & sparseConflicts) != 0))
             throw new ArgumentOutOfRangeException(nameof(CreationOptions));
 
         switch (Dimension)
@@ -59,6 +81,14 @@ public readonly record struct GraphicsTextureDescription(
 
         if (SampleCount > 1 && (Dimension != GraphicsTextureDimension.Texture2D || MipLevels != 1))
             throw new ArgumentException("Multisampled textures must be 2D textures with a single mip level.");
+
+        if ((CreationOptions & GraphicsResourceCreationOptions.SparseResidency) != 0 &&
+            Dimension == GraphicsTextureDimension.Texture1D)
+            throw new ArgumentException("Sparse residency is not available for 1D textures.", nameof(Dimension));
+
+        if ((Usage & GraphicsTextureUsage.ShadingRateAttachment) != 0 &&
+            (Dimension != GraphicsTextureDimension.Texture2D || SampleCount != 1))
+            throw new ArgumentException("Shading-rate attachment textures must be single-sample 2D textures.", nameof(Usage));
 
         uint maximumDimension = Dimension switch
         {
@@ -95,8 +125,9 @@ public enum GraphicsTextureViewType
 }
 
 /// <summary>
-/// Subresource and format selection for a texture view. Unknown format inherits the texture format.
-/// Reinterpretation is limited to the explicitly documented compatibility pairs and requires MutableFormat.
+/// Subresource, format, and aspect selection for a texture view. Unknown format inherits the texture format.
+/// None aspects selects every aspect exposed by the effective view format. Reinterpretation requires MutableFormat;
+/// exact compatibility is device-reported through GraphicsFormatCapabilities.
 /// </summary>
 public readonly record struct GraphicsTextureViewDescription(
     GraphicsFormat Format,
@@ -104,8 +135,20 @@ public readonly record struct GraphicsTextureViewDescription(
     uint BaseMipLevel,
     uint MipLevelCount,
     uint BaseArrayLayer,
-    uint ArrayLayerCount)
+    uint ArrayLayerCount,
+    GraphicsTextureAspect Aspects = GraphicsTextureAspect.None)
 {
+    /// <summary>
+    /// Returns the selected aspects. None means all aspects exposed by the effective view format.
+    /// </summary>
+    public GraphicsTextureAspect GetEffectiveAspects(in GraphicsTextureDescription texture)
+    {
+        GraphicsFormat viewFormat = Format == GraphicsFormat.Unknown ? texture.Format : Format;
+        return Aspects == GraphicsTextureAspect.None
+            ? GraphicsFormatInfo.GetAspects(viewFormat)
+            : Aspects;
+    }
+
     public void Validate(in GraphicsTextureDescription texture)
     {
         texture.Validate();
@@ -114,6 +157,10 @@ public readonly record struct GraphicsTextureViewDescription(
             throw new ArgumentOutOfRangeException(nameof(ViewType));
         if (Format != GraphicsFormat.Unknown && !Enum.IsDefined(Format))
             throw new ArgumentOutOfRangeException(nameof(Format));
+        const GraphicsTextureAspect allAspects =
+            GraphicsTextureAspect.Color | GraphicsTextureAspect.Depth | GraphicsTextureAspect.Stencil;
+        if ((Aspects & ~allAspects) != 0)
+            throw new ArgumentOutOfRangeException(nameof(Aspects));
         if (MipLevelCount == 0 || BaseMipLevel >= texture.MipLevels ||
             MipLevelCount > texture.MipLevels - BaseMipLevel)
             throw new ArgumentOutOfRangeException(nameof(MipLevelCount));
@@ -122,16 +169,26 @@ public readonly record struct GraphicsTextureViewDescription(
             throw new ArgumentOutOfRangeException(nameof(ArrayLayerCount));
 
         GraphicsFormat viewFormat = Format == GraphicsFormat.Unknown ? texture.Format : Format;
+        GraphicsTextureAspect parentAspects = GraphicsFormatInfo.GetAspects(texture.Format);
+        GraphicsTextureAspect viewFormatAspects = GraphicsFormatInfo.GetAspects(viewFormat);
+        GraphicsTextureAspect selectedAspects = Aspects == GraphicsTextureAspect.None
+            ? viewFormatAspects
+            : Aspects;
+        if (selectedAspects == GraphicsTextureAspect.None ||
+            (selectedAspects & ~viewFormatAspects) != 0 ||
+            (selectedAspects & ~parentAspects) != 0)
+            throw new ArgumentException(
+                "A texture view must select one or more aspects present in both its resource format and effective view format.",
+                nameof(Aspects));
+
         if (viewFormat != texture.Format)
         {
             if ((texture.CreationOptions & GraphicsResourceCreationOptions.MutableFormat) == 0)
                 throw new ArgumentException(
                     "A texture must be created with MutableFormat before a view can reinterpret its format.",
                     nameof(Format));
-            if (!AreViewFormatsCompatible(texture.Format, viewFormat))
-                throw new ArgumentException(
-                    $"Texture format {viewFormat} is not in the view compatibility class of {texture.Format}.",
-                    nameof(Format));
+            // Exact mutable-format compatibility is backend/device specific and is checked by
+            // GraphicsDeviceCapabilities.ValidateTextureViewDescription.
         }
 
         bool compatible = ViewType switch
@@ -168,21 +225,5 @@ public readonly record struct GraphicsTextureViewDescription(
             throw new ArgumentException("Cube texture view layers must be aligned to six faces.");
     }
 
-    private static bool AreViewFormatsCompatible(GraphicsFormat source, GraphicsFormat view) =>
-        (source, view) switch
-        {
-            (GraphicsFormat.RGBA8UNorm, GraphicsFormat.RGBA8UNormSrgb) or
-            (GraphicsFormat.RGBA8UNormSrgb, GraphicsFormat.RGBA8UNorm) or
-            (GraphicsFormat.BGRA8UNorm, GraphicsFormat.BGRA8UNormSrgb) or
-            (GraphicsFormat.BGRA8UNormSrgb, GraphicsFormat.BGRA8UNorm) or
-            (GraphicsFormat.BC1UNorm, GraphicsFormat.BC1UNormSrgb) or
-            (GraphicsFormat.BC1UNormSrgb, GraphicsFormat.BC1UNorm) or
-            (GraphicsFormat.BC3UNorm, GraphicsFormat.BC3UNormSrgb) or
-            (GraphicsFormat.BC3UNormSrgb, GraphicsFormat.BC3UNorm) or
-            (GraphicsFormat.BC7UNorm, GraphicsFormat.BC7UNormSrgb) or
-            (GraphicsFormat.BC7UNormSrgb, GraphicsFormat.BC7UNorm) or
-            (GraphicsFormat.ASTC4x4UNorm, GraphicsFormat.ASTC4x4UNormSrgb) or
-            (GraphicsFormat.ASTC4x4UNormSrgb, GraphicsFormat.ASTC4x4UNorm) => true,
-            _ => false
-        };
+
 }

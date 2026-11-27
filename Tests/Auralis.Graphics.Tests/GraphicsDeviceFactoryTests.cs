@@ -79,6 +79,76 @@ public sealed class GraphicsDeviceFactoryTests
     }
 
     [Fact]
+    public async Task FactoryHonorsCancellationBeforeCallingProvider()
+    {
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+        var device = new TestDevice(
+            GraphicsBackend.Vulkan,
+            GraphicsFeature.None,
+            GraphicsQueueCapabilities.Graphics);
+        var provider = new TestProvider(GraphicsBackend.Vulkan, device);
+        var registry = new GraphicsBackendProviderRegistry();
+        registry.Register(provider);
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () =>
+            await GraphicsDeviceFactory.CreateAsync(
+                registry,
+                new GraphicsDeviceOptions { Backend = GraphicsBackend.Vulkan },
+                cancellation.Token));
+
+        Assert.Equal(0, provider.CreateCount);
+        Assert.False(device.IsDisposed);
+    }
+
+    [Fact]
+    public async Task FactoryDisposesDeviceWhenCancellationArrivesDuringProviderCreation()
+    {
+        using var cancellation = new CancellationTokenSource();
+        var device = new TestDevice(
+            GraphicsBackend.Vulkan,
+            GraphicsFeature.None,
+            GraphicsQueueCapabilities.Graphics);
+        var provider = new TestProvider(
+            GraphicsBackend.Vulkan,
+            device,
+            onCreate: cancellation.Cancel);
+        var registry = new GraphicsBackendProviderRegistry();
+        registry.Register(provider);
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () =>
+            await GraphicsDeviceFactory.CreateAsync(
+                registry,
+                new GraphicsDeviceOptions { Backend = GraphicsBackend.Vulkan },
+                cancellation.Token));
+
+        Assert.Equal(1, provider.CreateCount);
+        Assert.True(device.IsDisposed);
+    }
+
+    [Fact]
+    public async Task AdapterEnumerationHonorsCancellationBeforeAndAfterProviderCall()
+    {
+        using var cancellation = new CancellationTokenSource();
+        var device = new TestDevice(
+            GraphicsBackend.Vulkan,
+            GraphicsFeature.None,
+            GraphicsQueueCapabilities.Graphics);
+        var provider = new TestProvider(
+            GraphicsBackend.Vulkan,
+            device,
+            onEnumerate: cancellation.Cancel);
+        var registry = new GraphicsBackendProviderRegistry();
+        registry.Register(provider);
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () =>
+            await GraphicsDeviceFactory.EnumerateAdaptersAsync(
+                registry, GraphicsBackend.Vulkan, cancellation.Token));
+
+        Assert.Equal(1, provider.EnumerateCount);
+    }
+
+    [Fact]
     public void AdapterSelectionRequiresAnExplicitBackend()
     {
         var options = new GraphicsDeviceOptions { Adapter = new GraphicsAdapterId(1, 2) };
@@ -102,25 +172,33 @@ public sealed class GraphicsDeviceFactoryTests
         Assert.False(device.IsDisposed);
     }
 
-    private sealed class TestProvider(
+    internal sealed class TestProvider(
         GraphicsBackend backend,
         TestDevice? device,
-        bool isAvailable = true) : IGraphicsBackendProvider
+        bool isAvailable = true,
+        Action? onCreate = null,
+        Action? onEnumerate = null) : IGraphicsBackendProvider
     {
         public GraphicsBackend Backend { get; } = backend;
         public bool IsAvailable { get; } = isAvailable;
         public string? UnavailableReason => IsAvailable ? null : "Disabled by test.";
         public int CreateCount { get; private set; }
+        public int EnumerateCount { get; private set; }
 
         public ValueTask<ReadOnlyMemory<GraphicsAdapterInfo>> EnumerateAdaptersAsync(
-            CancellationToken cancellationToken = default) =>
-            ValueTask.FromResult(ReadOnlyMemory<GraphicsAdapterInfo>.Empty);
+            CancellationToken cancellationToken = default)
+        {
+            EnumerateCount++;
+            onEnumerate?.Invoke();
+            return ValueTask.FromResult(ReadOnlyMemory<GraphicsAdapterInfo>.Empty);
+        }
 
         public ValueTask<IGraphicsDevice> CreateDeviceAsync(
             GraphicsDeviceOptions options,
             CancellationToken cancellationToken = default)
         {
             CreateCount++;
+            onCreate?.Invoke();
             if (device is null)
                 throw new InvalidOperationException("No test device was supplied.");
             return ValueTask.FromResult<IGraphicsDevice>(device);
@@ -176,6 +254,7 @@ public sealed class GraphicsDeviceFactoryTests
     {
         public IGraphicsDevice Device { get; } = device;
         public uint Index { get; } = index;
+        public uint QueueFamilyIndex => 0;
     }
 
     private sealed class TestDeviceObject(IGraphicsDevice device) : GraphicsDeviceObject(device)

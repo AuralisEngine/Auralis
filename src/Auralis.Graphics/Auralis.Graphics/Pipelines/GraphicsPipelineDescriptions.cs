@@ -1,4 +1,5 @@
 using Auralis.Graphics.Abstractions;
+using Auralis.Graphics.Devices;
 using Auralis.Graphics.Resources;
 
 namespace Auralis.Graphics.Pipelines;
@@ -15,8 +16,15 @@ public enum GraphicsShaderStages
     TessellationEvaluation = 1 << 5,
     Task = 1 << 6,
     Mesh = 1 << 7,
+    RayGeneration = 1 << 8,
+    Miss = 1 << 9,
+    ClosestHit = 1 << 10,
+    AnyHit = 1 << 11,
+    Intersection = 1 << 12,
+    Callable = 1 << 13,
     AllGraphics = Vertex | Fragment | Geometry | TessellationControl | TessellationEvaluation | Task | Mesh,
-    All = AllGraphics | Compute
+    AllRayTracing = RayGeneration | Miss | ClosestHit | AnyHit | Intersection | Callable,
+    All = AllGraphics | AllRayTracing | Compute
 }
 
 public enum GraphicsDescriptorType
@@ -26,7 +34,9 @@ public enum GraphicsDescriptorType
     SampledTexture,
     StorageTexture,
     Sampler,
-    CombinedTextureSampler
+    CombinedTextureSampler,
+    DynamicUniformBuffer,
+    DynamicStorageBuffer
 }
 
 [Flags]
@@ -35,7 +45,8 @@ public enum GraphicsBindingFlags
     None = 0,
     PartiallyBound = 1 << 0,
     UpdateAfterBind = 1 << 1,
-    VariableCount = 1 << 2
+    VariableCount = 1 << 2,
+    UpdateUnusedWhilePending = 1 << 3
 }
 
 public readonly record struct GraphicsBindingLayoutEntry(
@@ -58,16 +69,226 @@ public sealed class GraphicsBindingLayoutDescription
         Validate();
     }
 
+    /// <summary>Validates runtime counts supplied when allocating a variable-count binding set.</summary>
+    public void ValidateVariableCounts(ReadOnlySpan<GraphicsVariableDescriptorCount> variableCounts)
+    {
+        int variableBindingCount = 0;
+        for (int i = 0; i < _entries.Length; i++)
+        {
+            if ((_entries[i].Flags & GraphicsBindingFlags.VariableCount) != 0)
+                variableBindingCount++;
+        }
+
+        if (variableCounts.Length != variableBindingCount)
+            throw new ArgumentException("A runtime count must be supplied for every variable-count binding and no other binding.", nameof(variableCounts));
+
+        for (int i = 0; i < variableCounts.Length; i++)
+        {
+            bool found = false;
+            uint maximumCount = 0;
+            for (int j = 0; j < _entries.Length; j++)
+            {
+                if (_entries[j].Binding == variableCounts[i].Binding &&
+                    (_entries[j].Flags & GraphicsBindingFlags.VariableCount) != 0)
+                {
+                    found = true;
+                    maximumCount = _entries[j].Count;
+                    break;
+                }
+            }
+
+            if (!found)
+                throw new ArgumentException($"Binding {variableCounts[i].Binding} is not a variable-count binding.", nameof(variableCounts));
+            if (variableCounts[i].Count > maximumCount)
+                throw new ArgumentOutOfRangeException(nameof(variableCounts), $"Runtime descriptor count exceeds the declared maximum for binding {variableCounts[i].Binding}.");
+
+            for (int j = 0; j < i; j++)
+            {
+                if (variableCounts[j].Binding == variableCounts[i].Binding)
+                    throw new ArgumentException($"Runtime count for binding {variableCounts[i].Binding} is duplicated.", nameof(variableCounts));
+            }
+        }
+    }
+
+    /// <summary>
+    /// Validates variable descriptor allocation counts against structural layout rules and logical-device capabilities.
+    /// Zero is accepted only when the device explicitly reports ZeroVariableDescriptorCount as enabled.
+    /// </summary>
+    public void ValidateVariableCounts(
+        ReadOnlySpan<GraphicsVariableDescriptorCount> variableCounts,
+        GraphicsDeviceCapabilities capabilities)
+    {
+        ArgumentNullException.ThrowIfNull(capabilities);
+        ValidateVariableCounts(variableCounts);
+        for (int i = 0; i < variableCounts.Length; i++)
+        {
+            if (variableCounts[i].Count == 0 &&
+                !capabilities.DescriptorIndexing.ZeroVariableDescriptorCount)
+                throw new GraphicsException(
+                    "A zero-sized variable descriptor allocation is not enabled on this logical device.");
+        }
+    }
+
+    /// <summary>Validates ordered dynamic offsets. Device-specific alignment is checked by the overload receiving device limits.</summary>
+    public void ValidateDynamicOffsets(ReadOnlySpan<GraphicsDynamicBufferOffset> dynamicOffsets)
+    {
+        int expectedCount = 0;
+        for (int i = 0; i < _entries.Length; i++)
+        {
+            if (_entries[i].Type is not (GraphicsDescriptorType.DynamicUniformBuffer or GraphicsDescriptorType.DynamicStorageBuffer))
+                continue;
+            if (_entries[i].Count > int.MaxValue || expectedCount > int.MaxValue - (int)_entries[i].Count)
+                throw new ArgumentOutOfRangeException(nameof(dynamicOffsets),
+                    "The layout has more dynamic descriptors than can be represented by a managed span.");
+            expectedCount += (int)_entries[i].Count;
+        }
+
+        if (dynamicOffsets.Length != expectedCount)
+            throw new ArgumentException($"Expected {expectedCount} dynamic buffer offsets, received {dynamicOffsets.Length}.", nameof(dynamicOffsets));
+
+        int cursor = 0;
+        uint previousLayoutBinding = 0;
+        bool hasPreviousLayoutBinding = false;
+        for (int bindingIndex = 0; bindingIndex < _entries.Length; bindingIndex++)
+        {
+            int selectedIndex = -1;
+            uint selectedBinding = uint.MaxValue;
+            for (int i = 0; i < _entries.Length; i++)
+            {
+                GraphicsBindingLayoutEntry candidate = _entries[i];
+                bool isDynamic = candidate.Type is GraphicsDescriptorType.DynamicUniformBuffer or GraphicsDescriptorType.DynamicStorageBuffer;
+                if (isDynamic &&
+                    (!hasPreviousLayoutBinding || candidate.Binding > previousLayoutBinding) &&
+                    candidate.Binding < selectedBinding)
+                {
+                    selectedIndex = i;
+                    selectedBinding = candidate.Binding;
+                }
+            }
+
+            if (selectedIndex < 0)
+                break;
+
+            GraphicsBindingLayoutEntry entry = _entries[selectedIndex];
+            for (uint element = 0; element < entry.Count; element++)
+            {
+                if (dynamicOffsets[cursor].Binding != entry.Binding || dynamicOffsets[cursor].ArrayElement != element)
+                    throw new ArgumentException("Dynamic offsets must contain every dynamic descriptor in ascending binding/array order.", nameof(dynamicOffsets));
+                cursor++;
+            }
+
+            previousLayoutBinding = entry.Binding;
+            hasPreviousLayoutBinding = true;
+        }
+    }
+
+    /// <summary>
+    /// Validates dynamic offset ordering and device-reported uniform/storage alignment. A zero limit means
+    /// the backend did not report the alignment; implementations must still apply their native rules.
+    /// Buffer bounds are validated when the binding set is bound because base offsets/ranges are not part
+    /// of this layout description.
+    /// </summary>
+    public void ValidateDynamicOffsets(
+        ReadOnlySpan<GraphicsDynamicBufferOffset> dynamicOffsets,
+        in GraphicsDeviceLimits limits)
+    {
+        ValidateDynamicOffsets(dynamicOffsets);
+        for (int i = 0; i < dynamicOffsets.Length; i++)
+        {
+            ulong alignment = 0;
+            for (int entryIndex = 0; entryIndex < _entries.Length; entryIndex++)
+            {
+                GraphicsBindingLayoutEntry entry = _entries[entryIndex];
+                if (entry.Binding != dynamicOffsets[i].Binding)
+                    continue;
+                alignment = entry.Type == GraphicsDescriptorType.DynamicUniformBuffer
+                    ? limits.MinUniformBufferOffsetAlignment
+                    : entry.Type == GraphicsDescriptorType.DynamicStorageBuffer
+                        ? limits.MinStorageBufferOffsetAlignment
+                        : 0;
+                break;
+            }
+
+            if (alignment != 0 && dynamicOffsets[i].Offset % alignment != 0)
+                throw new ArgumentException(
+                    $"Dynamic offset {dynamicOffsets[i].Offset} for binding {dynamicOffsets[i].Binding} must be aligned to {alignment} bytes.",
+                    nameof(dynamicOffsets));
+        }
+    }
+
+    /// <summary>
+    /// Validates structural type/flag rules and this logical device's independently enabled descriptor-indexing features.
+    /// Physical adapter support alone is insufficient; the backend must have enabled each required feature when
+    /// creating the device. Dynamic offset alignment is validated by the device-limits overload and effective buffer
+    /// bounds remain a bind-time responsibility.
+    /// </summary>
+    private static bool SupportsUpdateAfterBind(
+        GraphicsDescriptorIndexingCapabilities capabilities,
+        GraphicsDescriptorType type) =>
+        type switch
+        {
+            GraphicsDescriptorType.UniformBuffer => capabilities.UniformBufferUpdateAfterBind,
+            GraphicsDescriptorType.StorageBuffer => capabilities.StorageBufferUpdateAfterBind,
+            GraphicsDescriptorType.SampledTexture or GraphicsDescriptorType.Sampler or
+                GraphicsDescriptorType.CombinedTextureSampler => capabilities.SampledImageUpdateAfterBind,
+            GraphicsDescriptorType.StorageTexture => capabilities.StorageImageUpdateAfterBind,
+            GraphicsDescriptorType.DynamicUniformBuffer or GraphicsDescriptorType.DynamicStorageBuffer => false,
+            _ => false
+        };
+
+    public void Validate(GraphicsDeviceCapabilities capabilities)
+    {
+        ArgumentNullException.ThrowIfNull(capabilities);
+        Validate();
+
+        bool usesDescriptorIndexing = false;
+        for (int i = 0; i < _entries.Length; i++)
+        {
+            GraphicsBindingLayoutEntry entry = _entries[i];
+            GraphicsBindingFlags flags = entry.Flags;
+            usesDescriptorIndexing |= flags != GraphicsBindingFlags.None;
+
+            if ((flags & GraphicsBindingFlags.PartiallyBound) != 0 &&
+                !capabilities.DescriptorIndexing.PartiallyBound)
+                throw new GraphicsException("Partially-bound descriptors are not enabled on this device.");
+            if ((flags & GraphicsBindingFlags.UpdateUnusedWhilePending) != 0 &&
+                !capabilities.DescriptorIndexing.UpdateUnusedWhilePending)
+                throw new GraphicsException("Update-unused-while-pending descriptors are not enabled on this device.");
+            if ((flags & GraphicsBindingFlags.VariableCount) != 0 &&
+                !capabilities.DescriptorIndexing.VariableDescriptorCount)
+                throw new GraphicsException("Variable descriptor counts are not enabled on this device.");
+            if ((flags & GraphicsBindingFlags.UpdateAfterBind) != 0 &&
+                !SupportsUpdateAfterBind(capabilities.DescriptorIndexing, entry.Type))
+                throw new GraphicsException($"Update-after-bind is not enabled for descriptor type {entry.Type}.");
+        }
+
+        if (usesDescriptorIndexing && !capabilities.Features.Supports(GraphicsFeature.DescriptorIndexing))
+            throw new GraphicsException("Descriptor indexing is not enabled on this device.");
+    }
+
     public void Validate()
     {
         const GraphicsShaderStages allStages = GraphicsShaderStages.All;
         const GraphicsBindingFlags allFlags =
             GraphicsBindingFlags.PartiallyBound | GraphicsBindingFlags.UpdateAfterBind |
-            GraphicsBindingFlags.VariableCount;
+            GraphicsBindingFlags.VariableCount | GraphicsBindingFlags.UpdateUnusedWhilePending;
 
         uint highestBinding = 0;
         for (int i = 0; i < _entries.Length; i++)
             highestBinding = Math.Max(highestBinding, _entries[i].Binding);
+
+        bool hasUpdateAfterBind = false;
+        bool hasDynamicBufferDescriptor = false;
+        for (int i = 0; i < _entries.Length; i++)
+        {
+            hasUpdateAfterBind |= (_entries[i].Flags & GraphicsBindingFlags.UpdateAfterBind) != 0;
+            hasDynamicBufferDescriptor |= _entries[i].Type is
+                GraphicsDescriptorType.DynamicUniformBuffer or GraphicsDescriptorType.DynamicStorageBuffer;
+        }
+        if (hasUpdateAfterBind && hasDynamicBufferDescriptor)
+            throw new ArgumentException(
+                "A descriptor layout containing update-after-bind bindings cannot contain dynamic uniform/storage buffer descriptors.",
+                nameof(Entries));
 
         for (int i = 0; i < _entries.Length; i++)
         {
@@ -80,6 +301,12 @@ public sealed class GraphicsBindingLayoutDescription
                 throw new ArgumentOutOfRangeException(nameof(Entries), "Descriptor shader stages are invalid.");
             if ((entry.Flags & ~allFlags) != 0)
                 throw new ArgumentOutOfRangeException(nameof(Entries), "Descriptor binding flags are invalid.");
+            bool dynamicBufferType = entry.Type is GraphicsDescriptorType.DynamicUniformBuffer or GraphicsDescriptorType.DynamicStorageBuffer;
+            if (dynamicBufferType &&
+                (entry.Flags & (GraphicsBindingFlags.VariableCount | GraphicsBindingFlags.UpdateAfterBind)) != 0)
+                throw new ArgumentException(
+                    "Dynamic uniform/storage buffer descriptors cannot use variable-count or update-after-bind flags.",
+                    nameof(Entries));
             if ((entry.Flags & GraphicsBindingFlags.VariableCount) != 0 && entry.Binding != highestBinding)
                 throw new ArgumentException(
                     "A variable-count descriptor binding must have the highest binding number.",
@@ -459,6 +686,7 @@ public sealed class GraphicsRenderPipelineDescription
     {
         if (Layout.IsDisposed || Layout.Device.IsDisposed)
             throw new ObjectDisposedException(nameof(Layout));
+        Layout.Device.Capabilities.ValidatePipelineLayout(Layout);
         if (_shaders.Length == 0)
             throw new ArgumentException("A render pipeline must contain at least one graphics shader.", nameof(Shaders));
         if (!Enum.IsDefined(Topology))
@@ -480,6 +708,10 @@ public sealed class GraphicsRenderPipelineDescription
             GraphicsShaderStage stage = shader.Description.Stage;
             if (stage == GraphicsShaderStage.Compute)
                 throw new ArgumentException("Compute shaders cannot be included in a render pipeline.", nameof(Shaders));
+            if (stage is GraphicsShaderStage.RayGeneration or GraphicsShaderStage.Miss or
+                GraphicsShaderStage.ClosestHit or GraphicsShaderStage.AnyHit or
+                GraphicsShaderStage.Intersection or GraphicsShaderStage.Callable)
+                throw new ArgumentException("Ray-tracing shaders cannot be included in a conventional render pipeline.", nameof(Shaders));
 
             uint stageBit = 1u << (int)stage;
             if ((stageMask & stageBit) != 0)
@@ -556,30 +788,43 @@ public sealed class GraphicsRenderPipelineDescription
 
         if (_colorFormats.Length == 0 && DepthStencilFormat == GraphicsFormat.Unknown)
             throw new ArgumentException("A render pipeline must declare at least one color or depth/stencil format.");
+        uint maximumColorAttachments = Layout.Device.Capabilities.Limits.MaxColorAttachments;
+        if (maximumColorAttachments != 0 && (uint)_colorFormats.Length > maximumColorAttachments)
+            throw new GraphicsException(
+                $"Pipeline declares {_colorFormats.Length} color attachments; the device limit is {maximumColorAttachments}.");
         for (int i = 0; i < _colorFormats.Length; i++)
         {
             GraphicsFormat format = _colorFormats[i];
             if (format == GraphicsFormat.Unknown || !Enum.IsDefined(format))
                 throw new ArgumentOutOfRangeException(nameof(ColorFormats));
+            if (GraphicsFormatInfo.GetAspects(format) != GraphicsTextureAspect.Color)
+                throw new ArgumentException($"Color attachment format {format} must expose only the color aspect.", nameof(ColorFormats));
             if (!Layout.Device.Capabilities.SupportsFormat(format, GraphicsFormatSupport.ColorAttachment) ||
                 !Layout.Device.Capabilities.SupportsSampleCount(format, SampleCount))
                 throw new GraphicsException(
                     $"The device does not support {format} as a {SampleCount}-sample color attachment.");
         }
+        GraphicsTextureAspect depthStencilAspects = GraphicsFormatInfo.GetAspects(DepthStencilFormat);
         if (DepthStencilFormat != GraphicsFormat.Unknown)
         {
             if (!Enum.IsDefined(DepthStencilFormat))
                 throw new ArgumentOutOfRangeException(nameof(DepthStencilFormat));
+            if ((depthStencilAspects & (GraphicsTextureAspect.Depth | GraphicsTextureAspect.Stencil)) == 0)
+                throw new ArgumentException(
+                    $"Depth/stencil attachment format {DepthStencilFormat} must contain a depth or stencil aspect.",
+                    nameof(DepthStencilFormat));
             if (!Layout.Device.Capabilities.SupportsFormat(
                     DepthStencilFormat, GraphicsFormatSupport.DepthStencilAttachment) ||
                 !Layout.Device.Capabilities.SupportsSampleCount(DepthStencilFormat, SampleCount))
                 throw new GraphicsException(
                     $"The device does not support {DepthStencilFormat} as a {SampleCount}-sample depth/stencil attachment.");
         }
-        if (DepthStencil.DepthTestEnabled && DepthStencilFormat == GraphicsFormat.Unknown)
-            throw new ArgumentException("Depth testing requires a depth/stencil attachment format.", nameof(DepthStencil));
-        if (DepthStencil.StencilTestEnabled && DepthStencilFormat == GraphicsFormat.Unknown)
-            throw new ArgumentException("Stencil testing requires a depth/stencil attachment format.", nameof(DepthStencil));
+        if ((DepthStencil.DepthTestEnabled || DepthStencil.DepthWriteEnabled || DepthStencil.DepthBoundsTestEnabled) &&
+            (depthStencilAspects & GraphicsTextureAspect.Depth) == 0)
+            throw new ArgumentException("Depth testing, writes, and depth-bounds testing require a format with a depth aspect.", nameof(DepthStencil));
+        if (DepthStencil.StencilTestEnabled &&
+            (depthStencilAspects & GraphicsTextureAspect.Stencil) == 0)
+            throw new ArgumentException("Stencil testing requires a format with a stencil aspect.", nameof(DepthStencil));
         if (Blend.Attachments.Length != 0 && Blend.Attachments.Length != _colorFormats.Length)
             throw new ArgumentException("Blend attachment count must match the number of color formats.", nameof(Blend));
 
@@ -637,25 +882,60 @@ public sealed class GraphicsRenderPipelineDescription
     }
 }
 
+/// <summary>Thread dimensions selected for each compute workgroup.</summary>
+public readonly record struct GraphicsComputeThreadGroupSize(uint X, uint Y, uint Z)
+{
+    /// <summary>Validates that every workgroup dimension is non-zero.</summary>
+    public void Validate()
+    {
+        if (X == 0)
+            throw new ArgumentOutOfRangeException(nameof(X), "Compute workgroup dimensions must be non-zero.");
+        if (Y == 0)
+            throw new ArgumentOutOfRangeException(nameof(Y), "Compute workgroup dimensions must be non-zero.");
+        if (Z == 0)
+            throw new ArgumentOutOfRangeException(nameof(Z), "Compute workgroup dimensions must be non-zero.");
+    }
+}
+
 /// <summary>Fixed state for a compute pipeline.</summary>
 public sealed class GraphicsComputePipelineDescription
 {
-    public GraphicsComputePipelineDescription(IGraphicsPipelineLayout layout, IGraphicsShader computeShader)
+    /// <summary>
+    /// Creates a compute pipeline description with an explicit threadgroup size. The dimensions
+    /// are pipeline state because the common dispatch command specifies only the number of groups.
+    /// </summary>
+    public GraphicsComputePipelineDescription(
+        IGraphicsPipelineLayout layout,
+        IGraphicsShader computeShader,
+        GraphicsComputeThreadGroupSize threadGroupSize)
     {
         Layout = layout ?? throw new ArgumentNullException(nameof(layout));
         ComputeShader = computeShader ?? throw new ArgumentNullException(nameof(computeShader));
+        ThreadGroupSize = threadGroupSize;
         Validate();
     }
 
+    /// <summary>Pipeline layout used by the compute shader.</summary>
     public IGraphicsPipelineLayout Layout { get; }
+
+    /// <summary>Compiled compute-stage shader.</summary>
     public IGraphicsShader ComputeShader { get; }
 
+    /// <summary>Number of shader threads in each workgroup along X, Y, and Z.</summary>
+    public GraphicsComputeThreadGroupSize ThreadGroupSize { get; }
+
+    /// <summary>
+    /// Validates ownership, shader stage, enabled compute support, pipeline layout limits,
+    /// and the device-reported workgroup dimensions and invocation count. Backend implementations
+    /// must additionally validate pipeline-specific native limits before creating the pipeline.
+    /// </summary>
     public void Validate()
     {
         if (!ReferenceEquals(Layout.Device, ComputeShader.Device))
             throw new ArgumentException("Pipeline layout and compute shader must belong to the same graphics device.");
         if (ComputeShader.IsDisposed || Layout.IsDisposed || Layout.Device.IsDisposed)
             throw new ObjectDisposedException(nameof(ComputeShader));
+        Layout.Device.Capabilities.ValidatePipelineLayout(Layout);
         ComputeShader.Description.Validate();
         if (ComputeShader.Description.Stage != GraphicsShaderStage.Compute)
             throw new ArgumentException("A compute pipeline requires a Compute-stage shader.", nameof(ComputeShader));
@@ -663,5 +943,7 @@ public sealed class GraphicsComputePipelineDescription
             throw new GraphicsFeatureNotSupportedException(
                 GraphicsFeature.ComputeShaders,
                 GraphicsFeature.ComputeShaders);
+
+        Layout.Device.Capabilities.ValidateComputeThreadGroupSize(ThreadGroupSize);
     }
 }

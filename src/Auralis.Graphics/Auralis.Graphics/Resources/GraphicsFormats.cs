@@ -17,15 +17,27 @@ public enum GraphicsFormat
     RGBA8SNorm,
     RGBA8UInt,
     RGBA8SInt,
+    R10G10B10A2UNorm,
+    R10G10B10A2UInt,
+    R11G11B10Float,
     BGRA8UNorm,
     BGRA8UNormSrgb,
     R16Float,
+    R16UNorm,
+    R16SNorm,
     R16UInt,
     R16SInt,
     RG16Float,
+    RG16UNorm,
+    RG16SNorm,
     RG16UInt,
     RG16SInt,
+    RGB16Float,
+    RGB16UNorm,
+    RGB16SNorm,
     RGBA16Float,
+    RGBA16UNorm,
+    RGBA16SNorm,
     RGBA16UInt,
     RGBA16SInt,
     R32Float,
@@ -40,17 +52,33 @@ public enum GraphicsFormat
     RGBA32SInt,
     D16UNorm,
     D24UNormS8UInt,
+    S8UInt,
     D32Float,
     D32FloatS8UInt,
     BC1UNorm,
     BC1UNormSrgb,
+    BC2UNorm,
+    BC2UNormSrgb,
     BC3UNorm,
     BC3UNormSrgb,
+    BC4UNorm,
+    BC4SNorm,
     BC5UNorm,
+    BC5SNorm,
+    BC6HUFloat,
+    BC6HSFloat,
     BC7UNorm,
     BC7UNormSrgb,
+    ETC2RGB8UNorm,
+    ETC2RGB8UNormSrgb,
+    ETC2RGBA8UNorm,
+    ETC2RGBA8UNormSrgb,
     ASTC4x4UNorm,
-    ASTC4x4UNormSrgb
+    ASTC4x4UNormSrgb,
+    ASTC6x6UNorm,
+    ASTC6x6UNormSrgb,
+    ASTC8x8UNorm,
+    ASTC8x8UNormSrgb
 }
 
 /// <summary>Operations that a device may support for a particular format.</summary>
@@ -66,7 +94,10 @@ public enum GraphicsFormatSupport
     VertexBuffer = 1 << 5,
     CopySource = 1 << 6,
     CopyDestination = 1 << 7,
-    LinearFiltering = 1 << 8
+    LinearFiltering = 1 << 8,
+    ShadingRateAttachment = 1 << 9,
+    /// <summary>Usable as a position vertex format for acceleration-structure triangle geometry.</summary>
+    AccelerationStructureVertex = 1 << 10
 }
 
 /// <summary>Supported sample counts, represented as flags so a format can advertise multiple counts.</summary>
@@ -88,10 +119,16 @@ public enum GraphicsSampleCountFlags
 public enum GraphicsResourceCreationOptions
 {
     None = 0,
+    /// <summary>Requests resource-specific backing storage. With RequireExplicitMemoryBinding, the supplied allocation must be dedicated and bound at offset zero.</summary>
     DedicatedAllocation = 1 << 0,
+    /// <summary>Allows overlapping backing-memory placements when explicit aliasing synchronization is provided.</summary>
     AllowAliasing = 1 << 1,
     /// <summary>Allows views to reinterpret the texture using an explicitly compatible format.</summary>
-    MutableFormat = 1 << 2
+    MutableFormat = 1 << 2,
+    /// <summary>Creates the resource without backing memory; it must be bound before GPU use.</summary>
+    RequireExplicitMemoryBinding = 1 << 3,
+    /// <summary>Creates a resource with sparse residency; pages/tiles must be mapped through the sparse-resource device extension.</summary>
+    SparseResidency = 1 << 4,
 }
 
 /// <summary>Texture resource dimensionality.</summary>
@@ -115,7 +152,8 @@ public enum GraphicsTextureUsage
     CopySource = 1 << 4,
     CopyDestination = 1 << 5,
     /// <summary>Intended for presentation through a compatible presentation surface.</summary>
-    Present = 1 << 6
+    Present = 1 << 6,
+    ShadingRateAttachment = 1 << 7
 }
 
 /// <summary>How a buffer is intended to be accessed by the CPU and GPU.</summary>
@@ -155,5 +193,41 @@ public enum GraphicsBufferUsage
     Storage = 1 << 3,
     IndirectArguments = 1 << 4,
     CopySource = 1 << 5,
-    CopyDestination = 1 << 6
+    CopyDestination = 1 << 6,
+    ShaderBindingTable = 1 << 7,
+    AccelerationStructureBuildInput = 1 << 8,
+    /// <summary>Scratch storage read and written by acceleration-structure build/update commands.</summary>
+    AccelerationStructureScratch = 1 << 9
+}
+
+
+/// <summary>Selectable texture format aspects used consistently by texture views, attachments, and barriers.</summary>
+[Flags]
+public enum GraphicsTextureAspect
+{
+    None = 0,
+    Color = 1 << 0,
+    Depth = 1 << 1,
+    Stencil = 1 << 2
+}
+
+/// <summary>Central format metadata shared by resource, rendering, and synchronization validation.</summary>
+public static class GraphicsFormatInfo
+{
+    /// <summary>Returns the aspects physically represented by a concrete format, or None for Unknown.</summary>
+    public static GraphicsTextureAspect GetAspects(GraphicsFormat format)
+    {
+        if (!Enum.IsDefined(format))
+            throw new ArgumentOutOfRangeException(nameof(format));
+
+        return format switch
+        {
+            GraphicsFormat.D16UNorm or GraphicsFormat.D32Float => GraphicsTextureAspect.Depth,
+            GraphicsFormat.S8UInt => GraphicsTextureAspect.Stencil,
+            GraphicsFormat.D24UNormS8UInt or GraphicsFormat.D32FloatS8UInt =>
+                GraphicsTextureAspect.Depth | GraphicsTextureAspect.Stencil,
+            GraphicsFormat.Unknown => GraphicsTextureAspect.None,
+            _ => GraphicsTextureAspect.Color
+        };
+    }
 }
