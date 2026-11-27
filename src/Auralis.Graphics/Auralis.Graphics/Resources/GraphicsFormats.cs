@@ -119,7 +119,9 @@ public enum GraphicsSampleCountFlags
 public enum GraphicsResourceCreationOptions
 {
     None = 0,
+    /// <summary>Requests resource-specific backing storage. With RequireExplicitMemoryBinding, the supplied allocation must be dedicated and bound at offset zero.</summary>
     DedicatedAllocation = 1 << 0,
+    /// <summary>Allows overlapping backing-memory placements when explicit aliasing synchronization is provided.</summary>
     AllowAliasing = 1 << 1,
     /// <summary>Allows views to reinterpret the texture using an explicitly compatible format.</summary>
     MutableFormat = 1 << 2,

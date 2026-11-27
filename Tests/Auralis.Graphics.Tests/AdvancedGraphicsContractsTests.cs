@@ -229,6 +229,42 @@ public sealed class AdvancedGraphicsTests
     }
 
     [Fact]
+    public void DedicatedExplicitMemoryBindingRequiresDedicatedAllocationAtOffsetZero()
+    {
+        var device = new GraphicsDeviceFactoryTests.TestDevice(
+            GraphicsBackend.Vulkan,
+            GraphicsFeature.None,
+            GraphicsQueueCapabilities.Graphics);
+        GraphicsResourceCreationOptions options =
+            GraphicsResourceCreationOptions.RequireExplicitMemoryBinding |
+            GraphicsResourceCreationOptions.DedicatedAllocation;
+        var bufferDescription = new GraphicsBufferDescription(
+            4096,
+            GraphicsBufferUsage.Storage,
+            CreationOptions: options);
+        var textureDescription = new GraphicsTextureDescription(
+            GraphicsTextureDimension.Texture2D,
+            GraphicsFormat.RGBA8UNorm,
+            64, 64, 1, 1, 1, 1,
+            GraphicsTextureUsage.Sampled,
+            options);
+        bufferDescription.Validate();
+        textureDescription.Validate();
+
+        var requirements = new GraphicsMemoryRequirements(4096, 256, 1, false, false);
+        var buffer = new TestMemoryBindingBuffer(device, bufferDescription);
+        Assert.Throws<ArgumentException>(() =>
+            new GraphicsResourceMemoryBinding(
+                buffer, new TestMemoryBindingAllocation(device, 8192, isDedicated: false), 0)
+                .Validate(requirements));
+
+        var dedicatedAllocation = new TestMemoryBindingAllocation(device, 8192, isDedicated: true);
+        new GraphicsResourceMemoryBinding(buffer, dedicatedAllocation, 0).Validate(requirements);
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new GraphicsResourceMemoryBinding(buffer, dedicatedAllocation, 256).Validate(requirements));
+    }
+
+    [Fact]
     public void ResourceMemoryBindingChecksLifetimeBeforeReadingDescriptions()
     {
         var device = new GraphicsDeviceFactoryTests.TestDevice(
@@ -785,14 +821,15 @@ public sealed class AdvancedGraphicsTests
 
     private sealed class TestMemoryBindingAllocation(
         IGraphicsDevice device,
-        ulong sizeInBytes)
+        ulong sizeInBytes,
+        bool isDedicated = false)
         : GraphicsDeviceObject(device), IGraphicsMemoryAllocation
     {
         public ulong SizeInBytes { get; } = sizeInBytes;
         public ulong OffsetInBytes => 0;
         public uint MemoryTypeIndex => 0;
         public GraphicsMemoryProperty Properties => GraphicsMemoryProperty.DeviceLocal;
-        public bool IsDedicated => false;
+        public bool IsDedicated { get; } = isDedicated;
         public bool IsMapped => false;
 
         public Memory<byte> Map(ulong offset = 0, ulong size = ulong.MaxValue) =>

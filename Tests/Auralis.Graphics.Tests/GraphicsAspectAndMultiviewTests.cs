@@ -64,6 +64,38 @@ public sealed class GraphicsAspectAndMultiviewTests
                 new GraphicsDepthStencilState { StencilTestEnabled = true }));
     }
 
+    [Theory]
+    [InlineData(GraphicsFormat.D16UNorm, GraphicsTextureUsage.ColorAttachment)]
+    [InlineData(GraphicsFormat.D32Float, GraphicsTextureUsage.ColorAttachment)]
+    [InlineData(GraphicsFormat.S8UInt, GraphicsTextureUsage.ColorAttachment)]
+    [InlineData(GraphicsFormat.D24UNormS8UInt, GraphicsTextureUsage.ColorAttachment)]
+    [InlineData(GraphicsFormat.D32FloatS8UInt, GraphicsTextureUsage.ColorAttachment)]
+    [InlineData(GraphicsFormat.D16UNorm, GraphicsTextureUsage.Present)]
+    [InlineData(GraphicsFormat.RGBA8UNorm, GraphicsTextureUsage.DepthStencilAttachment)]
+    [InlineData(GraphicsFormat.D16UNorm, GraphicsTextureUsage.ShadingRateAttachment)]
+    public void TextureDescriptionsRejectUsageAndFormatAspectMismatches(
+        GraphicsFormat format,
+        GraphicsTextureUsage usage)
+    {
+        Assert.Throws<ArgumentException>(() => CreateTexture(format, usage).Validate());
+    }
+
+    [Theory]
+    [InlineData(GraphicsFormat.RGBA8UNorm, GraphicsTextureUsage.ColorAttachment)]
+    [InlineData(GraphicsFormat.RGBA8UNorm, GraphicsTextureUsage.Present)]
+    [InlineData(GraphicsFormat.RGBA8UNorm, GraphicsTextureUsage.ShadingRateAttachment)]
+    [InlineData(GraphicsFormat.D16UNorm, GraphicsTextureUsage.DepthStencilAttachment)]
+    [InlineData(GraphicsFormat.D32Float, GraphicsTextureUsage.DepthStencilAttachment)]
+    [InlineData(GraphicsFormat.S8UInt, GraphicsTextureUsage.DepthStencilAttachment)]
+    [InlineData(GraphicsFormat.D24UNormS8UInt, GraphicsTextureUsage.DepthStencilAttachment)]
+    [InlineData(GraphicsFormat.D32FloatS8UInt, GraphicsTextureUsage.DepthStencilAttachment)]
+    public void TextureDescriptionsAcceptAspectCompatibleAttachmentUsages(
+        GraphicsFormat format,
+        GraphicsTextureUsage usage)
+    {
+        CreateTexture(format, usage).Validate();
+    }
+
     [Fact]
     public void PipelineRejectsColorAndDepthStencilFormatAspectConfusion()
     {

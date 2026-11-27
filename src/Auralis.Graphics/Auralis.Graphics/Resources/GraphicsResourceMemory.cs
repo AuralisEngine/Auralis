@@ -67,12 +67,15 @@ public readonly record struct GraphicsResourceMemoryBinding(
             throw new ArgumentException("Resource and memory allocation must belong to the same device.");
 
         bool requiresExplicitBinding;
+        bool requestsDedicatedAllocation;
         if (Resource is IGraphicsBuffer resourceBuffer)
         {
             GraphicsBufferDescription description = resourceBuffer.Description;
             requirements.Validate(description);
             requiresExplicitBinding =
                 (description.CreationOptions & GraphicsResourceCreationOptions.RequireExplicitMemoryBinding) != 0;
+            requestsDedicatedAllocation =
+                (description.CreationOptions & GraphicsResourceCreationOptions.DedicatedAllocation) != 0;
         }
         else if (Resource is IGraphicsTexture resourceTexture)
         {
@@ -81,6 +84,8 @@ public readonly record struct GraphicsResourceMemoryBinding(
             requirements.Validate();
             requiresExplicitBinding =
                 (description.CreationOptions & GraphicsResourceCreationOptions.RequireExplicitMemoryBinding) != 0;
+            requestsDedicatedAllocation =
+                (description.CreationOptions & GraphicsResourceCreationOptions.DedicatedAllocation) != 0;
         }
         else
         {
@@ -96,8 +101,11 @@ public readonly record struct GraphicsResourceMemoryBinding(
         if (OffsetInBytes > Allocation.SizeInBytes ||
             requirements.SizeInBytes > Allocation.SizeInBytes - OffsetInBytes)
             throw new ArgumentOutOfRangeException(nameof(OffsetInBytes), "Resource placement exceeds the allocation bounds.");
-        if (requirements.RequiresDedicatedAllocation && !Allocation.IsDedicated)
-            throw new ArgumentException("The resource requires a dedicated allocation.");
+        if ((requirements.RequiresDedicatedAllocation || requestsDedicatedAllocation) && !Allocation.IsDedicated)
+            throw new ArgumentException("The resource requires or explicitly requests a dedicated allocation.");
+        if (Allocation.IsDedicated && OffsetInBytes != 0)
+            throw new ArgumentOutOfRangeException(nameof(OffsetInBytes),
+                "A dedicated allocation must be bound at offset zero.");
         if (Allocation.MemoryTypeIndex >= 32 ||
             (requirements.MemoryTypeBits & (1u << (int)Allocation.MemoryTypeIndex)) == 0)
             throw new ArgumentException("The allocation memory type is not compatible with the resource.");

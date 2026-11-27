@@ -37,6 +37,21 @@ public readonly record struct GraphicsTextureDescription(
             throw new ArgumentOutOfRangeException(nameof(ArrayLayers));
         if (Usage == GraphicsTextureUsage.None || (Usage & ~allUsage) != 0)
             throw new ArgumentOutOfRangeException(nameof(Usage));
+
+        GraphicsTextureAspect formatAspects = GraphicsFormatInfo.GetAspects(Format);
+        const GraphicsTextureUsage colorAspectUsages =
+            GraphicsTextureUsage.ColorAttachment |
+            GraphicsTextureUsage.Present |
+            GraphicsTextureUsage.ShadingRateAttachment;
+        if ((Usage & colorAspectUsages) != 0 && formatAspects != GraphicsTextureAspect.Color)
+            throw new ArgumentException(
+                "Color, presentation, and shading-rate usages require a color-aspect texture format.",
+                nameof(Usage));
+        if ((Usage & GraphicsTextureUsage.DepthStencilAttachment) != 0 &&
+            (formatAspects & (GraphicsTextureAspect.Depth | GraphicsTextureAspect.Stencil)) == 0)
+            throw new ArgumentException(
+                "Depth/stencil attachment usage requires a depth or stencil texture format.",
+                nameof(Usage));
         const GraphicsResourceCreationOptions conflictingOptions =
             GraphicsResourceCreationOptions.DedicatedAllocation | GraphicsResourceCreationOptions.AllowAliasing;
         const GraphicsResourceCreationOptions sparseConflicts =
@@ -45,8 +60,6 @@ public readonly record struct GraphicsTextureDescription(
             GraphicsResourceCreationOptions.RequireExplicitMemoryBinding;
         if ((CreationOptions & ~allOptions) != 0 ||
             (CreationOptions & conflictingOptions) == conflictingOptions ||
-            ((CreationOptions & GraphicsResourceCreationOptions.RequireExplicitMemoryBinding) != 0 &&
-             (CreationOptions & GraphicsResourceCreationOptions.DedicatedAllocation) != 0) ||
             ((CreationOptions & GraphicsResourceCreationOptions.SparseResidency) != 0 &&
              (CreationOptions & sparseConflicts) != 0))
             throw new ArgumentOutOfRangeException(nameof(CreationOptions));

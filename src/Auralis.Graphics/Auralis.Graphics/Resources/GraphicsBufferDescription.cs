@@ -44,8 +44,6 @@ public readonly record struct GraphicsBufferDescription(
         if ((CreationOptions & ~allOptions) != 0 ||
             (CreationOptions & (GraphicsResourceCreationOptions.DedicatedAllocation | GraphicsResourceCreationOptions.AllowAliasing)) ==
                 (GraphicsResourceCreationOptions.DedicatedAllocation | GraphicsResourceCreationOptions.AllowAliasing) ||
-            ((CreationOptions & GraphicsResourceCreationOptions.RequireExplicitMemoryBinding) != 0 &&
-             (CreationOptions & GraphicsResourceCreationOptions.DedicatedAllocation) != 0) ||
             ((CreationOptions & GraphicsResourceCreationOptions.SparseResidency) != 0 &&
              (CreationOptions & sparseConflicts) != 0))
             throw new ArgumentOutOfRangeException(nameof(CreationOptions));
