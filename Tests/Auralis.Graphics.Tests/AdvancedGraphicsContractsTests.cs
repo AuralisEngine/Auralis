@@ -360,7 +360,7 @@ public sealed class AdvancedGraphicsTests
             GraphicsTextureDimension.Texture2D, GraphicsFormat.RGBA8UNorm,
             256, 256, 1, 9, 1, 1, GraphicsTextureUsage.Sampled,
             GraphicsResourceCreationOptions.SparseResidency);
-        var requirements = new GraphicsSparseTextureRequirements(64, 64, 1, 65536, 4, 0, 0, 0, false);
+        var requirements = new GraphicsSparseTextureRequirements(64, 64, 1, 65536, 65536, 4, 0, 0, 0, false);
         Assert.Throws<ArgumentException>(() => requirements.Validate(texture));
     }
 
@@ -372,7 +372,7 @@ public sealed class AdvancedGraphicsTests
             256, 256, 1, 9, 1, 1, GraphicsTextureUsage.Sampled,
             GraphicsResourceCreationOptions.SparseResidency);
         var requirements = new GraphicsSparseTextureRequirements(
-            48, 24, 1, 65536, 4, 65536, 0, 0, false);
+            48, 24, 1, 65536, 65536, 4, 65536, 0, 0, false);
 
         requirements.Validate(texture);
     }
@@ -384,7 +384,7 @@ public sealed class AdvancedGraphicsTests
             GraphicsTextureDimension.Texture2D, GraphicsFormat.RGBA8UNorm,
             256, 256, 1, 9, 1, 1, GraphicsTextureUsage.Sampled,
             GraphicsResourceCreationOptions.SparseResidency);
-        var requirements = new GraphicsSparseTextureRequirements(64, 64, 1, 0, 0, 0, 0, 0, false);
+        var requirements = new GraphicsSparseTextureRequirements(64, 64, 1, 0, 65536, 0, 0, 0, 0, false);
 
         Assert.Throws<ArgumentOutOfRangeException>(() => requirements.Validate(texture));
     }
