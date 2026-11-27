@@ -579,7 +579,7 @@ public sealed class GraphicsReviewRegressionTests
         Assert.Throws<ArgumentException>(() => GraphicsRayTracingCommandValidation.ValidateBuild(
             destination, null, misalignedAddress, 0, sizes, GraphicsAccelerationStructureBuildFlags.AllowUpdate,
             ReadOnlySpan<GraphicsRayTracingInstance>.Empty));
-        Assert.Throws<ArgumentException>(() => GraphicsRayTracingCommandValidation.ValidateBuild(
+        Assert.Throws<ArgumentOutOfRangeException>(() => GraphicsRayTracingCommandValidation.ValidateBuild(
             destination, null, undersized, 0, sizes, GraphicsAccelerationStructureBuildFlags.AllowUpdate,
             ReadOnlySpan<GraphicsRayTracingInstance>.Empty));
         Assert.Throws<ArgumentException>(() => GraphicsRayTracingCommandValidation.ValidateBuild(
