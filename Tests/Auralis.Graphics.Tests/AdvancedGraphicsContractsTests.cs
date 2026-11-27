@@ -601,6 +601,8 @@ public sealed class AdvancedGraphicsTests
         : GraphicsDeviceObject(device), IGraphicsPipelineLayout
     {
         public ReadOnlyMemory<IGraphicsBindingLayout> BindingLayouts => ReadOnlyMemory<IGraphicsBindingLayout>.Empty;
+
+        protected override void DisposeCore() { }
     }
 
     private sealed class TestRayTracingPipeline(
@@ -612,6 +614,8 @@ public sealed class AdvancedGraphicsTests
         public string? DebugName => null;
         public IGraphicsPipelineLayout Layout { get; } = layout;
         public GraphicsRayTracingPipelineDescription Description { get; } = description;
+
+        protected override void DisposeCore() { }
     }
 
     private sealed class TestRayTracingShaderTableDevice(
