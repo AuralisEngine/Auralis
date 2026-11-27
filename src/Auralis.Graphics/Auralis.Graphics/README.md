@@ -186,3 +186,6 @@ Multiview is represented by `GraphicsFeature.Multiview`, separate from `Graphics
 
 
 Acceleration-structure synchronization distinguishes three roles: geometry/instance input buffers use `AccelerationStructureBuildInputRead` at the `AccelerationStructureBuild` stage; build scratch buffers use `AccelerationStructureRead` and `AccelerationStructureWrite` at that stage and declare `AccelerationStructureScratch` usage; acceleration-structure storage itself uses those AS read/write intents on the AS resource. The AS read/write access intents are not valid for arbitrary buffers or textures. This reflects the Vulkan synchronization2 distinction between shader-read build inputs and dedicated acceleration-structure access flags for scratch and AS storage; other backends must translate the resource role into their native state/dependency model.
+
+
+Sparse texture requirements and regions use the same `GraphicsTextureAspect` model as texture views, rendering attachments, and barriers. Color, depth, and stencil sparse requirements remain independently queried; opaque metadata tails remain a separate capability rather than a texel aspect.

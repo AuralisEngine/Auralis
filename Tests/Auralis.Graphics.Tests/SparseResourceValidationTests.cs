@@ -40,26 +40,26 @@ public sealed class SparseResourceValidationTests
     {
         var texture = CreateTexture(GraphicsFormat.D24UNormS8UInt);
         var depthRequirements = new GraphicsSparseTextureRequirements(
-            64, 64, 1, 65536, 1, 0, 0, 0, false, GraphicsSparseTextureAspect.Depth);
-        var stencilRequirements = depthRequirements with { Aspect = GraphicsSparseTextureAspect.Stencil };
+            64, 64, 1, 65536, 1, 0, 0, 0, false, GraphicsTextureAspect.Depth);
+        var stencilRequirements = depthRequirements with { Aspect = GraphicsTextureAspect.Stencil };
 
         depthRequirements.Validate(texture.Description);
         stencilRequirements.Validate(texture.Description);
 
         var region = new GraphicsSparseTextureRegion(
-            0, 0, 0, 0, 0, 1, 1, 1, GraphicsSparseTextureAspect.Depth);
+            0, 0, 0, 0, 0, 1, 1, 1, GraphicsTextureAspect.Depth);
         region.Validate(texture.Description, depthRequirements);
 
         Assert.Throws<ArgumentException>(() =>
             region.Validate(texture.Description, stencilRequirements));
         Assert.Throws<ArgumentException>(() =>
-            (depthRequirements with { Aspect = GraphicsSparseTextureAspect.Color }).Validate(texture.Description));
+            (depthRequirements with { Aspect = GraphicsTextureAspect.Color }).Validate(texture.Description));
         Assert.Throws<ArgumentOutOfRangeException>(() =>
-            (depthRequirements with { Aspect = GraphicsSparseTextureAspect.None }).Validate(texture.Description));
+            (depthRequirements with { Aspect = GraphicsTextureAspect.None }).Validate(texture.Description));
         Assert.Throws<ArgumentOutOfRangeException>(() =>
             (depthRequirements with
             {
-                Aspect = GraphicsSparseTextureAspect.Depth | GraphicsSparseTextureAspect.Stencil
+                Aspect = GraphicsTextureAspect.Depth | GraphicsTextureAspect.Stencil
             }).Validate(texture.Description));
     }
 
@@ -197,7 +197,7 @@ public sealed class SparseResourceValidationTests
         public IGraphicsDevice Device { get; } = device;
 
         public GraphicsSparseTextureRequirements GetSparseTextureRequirements(
-            IGraphicsTexture texture, GraphicsSparseTextureAspect aspect) =>
+            IGraphicsTexture texture, GraphicsTextureAspect aspect) =>
             new(64, 64, 1, 65536, texture.Description.MipLevels, 0, 0, 0, false, aspect);
 
         public GraphicsSparseBufferRequirements GetSparseBufferRequirements(IGraphicsBuffer buffer) =>

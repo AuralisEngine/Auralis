@@ -6,19 +6,6 @@ using Auralis.Graphics.Synchronization;
 namespace Auralis.Graphics.Resources;
 
 /// <summary>
-/// Color/depth/stencil aspects with independent sparse requirements. Opaque image metadata is not a
-/// texel aspect and is exposed separately through IGraphicsSparseTextureMetadataDevice.
-/// </summary>
-[Flags]
-public enum GraphicsSparseTextureAspect
-{
-    None = 0,
-    Color = 1 << 0,
-    Depth = 1 << 1,
-    Stencil = 1 << 2
-}
-
-/// <summary>
 /// Backend-reported, aspect-specific sparse texture tile and mip-tail requirements. Tile extents are
 /// opaque backend granularities and are not constrained to powers of two; Vulkan can report non-standard
 /// sparse block dimensions. Opaque metadata has a separate mip-tail contract. Multisample sparse image
@@ -35,7 +22,7 @@ public readonly record struct GraphicsSparseTextureRequirements(
     ulong MipTailOffsetInBytes,
     ulong MipTailStrideInBytes,
     bool SingleMipTail,
-    GraphicsSparseTextureAspect Aspect = GraphicsSparseTextureAspect.Color)
+    GraphicsTextureAspect Aspect = GraphicsTextureAspect.Color)
 {
     public void Validate(in GraphicsTextureDescription texture)
     {
@@ -46,17 +33,10 @@ public readonly record struct GraphicsSparseTextureRequirements(
             throw new ArgumentOutOfRangeException(nameof(TileWidth), "Sparse tile dimensions and tile size must be non-zero.");
         if (texture.Dimension == GraphicsTextureDimension.Texture1D)
             throw new ArgumentException("Sparse texture requirements are not available for 1D textures.");
-        if (!Enum.IsDefined(Aspect) || Aspect == GraphicsSparseTextureAspect.None)
+        if (!Enum.IsDefined(Aspect) || Aspect == GraphicsTextureAspect.None)
             throw new ArgumentOutOfRangeException(nameof(Aspect),
                 "Sparse texture requirements must identify exactly one color, depth, or stencil aspect.");
-        GraphicsSparseTextureAspect availableAspects = texture.Format switch
-        {
-            GraphicsFormat.D16UNorm or GraphicsFormat.D32Float => GraphicsSparseTextureAspect.Depth,
-            GraphicsFormat.S8UInt => GraphicsSparseTextureAspect.Stencil,
-            GraphicsFormat.D24UNormS8UInt or GraphicsFormat.D32FloatS8UInt =>
-                GraphicsSparseTextureAspect.Depth | GraphicsSparseTextureAspect.Stencil,
-            _ => GraphicsSparseTextureAspect.Color
-        };
+        GraphicsTextureAspect availableAspects = GraphicsFormatInfo.GetAspects(texture.Format);
         if ((Aspect & ~availableAspects) != 0)
             throw new ArgumentException(
                 $"Texture format {texture.Format} does not contain sparse aspect(s) {Aspect}.",
@@ -100,7 +80,7 @@ public readonly record struct GraphicsSparseTextureRegion(
     uint TileWidth,
     uint TileHeight,
     uint TileDepth,
-    GraphicsSparseTextureAspect Aspect = GraphicsSparseTextureAspect.Color)
+    GraphicsTextureAspect Aspect = GraphicsTextureAspect.Color)
 {
     public void Validate(in GraphicsTextureDescription texture, in GraphicsSparseTextureRequirements requirements)
     {
@@ -263,7 +243,7 @@ public interface IGraphicsSparseResourceDevice
     IGraphicsDevice Device { get; }
     GraphicsSparseTextureRequirements GetSparseTextureRequirements(
         IGraphicsTexture texture,
-        GraphicsSparseTextureAspect aspect = GraphicsSparseTextureAspect.Color);
+        GraphicsTextureAspect aspect = GraphicsTextureAspect.Color);
     GraphicsSparseBufferRequirements GetSparseBufferRequirements(IGraphicsBuffer buffer);
     /// <summary>Implementations validate the queue and each binding using GraphicsSparseResourceValidation before scheduling.</summary>
     void BindSparseTextures(
@@ -418,7 +398,7 @@ public static class GraphicsSparseResourceValidation
             if (!ReferenceEquals(texture.Device, sparseDevice.Device))
                 throw new ArgumentException("All sparse textures must belong to the sparse resource device.", nameof(bindings));
             if (!Enum.IsDefined(bindings[i].Region.Aspect) ||
-                bindings[i].Region.Aspect == GraphicsSparseTextureAspect.None)
+                bindings[i].Region.Aspect == GraphicsTextureAspect.None)
                 throw new ArgumentOutOfRangeException(nameof(bindings),
                     "Each sparse texture binding must identify exactly one image aspect.");
             GraphicsSparseTextureRequirements requirements =
