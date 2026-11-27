@@ -279,10 +279,9 @@ public readonly record struct GraphicsRayTracingTriangleGeometry(
                 nameof(VertexFormat))
         };
         _ = physicalFormatSize;
-        if (VertexStride < positionDataSize || VertexStride % componentAlignment != 0 ||
-            VertexOffset % componentAlignment != 0)
+        if (VertexStride < positionDataSize || VertexStride % componentAlignment != 0)
             throw new ArgumentOutOfRangeException(nameof(VertexStride),
-                "Triangle vertex stride and offset must satisfy the consumed position size and component alignment.");
+                "Triangle vertex stride must satisfy the consumed position size and component alignment.");
         ulong vertexIntervals = VertexCount - 1UL;
         if (vertexIntervals != 0 &&
             vertexIntervals > (ulong.MaxValue - positionDataSize) / VertexStride)
@@ -304,8 +303,6 @@ public readonly record struct GraphicsRayTracingTriangleGeometry(
             if (!Enum.IsDefined(IndexFormat) || IndexCount == 0 || IndexCount % 3 != 0)
                 throw new ArgumentException("Indexed triangle geometry requires a valid index format and a non-zero multiple-of-three index count.");
             ulong indexElementSize = IndexFormat == GraphicsIndexFormat.UInt16 ? 2UL : 4UL;
-            if (IndexOffset % indexElementSize != 0)
-                throw new ArgumentOutOfRangeException(nameof(IndexOffset));
             GraphicsRayTracingBufferValidation.Validate(
                 IndexBuffer, IndexOffset, checked((ulong)IndexCount * indexElementSize),
                 nameof(IndexBuffer), indexElementSize);
@@ -314,8 +311,6 @@ public readonly record struct GraphicsRayTracingTriangleGeometry(
 
         if (TransformBuffer is not null)
         {
-            if ((TransformOffset & 15) != 0)
-                throw new ArgumentOutOfRangeException(nameof(TransformOffset), "The 3x4 transform must be 16-byte aligned.");
             GraphicsRayTracingBufferValidation.Validate(
                 TransformBuffer, TransformOffset, 48, nameof(TransformBuffer), 16);
             GraphicsRayTracingBufferValidation.RequireSameDevice(VertexBuffer, TransformBuffer, nameof(TransformBuffer));
@@ -334,9 +329,9 @@ public readonly record struct GraphicsRayTracingAabbGeometry(
 {
     public void Validate()
     {
-        if (Count == 0 || Stride < 24 || (Stride & 7) != 0 || (Offset & 7) != 0)
+        if (Count == 0 || Stride < 24 || (Stride & 7) != 0)
             throw new ArgumentOutOfRangeException(nameof(Stride),
-                "AABB geometry requires a non-zero count, an eight-byte-aligned stride of at least 24 bytes, and an eight-byte-aligned offset.");
+                "AABB geometry requires a non-zero count and an eight-byte-aligned stride of at least 24 bytes.");
         ulong aabbIntervals = Count - 1UL;
         if (aabbIntervals != 0 && aabbIntervals > (ulong.MaxValue - 24UL) / Stride)
             throw new ArgumentOutOfRangeException(nameof(Count),
@@ -550,17 +545,12 @@ public readonly record struct GraphicsRayTracingInstanceBuffer(
             throw new ArgumentException("TLAS instance buffers must declare AccelerationStructureBuildInput usage.", nameof(Buffer));
         if (Buffer is not IGraphicsBufferDeviceAddress address || address.DeviceAddress == 0)
             throw new ArgumentException("TLAS instance buffers must expose a non-zero GPU device address.", nameof(Buffer));
-        if ((OffsetInBytes & 15) != 0)
-            throw new ArgumentOutOfRangeException(nameof(OffsetInBytes), "TLAS instance data must be 16-byte aligned.");
         if (InstanceCount > description.MaximumInstanceCount)
             throw new ArgumentOutOfRangeException(nameof(InstanceCount), "Instance count exceeds the TLAS maximum.");
-        ulong byteCount = checked((ulong)InstanceCount * GraphicsRayTracingInstanceData.SizeInBytes);
-        if (OffsetInBytes > Buffer.Description.SizeInBytes ||
-            byteCount > Buffer.Description.SizeInBytes - OffsetInBytes)
-            throw new ArgumentOutOfRangeException(nameof(OffsetInBytes), "TLAS instance data exceeds the buffer bounds.");
-        ulong gpuAddress = checked(address.DeviceAddress + OffsetInBytes);
-        if (gpuAddress == 0 || (gpuAddress & 15) != 0)
-            throw new ArgumentException("The TLAS instance GPU address must be non-zero and 16-byte aligned.", nameof(OffsetInBytes));
+        ulong byteCount = (ulong)InstanceCount * GraphicsRayTracingInstanceData.SizeInBytes;
+        _ = GraphicsBufferAddressRangeValidation.Validate(
+            Buffer, device, OffsetInBytes, byteCount, 16,
+            GraphicsBufferUsage.AccelerationStructureBuildInput, nameof(Buffer), allowEmpty: true);
     }
 }
 
@@ -804,7 +794,7 @@ public static class GraphicsRayTracingCommandValidation
             throw new ObjectDisposedException(nameof(scratchBuffer));
         if (!ReferenceEquals(destination.Device, scratchBuffer.Device))
             throw new ArgumentException("The destination structure and scratch buffer must belong to the same device.", nameof(scratchBuffer));
-        ValidateScratchBuffer(scratchBuffer, scratchOffset, sizes, source is not null);
+        ValidateScratchBuffer(destination.Device, scratchBuffer, scratchOffset, sizes, source is not null);
 
         const GraphicsAccelerationStructureBuildFlags allFlags =
             GraphicsAccelerationStructureBuildFlags.AllowUpdate |
@@ -846,7 +836,7 @@ public static class GraphicsRayTracingCommandValidation
             throw new ObjectDisposedException(nameof(scratchBuffer));
         if (!ReferenceEquals(destination.Device, scratchBuffer.Device))
             throw new ArgumentException("The destination structure and scratch buffer must belong to the same device.", nameof(scratchBuffer));
-        ValidateScratchBuffer(scratchBuffer, scratchOffset, sizes, source is not null);
+        ValidateScratchBuffer(destination.Device, scratchBuffer, scratchOffset, sizes, source is not null);
         const GraphicsAccelerationStructureBuildFlags allFlags =
             GraphicsAccelerationStructureBuildFlags.AllowUpdate |
             GraphicsAccelerationStructureBuildFlags.AllowCompaction |
@@ -894,118 +884,25 @@ public static class GraphicsRayTracingCommandValidation
     }
 
     private static void ValidateScratchBuffer(
+        IGraphicsDevice expectedDevice,
         IGraphicsBuffer scratchBuffer,
         ulong scratchOffset,
         in GraphicsAccelerationStructureSizes sizes,
         bool isUpdate)
     {
         sizes.Validate();
-        scratchBuffer.Description.Validate();
-        if ((scratchBuffer.Description.Usage & GraphicsBufferUsage.Storage) == 0)
-            throw new ArgumentException("Acceleration-structure scratch buffers must declare Storage usage.", nameof(scratchBuffer));
-        if (scratchBuffer is not IGraphicsBufferDeviceAddress address || address.DeviceAddress == 0)
-            throw new ArgumentException("Acceleration-structure scratch buffers must expose a non-zero GPU device address.", nameof(scratchBuffer));
-
         ulong requiredSize = isUpdate ? sizes.UpdateScratchSize : sizes.BuildScratchSize;
-        if (scratchOffset > scratchBuffer.Description.SizeInBytes ||
-            requiredSize > scratchBuffer.Description.SizeInBytes - scratchOffset)
-            throw new ArgumentException(
-                $"The scratch buffer must contain at least {requiredSize} bytes from the requested offset.",
-                nameof(scratchBuffer));
-
-        if (scratchOffset > ulong.MaxValue - address.DeviceAddress)
-            throw new ArgumentOutOfRangeException(nameof(scratchOffset), "Scratch device address overflowed.");
-        ulong scratchAddress = address.DeviceAddress + scratchOffset;
-        if (scratchAddress == 0 || scratchAddress % sizes.ScratchAlignment != 0)
-            throw new ArgumentException(
-                $"The scratch device address must be aligned to {sizes.ScratchAlignment} bytes.",
-                nameof(scratchOffset));
+        _ = GraphicsBufferAddressRangeValidation.Validate(
+            scratchBuffer,
+            expectedDevice,
+            scratchOffset,
+            requiredSize,
+            sizes.ScratchAlignment,
+            GraphicsBufferUsage.Storage | GraphicsBufferUsage.AccelerationStructureScratch,
+            nameof(scratchBuffer),
+            allowEmpty: true);
     }
-
-    private static void ValidateBottomLevelUpdateDescription(
-        GraphicsAccelerationStructureDescription source,
-        GraphicsAccelerationStructureDescription destination)
-    {
-        ReadOnlySpan<GraphicsAccelerationStructureGeometry> sourceGeometries = source.Geometries.Span;
-        ReadOnlySpan<GraphicsAccelerationStructureGeometry> destinationGeometries = destination.Geometries.Span;
-        if (sourceGeometries.Length != destinationGeometries.Length)
-            throw new ArgumentException("A BLAS update must preserve the geometry count.", nameof(destination));
-
-        for (int i = 0; i < sourceGeometries.Length; i++)
-        {
-            GraphicsAccelerationStructureGeometry sourceGeometry = sourceGeometries[i];
-            GraphicsAccelerationStructureGeometry destinationGeometry = destinationGeometries[i];
-            if (sourceGeometry.Type != destinationGeometry.Type ||
-                sourceGeometry.Flags != destinationGeometry.Flags)
-                throw new ArgumentException(
-                    $"A BLAS update cannot change geometry type or flags at index {i}.", nameof(destination));
-            if (GetPrimitiveCount(sourceGeometry) != GetPrimitiveCount(destinationGeometry))
-                throw new ArgumentException(
-                    $"A BLAS update must preserve the primitive count for geometry {i}.", nameof(destination));
-
-            // Vulkan requires the triangle vertex format and index type to remain unchanged.
-            // Buffer addresses, offsets and strides may change when the primitive count is preserved.
-            if (sourceGeometry.Type == GraphicsAccelerationStructureGeometryType.Triangles &&
-                (sourceGeometry.Triangles.VertexFormat != destinationGeometry.Triangles.VertexFormat ||
-                 sourceGeometry.Triangles.IndexFormat != destinationGeometry.Triangles.IndexFormat))
-                throw new ArgumentException(
-                    $"A BLAS update cannot change triangle vertex format or index type for geometry {i}.",
-                    nameof(destination));
-        }
-    }
-
-    private static uint GetPrimitiveCount(in GraphicsAccelerationStructureGeometry geometry) =>
-        geometry.Type == GraphicsAccelerationStructureGeometryType.Triangles
-            ? (geometry.Triangles.IndexBuffer is null
-                ? geometry.Triangles.VertexCount
-                : geometry.Triangles.IndexCount) / 3
-            : geometry.Aabbs.Count;
-
-    public static void ValidateCompactedSizeWrite(
-        IGraphicsAccelerationStructure accelerationStructure,
-        IGraphicsQueryPool queryPool,
-        uint queryIndex)
-    {
-        ArgumentNullException.ThrowIfNull(accelerationStructure);
-        ArgumentNullException.ThrowIfNull(queryPool);
-        if (accelerationStructure.IsDisposed || accelerationStructure.Device.IsDisposed)
-            throw new ObjectDisposedException(nameof(accelerationStructure));
-        if (queryPool.IsDisposed || queryPool.Device.IsDisposed)
-            throw new ObjectDisposedException(nameof(queryPool));
-        if (!ReferenceEquals(accelerationStructure.Device, queryPool.Device))
-            throw new ArgumentException("The acceleration structure and query pool must belong to the same device.", nameof(queryPool));
-        if ((accelerationStructure.Description.Flags & GraphicsAccelerationStructureBuildFlags.AllowCompaction) == 0)
-            throw new ArgumentException("The acceleration structure was not created with AllowCompaction.", nameof(accelerationStructure));
-        if (queryPool.Description.Type != GraphicsQueryType.AccelerationStructureCompactedSize)
-            throw new ArgumentException("Compacted-size writes require an acceleration-structure compacted-size query pool.", nameof(queryPool));
-        if (queryIndex >= queryPool.Description.QueryCount)
-            throw new ArgumentOutOfRangeException(nameof(queryIndex));
-    }
-
-    public static void ValidateCopy(
-        IGraphicsAccelerationStructure source,
-        IGraphicsAccelerationStructure destination,
-        GraphicsAccelerationStructureCopyMode mode)
-    {
-        ArgumentNullException.ThrowIfNull(source);
-        ArgumentNullException.ThrowIfNull(destination);
-        if (source.IsDisposed || source.Device.IsDisposed)
-            throw new ObjectDisposedException(nameof(source));
-        if (destination.IsDisposed || destination.Device.IsDisposed)
-            throw new ObjectDisposedException(nameof(destination));
-        if (!Enum.IsDefined(mode))
-            throw new ArgumentOutOfRangeException(nameof(mode));
-        if (!ReferenceEquals(source.Device, destination.Device))
-            throw new ArgumentException("Source and destination acceleration structures must belong to the same device.");
-        if (ReferenceEquals(source, destination))
-            throw new ArgumentException("An acceleration structure cannot be copied onto itself.", nameof(destination));
-        if (source.IsTopLevel != destination.IsTopLevel)
-            throw new ArgumentException("Source and destination acceleration structures must have the same kind.", nameof(destination));
-        if (mode == GraphicsAccelerationStructureCopyMode.Compact &&
-            (source.Description.Flags & GraphicsAccelerationStructureBuildFlags.AllowCompaction) == 0)
-            throw new ArgumentException("The source acceleration structure was not created with AllowCompaction.", nameof(source));
-    }
-}
+}}
 
 public interface IGraphicsRayTracingCommandList : IGraphicsCommandList
 {

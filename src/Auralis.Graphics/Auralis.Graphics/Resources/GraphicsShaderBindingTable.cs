@@ -39,9 +39,11 @@ public readonly record struct GraphicsShaderBindingTableRegion(
     {
         get
         {
-            if (Buffer is not IGraphicsBufferDeviceAddress address)
-                throw new NotSupportedException("The buffer does not expose a GPU device address.");
-            return checked(address.DeviceAddress + OffsetInBytes);
+            IGraphicsBuffer buffer = Buffer ??
+                throw new InvalidOperationException("An empty shader table region has no GPU device address.");
+            return GraphicsBufferAddressRangeValidation.Validate(
+                buffer, null, OffsetInBytes, SizeInBytes, 1,
+                GraphicsBufferUsage.ShaderBindingTable, nameof(Buffer));
         }
     }
 
@@ -57,25 +59,17 @@ public readonly record struct GraphicsShaderBindingTableRegion(
         IGraphicsBuffer buffer = Buffer ?? throw new ArgumentNullException(nameof(Buffer));
         if (buffer.IsDisposed || buffer.Device.IsDisposed)
             throw new ObjectDisposedException(nameof(Buffer));
-        if (buffer is not IGraphicsBufferDeviceAddress address)
+        if (buffer is not IGraphicsBufferDeviceAddress)
             throw new ArgumentException("Shader binding table buffers must expose a GPU device address.");
-        if ((buffer.Description.Usage & GraphicsBufferUsage.ShaderBindingTable) == 0)
-            throw new ArgumentException("Shader binding table buffers must declare ShaderBindingTable usage.");
         if (StrideInBytes < properties.ShaderGroupHandleSize ||
             StrideInBytes > properties.MaximumShaderGroupStride ||
             StrideInBytes % properties.ShaderGroupHandleAlignment != 0)
             throw new ArgumentOutOfRangeException(nameof(StrideInBytes));
-        if (OffsetInBytes % properties.ShaderGroupBaseAlignment != 0)
-            throw new ArgumentOutOfRangeException(nameof(OffsetInBytes));
-        if (OffsetInBytes > buffer.Description.SizeInBytes ||
-            SizeInBytes > buffer.Description.SizeInBytes - OffsetInBytes ||
-            SizeInBytes % StrideInBytes != 0)
+        if (SizeInBytes % StrideInBytes != 0)
             throw new ArgumentOutOfRangeException(nameof(SizeInBytes));
-        ulong deviceAddress = checked(address.DeviceAddress + OffsetInBytes);
-        if (deviceAddress == 0)
-            throw new ArgumentException("A non-empty shader table region must have a non-zero GPU address.");
-        if (deviceAddress % properties.ShaderGroupBaseAlignment != 0)
-            throw new ArgumentException("The resulting GPU address does not satisfy shader-group base alignment.");
+        _ = GraphicsBufferAddressRangeValidation.Validate(
+            buffer, null, OffsetInBytes, SizeInBytes, properties.ShaderGroupBaseAlignment,
+            GraphicsBufferUsage.ShaderBindingTable, nameof(Buffer));
     }
 }
 
@@ -125,9 +119,28 @@ public readonly record struct GraphicsShaderBindingTable(
         Miss.Validate(properties);
         Hit.Validate(properties);
         Callable.Validate(properties);
+
+        IGraphicsDevice? commonDevice = null;
+        ValidateRegionDevice(RayGeneration, ref commonDevice);
+        ValidateRegionDevice(Miss, ref commonDevice);
+        ValidateRegionDevice(Hit, ref commonDevice);
+        ValidateRegionDevice(Callable, ref commonDevice);
+
         if (RayGeneration.SizeInBytes == 0 || RayGeneration.StrideInBytes == 0 ||
             RayGeneration.SizeInBytes != RayGeneration.StrideInBytes)
             throw new ArgumentException("The ray-generation region must contain exactly one record.");
+    }
+
+    private static void ValidateRegionDevice(
+        in GraphicsShaderBindingTableRegion region,
+        ref IGraphicsDevice? commonDevice)
+    {
+        if (region.Buffer is not { } buffer)
+            return;
+        if (commonDevice is null)
+            commonDevice = buffer.Device;
+        else if (!ReferenceEquals(commonDevice, buffer.Device))
+            throw new ArgumentException("All non-empty shader binding table regions must belong to the same graphics device.");
     }
 }
 
