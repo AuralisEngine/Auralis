@@ -278,6 +278,20 @@ public sealed class GraphicsReviewRegressionTests
     }
 
     [Fact]
+    public void DeviceLimitsRejectInvalidSamplerAnisotropyMetadata()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            (default(GraphicsDeviceLimits) with { MaxSamplerAnisotropy = float.NaN }).Validate());
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            (default(GraphicsDeviceLimits) with { MaxSamplerAnisotropy = float.PositiveInfinity }).Validate());
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            (default(GraphicsDeviceLimits) with { MaxSamplerAnisotropy = -1 }).Validate());
+
+        (default(GraphicsDeviceLimits) with { MaxSamplerAnisotropy = 0 }).Validate();
+        (default(GraphicsDeviceLimits) with { MaxSamplerAnisotropy = 16 }).Validate();
+    }
+
+    [Fact]
     public void DeviceCapabilitiesEnforceBufferAndTextureLimits()
     {
         GraphicsDeviceLimits limits = default(GraphicsDeviceLimits) with

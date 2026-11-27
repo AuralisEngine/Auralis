@@ -40,6 +40,10 @@ public readonly record struct GraphicsDeviceLimits(
     /// <summary>Validates optional alignment limits. Zero denotes an unreported limit.</summary>
     public void Validate()
     {
+        if (!float.IsFinite(MaxSamplerAnisotropy) || MaxSamplerAnisotropy < 0)
+            throw new ArgumentOutOfRangeException(nameof(MaxSamplerAnisotropy),
+                "Maximum sampler anisotropy must be finite and non-negative; zero means unreported.");
+
         if (MinUniformBufferOffsetAlignment != 0 &&
             (MinUniformBufferOffsetAlignment & (MinUniformBufferOffsetAlignment - 1)) != 0)
             throw new ArgumentOutOfRangeException(nameof(MinUniformBufferOffsetAlignment),

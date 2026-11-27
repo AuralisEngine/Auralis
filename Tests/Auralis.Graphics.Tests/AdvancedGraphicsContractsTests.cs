@@ -558,6 +558,36 @@ public sealed class AdvancedGraphicsTests
     }
 
     [Fact]
+    public void ShadingRateRequestValidatesSupportedRateAndDefinedCombiners()
+    {
+        GraphicsShadingRateCapabilities capabilities = new(
+            16, 16, 4, 4,
+            (1UL << (int)GraphicsShadingRate.Rate1x1) |
+            (1UL << (int)GraphicsShadingRate.Rate2x2));
+
+        capabilities.ValidateRequest(
+            GraphicsShadingRate.Rate2x2,
+            GraphicsShadingRateCombiner.Min,
+            GraphicsShadingRateCombiner.Multiply);
+        Assert.Throws<ArgumentException>(() => capabilities.ValidateRequest(
+            GraphicsShadingRate.Rate4x4,
+            GraphicsShadingRateCombiner.Min,
+            GraphicsShadingRateCombiner.Max));
+        Assert.Throws<ArgumentOutOfRangeException>(() => capabilities.ValidateRequest(
+            (GraphicsShadingRate)99,
+            GraphicsShadingRateCombiner.Min,
+            GraphicsShadingRateCombiner.Max));
+        Assert.Throws<ArgumentOutOfRangeException>(() => capabilities.ValidateRequest(
+            GraphicsShadingRate.Rate1x1,
+            (GraphicsShadingRateCombiner)99,
+            GraphicsShadingRateCombiner.Max));
+        Assert.Throws<ArgumentOutOfRangeException>(() => capabilities.ValidateRequest(
+            GraphicsShadingRate.Rate1x1,
+            GraphicsShadingRateCombiner.Min,
+            (GraphicsShadingRateCombiner)99));
+    }
+
+    [Fact]
     public void ShadingRateCapabilitiesRejectUnknownRateBits()
     {
         GraphicsShadingRateCapabilities capabilities = new(

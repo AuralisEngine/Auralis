@@ -38,6 +38,28 @@ public readonly record struct GraphicsShadingRateCapabilities(
     public bool Supports(GraphicsShadingRate rate) =>
         Enum.IsDefined(rate) && (SupportedRatesMask & (1UL << (int)rate)) != 0;
 
+    /// <summary>
+    /// Validates a requested per-draw shading-rate state against the reported rate mask and
+    /// rejects undefined combiner enum values. Backends must still reject defined combiners that
+    /// their native API cannot represent with the common semantics.
+    /// </summary>
+    public void ValidateRequest(
+        GraphicsShadingRate rate,
+        GraphicsShadingRateCombiner primitiveCombiner,
+        GraphicsShadingRateCombiner attachmentCombiner)
+    {
+        Validate();
+        if (!Enum.IsDefined(rate))
+            throw new ArgumentOutOfRangeException(nameof(rate));
+        if (!Supports(rate))
+            throw new ArgumentException($"Shading rate {rate} is not supported by this device.", nameof(rate));
+        if (!Enum.IsDefined(primitiveCombiner))
+            throw new ArgumentOutOfRangeException(nameof(primitiveCombiner));
+        if (!Enum.IsDefined(attachmentCombiner))
+            throw new ArgumentOutOfRangeException(nameof(attachmentCombiner));
+    }
+
+    /// <summary>Validates internal consistency of reported shading-rate capabilities.</summary>
     public void Validate()
     {
         if (AttachmentTileWidth == 0 || AttachmentTileHeight == 0 ||
@@ -68,10 +90,18 @@ public interface IGraphicsVariableRateShadingDevice
 /// </summary>
 public interface IGraphicsShadingRateCommandList : IGraphicsCommandList
 {
+    /// <summary>
+    /// Sets the dynamic rate and combiners. Implementations must validate the request against
+    /// <see cref="GraphicsShadingRateCapabilities.ValidateRequest"/> and enforce native combiner limitations.
+    /// </summary>
     void SetShadingRate(
         GraphicsShadingRate rate,
         GraphicsShadingRateCombiner primitiveCombiner = GraphicsShadingRateCombiner.Passthrough,
         GraphicsShadingRateCombiner attachmentCombiner = GraphicsShadingRateCombiner.Passthrough);
 
+    /// <summary>
+    /// Sets the optional shading-rate image. Non-null views must belong to this device and expose
+    /// the shading-rate-attachment usage and aspect supported by the active backend.
+    /// </summary>
     void SetShadingRateImage(IGraphicsTextureView? view);
 }
