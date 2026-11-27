@@ -875,6 +875,45 @@ public static class GraphicsRayTracingCommandValidation
         }
     }
 
+    private static void ValidateBottomLevelUpdateDescription(
+        GraphicsAccelerationStructureDescription source,
+        GraphicsAccelerationStructureDescription destination)
+    {
+        ReadOnlySpan<GraphicsAccelerationStructureGeometry> sourceGeometries = source.Geometries.Span;
+        ReadOnlySpan<GraphicsAccelerationStructureGeometry> destinationGeometries = destination.Geometries.Span;
+        if (sourceGeometries.Length != destinationGeometries.Length)
+            throw new ArgumentException("A BLAS update must preserve the geometry count.", nameof(destination));
+
+        for (int i = 0; i < sourceGeometries.Length; i++)
+        {
+            GraphicsAccelerationStructureGeometry sourceGeometry = sourceGeometries[i];
+            GraphicsAccelerationStructureGeometry destinationGeometry = destinationGeometries[i];
+            if (sourceGeometry.Type != destinationGeometry.Type ||
+                sourceGeometry.Flags != destinationGeometry.Flags)
+                throw new ArgumentException(
+                    $"A BLAS update cannot change geometry type or flags at index {i}.", nameof(destination));
+            if (GetPrimitiveCount(sourceGeometry) != GetPrimitiveCount(destinationGeometry))
+                throw new ArgumentException(
+                    $"A BLAS update must preserve the primitive count for geometry {i}.", nameof(destination));
+
+            // Vulkan requires the triangle vertex format and index type to remain unchanged.
+            // Buffer addresses, offsets and strides may change when the primitive count is preserved.
+            if (sourceGeometry.Type == GraphicsAccelerationStructureGeometryType.Triangles &&
+                (sourceGeometry.Triangles.VertexFormat != destinationGeometry.Triangles.VertexFormat ||
+                 sourceGeometry.Triangles.IndexFormat != destinationGeometry.Triangles.IndexFormat))
+                throw new ArgumentException(
+                    $"A BLAS update cannot change triangle vertex format or index type for geometry {i}.",
+                    nameof(destination));
+        }
+    }
+
+    private static uint GetPrimitiveCount(in GraphicsAccelerationStructureGeometry geometry) =>
+        geometry.Type == GraphicsAccelerationStructureGeometryType.Triangles
+            ? (geometry.Triangles.IndexBuffer is null
+                ? geometry.Triangles.VertexCount
+                : geometry.Triangles.IndexCount) / 3
+            : geometry.Aabbs.Count;
+
     private static void ValidateScratchBuffer(
         IGraphicsDevice expectedDevice,
         IGraphicsBuffer scratchBuffer,
