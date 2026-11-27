@@ -190,6 +190,77 @@ public sealed class GraphicsAspectAndMultiviewTests
             capabilities.ValidateTextureViewUsage(texture, view, GraphicsTextureUsage.Storage));
     }
 
+    [Fact]
+    public void CubeDimensionLimitIsDistinctFromGeneralTwoDimensionalTextureLimit()
+    {
+        GraphicsFormatCapabilities[] formats =
+        [
+            new(GraphicsFormat.RGBA8UNorm, GraphicsFormatSupport.Sampled, GraphicsSampleCountFlags.One)
+        ];
+        var capabilities = new GraphicsDeviceCapabilities(
+            new GraphicsFeatureSet(GraphicsFeature.None),
+            GraphicsQueueCapabilities.Graphics,
+            default(GraphicsDeviceLimits) with
+            {
+                MaxTextureDimension2D = 4096,
+                MaxCubeTextureDimension = 512
+            },
+            formats);
+        GraphicsTextureDescription cube = new(
+            GraphicsTextureDimension.Cube, GraphicsFormat.RGBA8UNorm,
+            1024, 1024, 1, 1, 6, 1, GraphicsTextureUsage.Sampled);
+
+        Assert.Throws<GraphicsException>(() => capabilities.ValidateTextureDescription(cube));
+        _ = cube with { Width = 512, Height = 512 };
+        capabilities.ValidateTextureDescription(cube with { Width = 512, Height = 512 });
+    }
+
+    [Fact]
+    public void PipelineLayoutBindingSetCountHonorsReportedLimitAndOwnership()
+    {
+        GraphicsDeviceFactoryTests.TestDevice device = CreateDevice();
+        GraphicsDeviceLimits limits = default(GraphicsDeviceLimits) with { MaxBoundDescriptorSets = 1 };
+        GraphicsFormatCapabilities[] formats =
+        [
+            new(GraphicsFormat.RGBA8UNorm, GraphicsFormatSupport.ColorAttachment, GraphicsSampleCountFlags.One)
+        ];
+        var capabilities = new GraphicsDeviceCapabilities(
+            new GraphicsFeatureSet(GraphicsFeature.None),
+            GraphicsQueueCapabilities.Graphics, limits, formats);
+        device = new GraphicsDeviceFactoryTests.TestDevice(
+            GraphicsBackend.Vulkan, GraphicsFeature.None, GraphicsQueueCapabilities.Graphics, capabilities);
+
+        IGraphicsBindingLayout[] oneSet = [new TestBindingLayout(device)];
+        IGraphicsBindingLayout[] twoSets = [new TestBindingLayout(device), new TestBindingLayout(device)];
+        capabilities.ValidatePipelineLayout(new TestPipelineLayout(device, oneSet));
+        Assert.Throws<GraphicsException>(() =>
+            capabilities.ValidatePipelineLayout(new TestPipelineLayout(device, twoSets)));
+
+        var otherDevice = CreateDevice();
+        Assert.Throws<ArgumentException>(() =>
+            capabilities.ValidatePipelineLayout(new TestPipelineLayout(
+                device, [new TestBindingLayout(otherDevice)])));
+    }
+
+    [Fact]
+    public void RenderPipelineHonorsReportedColorAttachmentCount()
+    {
+        GraphicsFormatCapabilities[] formats =
+        [
+            new(GraphicsFormat.RGBA8UNorm, GraphicsFormatSupport.ColorAttachment, GraphicsSampleCountFlags.One)
+        ];
+        var capabilities = new GraphicsDeviceCapabilities(
+            new GraphicsFeatureSet(GraphicsFeature.None),
+            GraphicsQueueCapabilities.Graphics,
+            default(GraphicsDeviceLimits) with { MaxColorAttachments = 1 },
+            formats);
+        var device = new GraphicsDeviceFactoryTests.TestDevice(
+            GraphicsBackend.Vulkan, GraphicsFeature.None, GraphicsQueueCapabilities.Graphics, capabilities);
+        Assert.Throws<GraphicsException>(() => CreatePipeline(
+            device, [GraphicsFormat.RGBA8UNorm, GraphicsFormat.RGBA8UNorm],
+            GraphicsFormat.Unknown, new GraphicsDepthStencilState()));
+    }
+
     private static GraphicsRenderPipelineDescription CreatePipeline(
         IGraphicsDevice device, GraphicsFormat[] colors, GraphicsFormat depth,
         GraphicsDepthStencilState depthStencil) =>
@@ -246,10 +317,19 @@ public sealed class GraphicsAspectAndMultiviewTests
             GraphicsBackend.Vulkan, effectiveFeatures, GraphicsQueueCapabilities.Graphics, capabilities);
     }
 
-    private sealed class TestPipelineLayout(IGraphicsDevice device)
+    private sealed class TestPipelineLayout(
+        IGraphicsDevice device,
+        ReadOnlyMemory<IGraphicsBindingLayout> bindingLayouts = default)
         : GraphicsDeviceObject(device), IGraphicsPipelineLayout
     {
-        public ReadOnlyMemory<IGraphicsBindingLayout> BindingLayouts => ReadOnlyMemory<IGraphicsBindingLayout>.Empty;
+        public ReadOnlyMemory<IGraphicsBindingLayout> BindingLayouts { get; } = bindingLayouts;
+        protected override void DisposeCore() { }
+    }
+
+    private sealed class TestBindingLayout(IGraphicsDevice device)
+        : GraphicsDeviceObject(device), IGraphicsBindingLayout
+    {
+        public GraphicsBindingLayoutDescription Description { get; } = new([]);
         protected override void DisposeCore() { }
     }
 
