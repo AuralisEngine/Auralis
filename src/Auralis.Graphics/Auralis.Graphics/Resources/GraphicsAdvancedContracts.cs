@@ -902,7 +902,7 @@ public static class GraphicsRayTracingCommandValidation
             nameof(scratchBuffer),
             allowEmpty: true);
     }
-}}
+}
 
 public interface IGraphicsRayTracingCommandList : IGraphicsCommandList
 {

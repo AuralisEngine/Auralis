@@ -110,11 +110,12 @@ public readonly record struct GraphicsDescriptorIndexingCapabilities(
     bool UniformBufferUpdateAfterBind,
     bool SampledImageUpdateAfterBind,
     bool StorageImageUpdateAfterBind,
-    bool StorageBufferUpdateAfterBind)
+    bool StorageBufferUpdateAfterBind,
+    bool ZeroVariableDescriptorCount = false)
 {
     public bool HasAny => PartiallyBound || UpdateUnusedWhilePending || VariableDescriptorCount ||
         UniformBufferUpdateAfterBind || SampledImageUpdateAfterBind ||
-        StorageImageUpdateAfterBind || StorageBufferUpdateAfterBind;
+        StorageImageUpdateAfterBind || StorageBufferUpdateAfterBind || ZeroVariableDescriptorCount;
 
     public bool Includes(GraphicsDescriptorIndexingCapabilities required) =>
         (!required.PartiallyBound || PartiallyBound) &&
@@ -123,7 +124,8 @@ public readonly record struct GraphicsDescriptorIndexingCapabilities(
         (!required.UniformBufferUpdateAfterBind || UniformBufferUpdateAfterBind) &&
         (!required.SampledImageUpdateAfterBind || SampledImageUpdateAfterBind) &&
         (!required.StorageImageUpdateAfterBind || StorageImageUpdateAfterBind) &&
-        (!required.StorageBufferUpdateAfterBind || StorageBufferUpdateAfterBind);
+        (!required.StorageBufferUpdateAfterBind || StorageBufferUpdateAfterBind) &&
+        (!required.ZeroVariableDescriptorCount || ZeroVariableDescriptorCount);
 
     public GraphicsDescriptorIndexingCapabilities MissingFrom(GraphicsDescriptorIndexingCapabilities requested) =>
         new(
@@ -133,7 +135,8 @@ public readonly record struct GraphicsDescriptorIndexingCapabilities(
             requested.UniformBufferUpdateAfterBind && !UniformBufferUpdateAfterBind,
             requested.SampledImageUpdateAfterBind && !SampledImageUpdateAfterBind,
             requested.StorageImageUpdateAfterBind && !StorageImageUpdateAfterBind,
-            requested.StorageBufferUpdateAfterBind && !StorageBufferUpdateAfterBind);
+            requested.StorageBufferUpdateAfterBind && !StorageBufferUpdateAfterBind,
+            requested.ZeroVariableDescriptorCount && !ZeroVariableDescriptorCount);
 }
 
 /// <summary>Logical role used to request a command-capable queue.</summary>

@@ -4,19 +4,16 @@ using Auralis.Graphics.Resources;
 namespace Auralis.Graphics.Pipelines;
 
 /// <summary>Runtime descriptor count for a variable-count binding in a layout.</summary>
-public readonly record struct GraphicsVariableDescriptorCount(uint Binding, uint Count)
-{
-    public void Validate()
-    {
-        if (Count == 0)
-            throw new ArgumentOutOfRangeException(nameof(Count));
-    }
-}
+/// <summary>
+/// Runtime descriptor count for a variable-count binding. Zero is structurally valid and represents
+/// an empty variable descriptor array; device support is checked against enabled descriptor-indexing capabilities.
+/// </summary>
+public readonly record struct GraphicsVariableDescriptorCount(uint Binding, uint Count);
 
 /// <summary>
-/// Optional device extension for descriptor indexing and bindless binding sets. The supplied counts must match
-/// exactly the variable-count bindings in the layout. Implementations must validate the layout against their
-/// enabled GraphicsDescriptorIndexingCapabilities before creating a set; Validate() alone checks only structural rules.
+/// Optional device extension for descriptor indexing and bindless binding sets. Supplied counts must match exactly
+/// the variable-count bindings and not exceed each declared maximum. Implementations must use the device-aware
+/// ValidateVariableCounts overload before allocation; zero requires the ZeroVariableDescriptorCount capability.
 /// </summary>
 public interface IGraphicsDescriptorIndexingDevice
 {

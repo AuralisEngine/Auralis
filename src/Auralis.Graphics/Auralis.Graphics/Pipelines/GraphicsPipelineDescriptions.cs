@@ -84,7 +84,6 @@ public sealed class GraphicsBindingLayoutDescription
 
         for (int i = 0; i < variableCounts.Length; i++)
         {
-            variableCounts[i].Validate();
             bool found = false;
             uint maximumCount = 0;
             for (int j = 0; j < _entries.Length; j++)
@@ -108,6 +107,25 @@ public sealed class GraphicsBindingLayoutDescription
                 if (variableCounts[j].Binding == variableCounts[i].Binding)
                     throw new ArgumentException($"Runtime count for binding {variableCounts[i].Binding} is duplicated.", nameof(variableCounts));
             }
+        }
+    }
+
+    /// <summary>
+    /// Validates variable descriptor allocation counts against structural layout rules and logical-device capabilities.
+    /// Zero is accepted only when the device explicitly reports ZeroVariableDescriptorCount as enabled.
+    /// </summary>
+    public void ValidateVariableCounts(
+        ReadOnlySpan<GraphicsVariableDescriptorCount> variableCounts,
+        GraphicsDeviceCapabilities capabilities)
+    {
+        ArgumentNullException.ThrowIfNull(capabilities);
+        ValidateVariableCounts(variableCounts);
+        for (int i = 0; i < variableCounts.Length; i++)
+        {
+            if (variableCounts[i].Count == 0 &&
+                !capabilities.DescriptorIndexing.ZeroVariableDescriptorCount)
+                throw new GraphicsException(
+                    "A zero-sized variable descriptor allocation is not enabled on this logical device.");
         }
     }
 
