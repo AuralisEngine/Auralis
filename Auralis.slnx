@@ -11,6 +11,9 @@
   </Folder>
   <Folder Name="/src/Auralis.Editor/" />
   <Folder Name="/src/Auralis.Graphics/">
+    <Project Path="src/Auralis.Graphics/Auralis.Graphics.Direct3D12/Auralis.Graphics.Direct3D12.csproj" Id="3f1caa77-de68-416c-bba8-09c3c4d6466e" />
+    <Project Path="src/Auralis.Graphics/Auralis.Graphics.Metal/Auralis.Graphics.Metal.csproj" Id="abe47771-d9fd-454f-ad8b-dcc09eb75b05" />
+    <Project Path="src/Auralis.Graphics/Auralis.Graphics.Vulkan/Auralis.Graphics.Vulkan.csproj" Id="58893958-e57d-472a-8a86-2dd63f05c370" />
     <Project Path="src/Auralis.Graphics/Auralis.Graphics/Auralis.Graphics.csproj" Id="e95ca756-370e-4c75-bd7d-3a06259cb1eb" />
   </Folder>
   <Folder Name="/src/Auralis.Memory/" />

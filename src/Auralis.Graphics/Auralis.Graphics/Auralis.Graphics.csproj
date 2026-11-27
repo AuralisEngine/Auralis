@@ -7,11 +7,13 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Remove="Backends\**" />
+    <EmbeddedResource Remove="Backends\**" />
+    <None Remove="Backends\**" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Folder Include="Abstractions\" />
-    <Folder Include="Backends\Direct3D12\" />
-    <Folder Include="Backends\Metal\" />
-    <Folder Include="Backends\OpenGL\" />
-    <Folder Include="Backends\Vulkan\" />
     <Folder Include="Devices\" />
     <Folder Include="Commands\" />
     <Folder Include="Presentation\" />
