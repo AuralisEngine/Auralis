@@ -17,6 +17,7 @@ public readonly record struct GraphicsSparseTextureRequirements(
     uint TileHeight,
     uint TileDepth,
     ulong TileSizeInBytes,
+    ulong AllocationAlignment,
     uint FirstMipTailLevel,
     ulong MipTailSizeInBytes,
     ulong MipTailOffsetInBytes,
@@ -31,6 +32,9 @@ public readonly record struct GraphicsSparseTextureRequirements(
             throw new ArgumentException("The texture must be created with SparseResidency.", nameof(texture));
         if (TileWidth == 0 || TileHeight == 0 || TileDepth == 0 || TileSizeInBytes == 0)
             throw new ArgumentOutOfRangeException(nameof(TileWidth), "Sparse tile dimensions and tile size must be non-zero.");
+        if (AllocationAlignment == 0 || (AllocationAlignment & (AllocationAlignment - 1)) != 0)
+            throw new ArgumentOutOfRangeException(nameof(AllocationAlignment),
+                "Sparse texture allocation alignment must be a non-zero power of two.");
         if (texture.Dimension == GraphicsTextureDimension.Texture1D)
             throw new ArgumentException("Sparse texture requirements are not available for 1D textures.");
         if (!Enum.IsDefined(Aspect) || Aspect == GraphicsTextureAspect.None)
@@ -54,10 +58,12 @@ public readonly record struct GraphicsSparseTextureRequirements(
         if (!SingleMipTail && MipTailSizeInBytes != 0 && texture.ArrayLayers > 1 &&
             MipTailStrideInBytes < MipTailSizeInBytes)
             throw new ArgumentException("Per-layer mip-tail stride cannot be smaller than the mip-tail size.");
-        if (MipTailSizeInBytes != 0 && texture.ArrayLayers > 1 && !SingleMipTail)
+        if (MipTailSizeInBytes != 0)
         {
-            ulong lastLayer = texture.ArrayLayers - 1UL;
-            if (MipTailStrideInBytes != 0 &&
+            ulong lastLayer = SingleMipTail || texture.ArrayLayers == 1
+                ? 0
+                : texture.ArrayLayers - 1UL;
+            if (lastLayer != 0 && MipTailStrideInBytes != 0 &&
                 lastLayer > (ulong.MaxValue - MipTailOffsetInBytes) / MipTailStrideInBytes)
                 throw new ArgumentOutOfRangeException(nameof(MipTailStrideInBytes),
                     "Per-layer mip-tail offsets exceed the addressable byte range.");
@@ -84,6 +90,7 @@ public readonly record struct GraphicsSparseTextureRegion(
 {
     public void Validate(in GraphicsTextureDescription texture, in GraphicsSparseTextureRequirements requirements)
     {
+        requirements.Validate(texture);
         if (Aspect != requirements.Aspect)
             throw new ArgumentException("Sparse texture region aspect must match the requirements used to validate it.", nameof(Aspect));
         if (MipLevel >= texture.MipLevels || MipLevel >= requirements.FirstMipTailLevel)
@@ -122,11 +129,11 @@ public readonly record struct GraphicsSparseTextureBinding(
         ArgumentNullException.ThrowIfNull(Texture);
         if (Texture.IsDisposed || Texture.Device.IsDisposed)
             throw new ObjectDisposedException(nameof(Texture));
-        requirements.Validate(Texture.Description);
-        if (Region.Aspect != requirements.Aspect)
-            throw new ArgumentException("Sparse texture binding aspect must match the backend requirements.", nameof(Region));
         if (IsMipTail)
         {
+            requirements.Validate(Texture.Description);
+            if (Region.Aspect != requirements.Aspect)
+                throw new ArgumentException("Sparse texture binding aspect must match the backend requirements.", nameof(Region));
             if (requirements.MipTailSizeInBytes == 0)
                 throw new ArgumentException("This texture has no mip tail.");
             if (Region.MipLevel != requirements.FirstMipTailLevel ||
@@ -155,8 +162,10 @@ public readonly record struct GraphicsSparseTextureBinding(
             throw new ArgumentException("Sparse texture and allocation must belong to the same live device.");
         if (AllocationOffsetInBytes > Allocation.SizeInBytes)
             throw new ArgumentOutOfRangeException(nameof(AllocationOffsetInBytes));
-        if (AllocationOffsetInBytes % requirements.TileSizeInBytes != 0)
-            throw new ArgumentException("Sparse mapping allocation offsets must satisfy tile-size alignment.", nameof(AllocationOffsetInBytes));
+        if (AllocationOffsetInBytes % requirements.AllocationAlignment != 0)
+            throw new ArgumentException(
+                "Sparse mapping allocation offsets must satisfy the backend-reported allocation alignment.",
+                nameof(AllocationOffsetInBytes));
         ulong requiredSize;
         if (IsMipTail)
         {
@@ -388,9 +397,14 @@ public static class GraphicsSparseResourceValidation
     public static void ValidateTextureBindings(
         IGraphicsSparseResourceDevice sparseDevice,
         IGraphicsQueue queue,
-        ReadOnlySpan<GraphicsSparseTextureBinding> bindings)
+        ReadOnlySpan<GraphicsSparseTextureBinding> bindings,
+        IGraphicsFence? waitFence = null,
+        ulong waitValue = 0,
+        IGraphicsFence? signalFence = null,
+        ulong signalValue = 0)
     {
         ValidateBindingQueue(sparseDevice, queue);
+        ValidateSynchronization(sparseDevice.Device, waitFence, waitValue, signalFence, signalValue);
         for (int i = 0; i < bindings.Length; i++)
         {
             IGraphicsTexture texture = bindings[i].Texture ??
@@ -411,9 +425,14 @@ public static class GraphicsSparseResourceValidation
     public static void ValidateBufferBindings(
         IGraphicsSparseResourceDevice sparseDevice,
         IGraphicsQueue queue,
-        ReadOnlySpan<GraphicsSparseBufferBinding> bindings)
+        ReadOnlySpan<GraphicsSparseBufferBinding> bindings,
+        IGraphicsFence? waitFence = null,
+        ulong waitValue = 0,
+        IGraphicsFence? signalFence = null,
+        ulong signalValue = 0)
     {
         ValidateBindingQueue(sparseDevice, queue);
+        ValidateSynchronization(sparseDevice.Device, waitFence, waitValue, signalFence, signalValue);
         for (int i = 0; i < bindings.Length; i++)
         {
             IGraphicsBuffer buffer = bindings[i].Buffer ??
@@ -429,14 +448,64 @@ public static class GraphicsSparseResourceValidation
         IGraphicsSparseTextureMetadataDevice sparseDevice,
         IGraphicsQueue queue,
         ReadOnlySpan<GraphicsSparseTextureMetadataBinding> bindings,
-        in GraphicsSparseTextureMetadataRequirements requirements)
+        IGraphicsFence? waitFence = null,
+        ulong waitValue = 0,
+        IGraphicsFence? signalFence = null,
+        ulong signalValue = 0)
     {
         ValidateBindingQueue(sparseDevice, queue);
+        ValidateSynchronization(sparseDevice.Device, waitFence, waitValue, signalFence, signalValue);
         for (int i = 0; i < bindings.Length; i++)
         {
-            bindings[i].Validate(requirements);
-            if (!ReferenceEquals(bindings[i].Texture.Device, sparseDevice.Device))
+            IGraphicsTexture texture = bindings[i].Texture ??
+                throw new ArgumentException("Sparse metadata bindings cannot contain a null texture.", nameof(bindings));
+            if (!ReferenceEquals(texture.Device, sparseDevice.Device))
                 throw new ArgumentException("All metadata textures must belong to the sparse resource device.", nameof(bindings));
+            GraphicsSparseTextureMetadataRequirements requirements =
+                sparseDevice.GetSparseTextureMetadataRequirements(texture);
+            bindings[i].Validate(requirements);
         }
+    }
+
+    /// <summary>
+    /// Validates timeline-fence dependencies supplied to a sparse binding operation.
+    /// Fence objects must be live and owned by the sparse device; a single fence cannot be
+    /// waited at a value greater than or equal to the value signaled by that same operation.
+    /// </summary>
+    public static void ValidateSynchronization(
+        IGraphicsDevice device,
+        IGraphicsFence? waitFence,
+        ulong waitValue,
+        IGraphicsFence? signalFence,
+        ulong signalValue)
+    {
+        ArgumentNullException.ThrowIfNull(device);
+        if (device.IsDisposed)
+            throw new ObjectDisposedException(nameof(device));
+        if (waitFence is null && waitValue != 0)
+            throw new ArgumentException("A non-zero wait value requires a wait fence.", nameof(waitValue));
+        if (signalFence is null && signalValue != 0)
+            throw new ArgumentException("A non-zero signal value requires a signal fence.", nameof(signalValue));
+        if (waitFence is not null)
+        {
+            if (waitFence.IsDisposed || waitFence.Device.IsDisposed)
+                throw new ObjectDisposedException(nameof(waitFence));
+            if (!ReferenceEquals(waitFence.Device, device))
+                throw new ArgumentException("The sparse wait fence must belong to the sparse device.", nameof(waitFence));
+        }
+        if (signalFence is not null)
+        {
+            if (signalFence.IsDisposed || signalFence.Device.IsDisposed)
+                throw new ObjectDisposedException(nameof(signalFence));
+            if (!ReferenceEquals(signalFence.Device, device))
+                throw new ArgumentException("The sparse signal fence must belong to the sparse device.", nameof(signalFence));
+            if (signalValue == 0)
+                throw new ArgumentOutOfRangeException(nameof(signalValue),
+                    "Timeline fence signal values must be non-zero.");
+        }
+        if (waitFence is not null && ReferenceEquals(waitFence, signalFence) && signalValue <= waitValue)
+            throw new ArgumentException(
+                "A sparse operation cannot signal the same timeline fence at a value not greater than its wait value.",
+                nameof(signalValue));
     }
 }

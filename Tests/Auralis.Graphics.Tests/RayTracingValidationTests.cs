@@ -128,7 +128,7 @@ public sealed class RayTracingValidationTests
             }
         };
         var misaligned = new TestAccelerationStructure(device, description, 0x8001);
-        var overflowing = new TestAccelerationStructure(device, description, ulong.MaxValue - 15);
+        var overflowing = new TestAccelerationStructure(device, description, ulong.MaxValue - 255);
         var scratch = new TestBuffer(device,
             new GraphicsBufferDescription(512, GraphicsBufferUsage.AccelerationStructureScratch), 0x10000);
         var sizes = new GraphicsAccelerationStructureSizes(1024, 256, 128, 256, 256);

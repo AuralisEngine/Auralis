@@ -26,6 +26,31 @@ public sealed class SparseResourceValidationTests
     }
 
     [Fact]
+    public void SparseFenceDependenciesValidateDeviceOwnershipLifetimeAndTimelineValues()
+    {
+        var device = CreateDevice(GraphicsFeature.SparseResources);
+        var otherDevice = CreateDevice(GraphicsFeature.SparseResources);
+        var wait = new TestFence(device);
+        var signal = new TestFence(device);
+
+        GraphicsSparseResourceValidation.ValidateSynchronization(device, wait, 2, signal, 3);
+        Assert.Throws<ArgumentException>(() =>
+            GraphicsSparseResourceValidation.ValidateSynchronization(device, null, 1, null, 0));
+        Assert.Throws<ArgumentException>(() =>
+            GraphicsSparseResourceValidation.ValidateSynchronization(device, null, 0, null, 1));
+        Assert.Throws<ArgumentException>(() =>
+            GraphicsSparseResourceValidation.ValidateSynchronization(device, wait, 3, wait, 3));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            GraphicsSparseResourceValidation.ValidateSynchronization(device, null, 0, signal, 0));
+        Assert.Throws<ArgumentException>(() =>
+            GraphicsSparseResourceValidation.ValidateSynchronization(device, wait, 1, new TestFence(otherDevice), 2));
+
+        wait.Dispose();
+        Assert.Throws<ObjectDisposedException>(() =>
+            GraphicsSparseResourceValidation.ValidateSynchronization(device, wait, 0, null, 0));
+    }
+
+    [Fact]
     public void SparseBindingRejectsDeviceWithoutSparseResourcesFeature()
     {
         var device = CreateDevice(GraphicsFeature.None);
@@ -40,7 +65,7 @@ public sealed class SparseResourceValidationTests
     {
         var texture = CreateTexture(GraphicsFormat.D24UNormS8UInt);
         var depthRequirements = new GraphicsSparseTextureRequirements(
-            64, 64, 1, 65536, 1, 0, 0, 0, false, GraphicsTextureAspect.Depth);
+            64, 64, 1, 65536, 65536, 1, 0, 0, 0, false, GraphicsTextureAspect.Depth);
         var stencilRequirements = depthRequirements with { Aspect = GraphicsTextureAspect.Stencil };
 
         depthRequirements.Validate(texture.Description);
@@ -61,6 +86,16 @@ public sealed class SparseResourceValidationTests
             {
                 Aspect = GraphicsTextureAspect.Depth | GraphicsTextureAspect.Stencil
             }).Validate(texture.Description));
+
+        var singleLayerTexture = CreateTexture(GraphicsFormat.RGBA8UNorm);
+        var overflowingSingleTail = new GraphicsSparseTextureRequirements(
+            64, 64, 1, 65536, 65536, 1, 16, ulong.MaxValue - 8, 0, true);
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            overflowingSingleTail.Validate(singleLayerTexture.Description));
+
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new GraphicsSparseTextureRegion(0, 0, 0, 0, 0, 1, 1, 1)
+                .Validate(texture.Description, depthRequirements with { TileWidth = 0 }));
     }
 
     [Fact]
@@ -112,7 +147,7 @@ public sealed class SparseResourceValidationTests
             256, 256, 1, 9, 4, 1, GraphicsTextureUsage.Sampled,
             GraphicsResourceCreationOptions.SparseResidency);
         var requirements = new GraphicsSparseTextureRequirements(
-            64, 64, 1, 65536, 1, 16, ulong.MaxValue - 8, 16, false);
+            64, 64, 1, 65536, 65536, 1, 16, ulong.MaxValue - 8, 16, false);
 
         Assert.Throws<ArgumentOutOfRangeException>(() => requirements.Validate(texture));
     }
@@ -161,6 +196,41 @@ public sealed class SparseResourceValidationTests
     }
 
     [Fact]
+    public void SparseMetadataValidationFetchesRequirementsPerTexture()
+    {
+        var device = CreateDevice(GraphicsFeature.SparseResources);
+        var sparseDevice = new TestSparseDevice(device);
+        var singleLayer = CreateTexture(GraphicsFormat.RGBA8UNorm, device);
+        var arrayTexture = CreateTexture(GraphicsFormat.RGBA8UNorm, device, layers: 4);
+        GraphicsSparseTextureMetadataBinding[] bindings =
+        [
+            new(singleLayer, 0, null, 0),
+            new(arrayTexture, 3, null, 0)
+        ];
+
+        GraphicsSparseResourceValidation.ValidateTextureMetadataBindings(
+            sparseDevice, new SparseQueue(device), bindings);
+    }
+
+    [Fact]
+    public void SparseTextureAllocationOffsetsUseReportedAlignmentInsteadOfTileSize()
+    {
+        var device = CreateDevice(GraphicsFeature.SparseResources);
+        var texture = CreateTexture(GraphicsFormat.RGBA8UNorm, device);
+        var allocation = new TestMemoryAllocation(device, 8192);
+        var requirements = new GraphicsSparseTextureRequirements(
+            64, 64, 1, 4096, 256, texture.Description.MipLevels,
+            0, 0, 0, false);
+        var binding = new GraphicsSparseTextureBinding(
+            texture,
+            new GraphicsSparseTextureRegion(0, 0, 0, 0, 0, 1, 1, 1),
+            allocation,
+            256);
+
+        binding.Validate(requirements);
+    }
+
+    [Fact]
     public void SparseQueueValidationRejectsMetadataTexturesFromAnotherDevice()
     {
         var device = CreateDevice(GraphicsFeature.SparseResources);
@@ -172,7 +242,7 @@ public sealed class SparseResourceValidationTests
 
         Assert.Throws<ArgumentException>(() =>
             GraphicsSparseResourceValidation.ValidateTextureMetadataBindings(
-                sparseDevice, new SparseQueue(device), [binding], requirements));
+                sparseDevice, new SparseQueue(device), [binding]));
     }
 
     private static GraphicsDeviceFactoryTests.TestDevice CreateDevice(GraphicsFeature features) =>
@@ -198,13 +268,15 @@ public sealed class SparseResourceValidationTests
 
         public GraphicsSparseTextureRequirements GetSparseTextureRequirements(
             IGraphicsTexture texture, GraphicsTextureAspect aspect) =>
-            new(64, 64, 1, 65536, texture.Description.MipLevels, 0, 0, 0, false, aspect);
+            new(64, 64, 1, 65536, 65536, texture.Description.MipLevels, 0, 0, 0, false, aspect);
 
         public GraphicsSparseBufferRequirements GetSparseBufferRequirements(IGraphicsBuffer buffer) =>
             new(65536, 65536);
 
         public GraphicsSparseTextureMetadataRequirements GetSparseTextureMetadataRequirements(IGraphicsTexture texture) =>
-            new(4096, 0, 0, 256, true);
+            texture.Description.ArrayLayers > 1
+                ? new(1024, 4096, 2048, 256, false)
+                : new(4096, 0, 0, 256, true);
 
         public void BindSparseTextures(
             IGraphicsSparseBindingQueue queue,
@@ -231,6 +303,21 @@ public sealed class SparseResourceValidationTests
             ulong signalValue = 0) { }
     }
 
+    private sealed class TestMemoryAllocation(IGraphicsDevice device, ulong sizeInBytes)
+        : GraphicsDeviceObject(device), IGraphicsMemoryAllocation
+    {
+        public ulong SizeInBytes { get; } = sizeInBytes;
+        public ulong OffsetInBytes => 0;
+        public uint MemoryTypeIndex => 0;
+        public GraphicsMemoryProperty Properties => GraphicsMemoryProperty.DeviceLocal;
+        public bool IsDedicated => false;
+        public bool IsMapped => false;
+        public Memory<byte> Map(ulong offset = 0, ulong size = ulong.MaxValue) =>
+            throw new NotSupportedException();
+        public void Unmap() => throw new NotSupportedException();
+        protected override void DisposeCore() { }
+    }
+
     private sealed class TestBuffer(
         IGraphicsDevice device,
         GraphicsBufferDescription description) : GraphicsDeviceObject(device), IGraphicsBuffer
@@ -240,6 +327,16 @@ public sealed class SparseResourceValidationTests
         public Memory<byte> Map(GraphicsMapMode mode, ulong offset = 0, ulong size = ulong.MaxValue) =>
             throw new NotSupportedException();
         public void Unmap() { }
+        protected override void DisposeCore() { }
+    }
+
+    private sealed class TestFence(IGraphicsDevice device) : GraphicsDeviceObject(device), IGraphicsFence
+    {
+        public ulong CompletedValue => 0;
+        public void Signal(ulong value) { }
+        public bool Wait(ulong value, TimeSpan timeout, CancellationToken cancellationToken = default) => false;
+        public ValueTask<bool> WaitAsync(ulong value, TimeSpan timeout, CancellationToken cancellationToken = default) =>
+            ValueTask.FromResult(false);
         protected override void DisposeCore() { }
     }
 
