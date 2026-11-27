@@ -1,4 +1,5 @@
 using Auralis.Graphics.Devices;
+using System.Runtime.InteropServices;
 
 namespace Auralis.Graphics.Resources;
 
@@ -155,6 +156,26 @@ public readonly record struct GraphicsShaderBindingTableLayout(uint StrideInByte
 /// </summary>
 public static class GraphicsShaderBindingTableWriter
 {
+    /// <summary>
+    /// Returns the maximum handle-storage size for a record count. The writer may use less when
+    /// multiple records reference the same shader group.
+    /// </summary>
+    public static int GetHandleScratchSizeUpperBound(
+        int recordCount,
+        in GraphicsShaderBindingTableProperties properties)
+    {
+        properties.Validate();
+        if (recordCount <= 0)
+            throw new ArgumentOutOfRangeException(nameof(recordCount));
+
+        ulong size = (ulong)recordCount * properties.ShaderGroupHandleSize;
+        if (size > int.MaxValue)
+            throw new ArgumentOutOfRangeException(nameof(recordCount),
+                "The shader-group handle scratch size exceeds the maximum span length.");
+        return (int)size;
+    }
+
+    /// <summary>Computes aligned record layout without allocating temporary storage.</summary>
     public static GraphicsShaderBindingTableLayout GetLayout(
         ReadOnlySpan<GraphicsShaderBindingTableRecord> records,
         in GraphicsShaderBindingTableProperties properties)
@@ -165,9 +186,7 @@ public static class GraphicsShaderBindingTableWriter
 
         uint maximumLocalDataSize = 0;
         for (int i = 0; i < records.Length; i++)
-        {
             maximumLocalDataSize = Math.Max(maximumLocalDataSize, (uint)records[i].LocalData.Length);
-        }
 
         ulong unalignedStride = (ulong)properties.ShaderGroupHandleSize + maximumLocalDataSize;
         ulong alignment = properties.ShaderGroupHandleAlignment;
@@ -177,17 +196,24 @@ public static class GraphicsShaderBindingTableWriter
                 "The shader binding table record exceeds the device's maximum stride.");
 
         uint strideInBytes = (uint)stride;
-        return new GraphicsShaderBindingTableLayout(
-            strideInBytes,
-            stride * (uint)records.Length);
+        return new GraphicsShaderBindingTableLayout(strideInBytes, stride * (uint)records.Length);
     }
 
+    /// <summary>
+    /// Writes shader-group handles and application data without allocating temporary storage.
+    /// <paramref name="groupIndexScratch"/> must contain one index slot per record. The writer sorts
+    /// and compacts this span in place to the unique referenced group indices. <paramref name="handleScratch"/>
+    /// must hold one handle per distinct group (use <see cref="GetHandleScratchSizeUpperBound"/> for
+    /// a conservative capacity). Only contiguous runs of referenced group indices are fetched.
+    /// All scratch and destination spans, and every record's local-data span, must be non-overlapping.
+    /// </summary>
     public static GraphicsShaderBindingTableLayout WriteRecords(
         IGraphicsRayTracingShaderTableDevice device,
         IGraphicsRayTracingPipeline pipeline,
         ReadOnlySpan<GraphicsShaderBindingTableRecord> records,
         Span<byte> destination,
-        Span<byte> handleScratch)
+        Span<byte> handleScratch,
+        Span<uint> groupIndexScratch)
     {
         ArgumentNullException.ThrowIfNull(device);
         ArgumentNullException.ThrowIfNull(pipeline);
@@ -201,50 +227,102 @@ public static class GraphicsShaderBindingTableWriter
         GraphicsShaderBindingTableLayout layout = GetLayout(records, properties);
         if ((ulong)destination.Length < layout.SizeInBytes)
             throw new ArgumentException("Destination storage is too small for the shader binding table.", nameof(destination));
+        if (groupIndexScratch.Length < records.Length)
+            throw new ArgumentException("Group-index scratch storage must hold one index per record.", nameof(groupIndexScratch));
 
         int handleSize = checked((int)properties.ShaderGroupHandleSize);
-        int stride = checked((int)layout.StrideInBytes);
         for (int i = 0; i < records.Length; i++)
         {
             if (records[i].ShaderGroupIndex >= pipeline.Description.Groups.Length)
-                throw new ArgumentOutOfRangeException(nameof(records), "A record references a shader group outside the pipeline.");
+                throw new ArgumentOutOfRangeException(nameof(records),
+                    "A record references a shader group outside the pipeline.");
+            groupIndexScratch[i] = records[i].ShaderGroupIndex;
         }
 
-        uint minimumGroupIndex = uint.MaxValue;
-        uint maximumGroupIndex = 0;
+        Span<uint> groupIndices = groupIndexScratch[..records.Length];
+        Span<byte> destinationSpan = destination[..checked((int)layout.SizeInBytes)];
+        Span<byte> groupIndexBytes = MemoryMarshal.AsBytes(groupIndices);
+        if (destinationSpan.Overlaps(handleScratch) ||
+            destinationSpan.Overlaps(groupIndexBytes) ||
+            handleScratch.Overlaps(groupIndexBytes))
+            throw new ArgumentException("Group-index scratch, handle scratch, and destination storage must not overlap.");
+
+        for (int i = 0; i < records.Length; i++)
+        {
+            ReadOnlySpan<byte> localData = records[i].LocalData.Span;
+            if (localData.Overlaps(destinationSpan) ||
+                localData.Overlaps(handleScratch) ||
+                localData.Overlaps(groupIndexBytes))
+                throw new ArgumentException(
+                    "Record local data must not overlap destination or scratch storage.", nameof(records));
+        }
+
+        groupIndices.Sort();
+        int uniqueGroupCount = 0;
+        for (int i = 0; i < groupIndices.Length; i++)
+        {
+            uint groupIndex = groupIndices[i];
+            if (uniqueGroupCount == 0 || groupIndices[uniqueGroupCount - 1] != groupIndex)
+                groupIndices[uniqueGroupCount++] = groupIndex;
+        }
+        groupIndices = groupIndices[..uniqueGroupCount];
+
+        int requiredHandleBytes = checked(uniqueGroupCount * handleSize);
+        if (handleScratch.Length < requiredHandleBytes)
+            throw new ArgumentException(
+                "Handle scratch storage must hold one handle per distinct referenced shader group.",
+                nameof(handleScratch));
+        Span<byte> handles = handleScratch[..requiredHandleBytes];
+
+        int runStart = 0;
+        while (runStart < uniqueGroupCount)
+        {
+            int runEnd = runStart + 1;
+            while (runEnd < uniqueGroupCount &&
+                   groupIndices[runEnd - 1] != uint.MaxValue &&
+                   groupIndices[runEnd] == groupIndices[runEnd - 1] + 1)
+                runEnd++;
+
+            int handleOffset = checked(runStart * handleSize);
+            int runByteCount = checked((runEnd - runStart) * handleSize);
+            device.GetShaderGroupHandles(
+                pipeline, groupIndices[runStart], handles.Slice(handleOffset, runByteCount));
+            runStart = runEnd;
+        }
+
+        int stride = checked((int)layout.StrideInBytes);
         for (int i = 0; i < records.Length; i++)
         {
             uint groupIndex = records[i].ShaderGroupIndex;
-            minimumGroupIndex = Math.Min(minimumGroupIndex, groupIndex);
-            maximumGroupIndex = Math.Max(maximumGroupIndex, groupIndex);
-        }
+            int groupPosition = BinarySearch(groupIndices, groupIndex);
+            if (groupPosition < 0)
+                throw new InvalidOperationException("The shader-group index was lost while compacting scratch storage.");
 
-        int groupCount = checked((int)(maximumGroupIndex - minimumGroupIndex + 1));
-        int handlesSize = checked(handleSize * groupCount);
-        if (handleScratch.Length < handlesSize)
-            throw new ArgumentException("Handle scratch storage must hold handles from the lowest through highest referenced shader group.", nameof(handleScratch));
-        Span<byte> handles = handleScratch[..handlesSize];
-        Span<byte> destinationSpan = destination[..checked((int)layout.SizeInBytes)];
-        if (handles.Overlaps(destinationSpan))
-            throw new ArgumentException("Handle scratch storage and destination storage must not overlap.");
-        for (int i = 0; i < records.Length; i++)
-        {
-            if (records[i].LocalData.Span.Overlaps(destinationSpan) ||
-                records[i].LocalData.Span.Overlaps(handles))
-                throw new ArgumentException("Record local data must not overlap the destination or handle scratch storage.", nameof(records));
-        }
-
-        device.GetShaderGroupHandles(pipeline, minimumGroupIndex, handles);
-        for (int i = 0; i < records.Length; i++)
-        {
-            GraphicsShaderBindingTableRecord record = records[i];
-            Span<byte> destinationRecord = destination.Slice(checked(i * stride), stride);
+            Span<byte> destinationRecord = destinationSpan.Slice(checked(i * stride), stride);
             destinationRecord.Clear();
-            int handleOffset = checked((int)(record.ShaderGroupIndex - minimumGroupIndex) * handleSize);
-            handles.Slice(handleOffset, handleSize).CopyTo(destinationRecord);
-            record.LocalData.Span.CopyTo(destinationRecord[handleSize..]);
+            handles.Slice(checked(groupPosition * handleSize), handleSize).CopyTo(destinationRecord);
+            records[i].LocalData.Span.CopyTo(destinationRecord[handleSize..]);
         }
 
         return layout;
+    }
+
+    private static int BinarySearch(ReadOnlySpan<uint> sortedValues, uint value)
+    {
+        int low = 0;
+        int high = sortedValues.Length - 1;
+        while (low <= high)
+        {
+            int middle = low + ((high - low) >> 1);
+            uint current = sortedValues[middle];
+            if (current == value)
+                return middle;
+            if (current < value)
+                low = middle + 1;
+            else
+                high = middle - 1;
+        }
+
+        return -1;
     }
 }

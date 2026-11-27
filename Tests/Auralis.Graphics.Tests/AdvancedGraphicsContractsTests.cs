@@ -443,6 +443,55 @@ public sealed class AdvancedGraphicsTests
     }
 
     [Fact]
+    public void ShaderBindingTableWriterFetchesOnlyUniqueReferencedGroupRuns()
+    {
+        var device = new GraphicsDeviceFactoryTests.TestDevice(
+            GraphicsBackend.Vulkan,
+            GraphicsFeature.RayTracing,
+            GraphicsQueueCapabilities.Graphics | GraphicsQueueCapabilities.Compute);
+        var properties = new GraphicsShaderBindingTableProperties(4, 4, 16, 128);
+        var pipelineLayout = new TestRayTracingPipelineLayout(device);
+        GraphicsRayTracingPipelineDescription description = new()
+        {
+            Layout = pipelineLayout,
+            Stages = ReadOnlyMemory<GraphicsRayTracingShaderEntry>.Empty,
+            Groups = new GraphicsRayTracingShaderGroup[100],
+            MaximumRecursionDepth = 1,
+            MaximumPayloadSizeInBytes = 0,
+            MaximumAttributeSizeInBytes = 0
+        };
+        var pipeline = new TestRayTracingPipeline(device, pipelineLayout, description);
+        var tableDevice = new TestRayTracingShaderTableDevice(device, properties);
+        GraphicsShaderBindingTableRecord[] records =
+        [
+            new(2, new byte[] { 0xA1 }),
+            new(99, new byte[] { 0xB2 }),
+            new(2, new byte[] { 0xC3 })
+        ];
+        GraphicsShaderBindingTableLayout layout =
+            GraphicsShaderBindingTableWriter.GetLayout(records, properties);
+        byte[] destination = new byte[checked((int)layout.SizeInBytes)];
+        byte[] handleScratch = new byte[2 * (int)properties.ShaderGroupHandleSize];
+        uint[] groupIndexScratch = new uint[records.Length];
+
+        Assert.Equal(12,
+            GraphicsShaderBindingTableWriter.GetHandleScratchSizeUpperBound(records.Length, properties));
+        GraphicsShaderBindingTableWriter.WriteRecords(
+            tableDevice, pipeline, records, destination, handleScratch, groupIndexScratch);
+
+        Assert.Equal(new (uint FirstGroup, uint GroupCount)[] { (2, 1), (99, 1) },
+            tableDevice.RequestedRanges);
+        Assert.Equal((byte)2, destination[0]);
+        Assert.Equal((byte)0xA1, destination[4]);
+        Assert.Equal((byte)99, destination[8]);
+        Assert.Equal((byte)0xB2, destination[12]);
+        Assert.Equal((byte)2, destination[16]);
+        Assert.Equal((byte)0xC3, destination[20]);
+        Assert.Equal(2u, groupIndexScratch[0]);
+        Assert.Equal(99u, groupIndexScratch[1]);
+    }
+
+    [Fact]
     public void ShaderBindingTableProperties_RequirePowerOfTwoAlignment()
     {
         var properties = new GraphicsShaderBindingTableProperties(32, 24, 64, 4096);
@@ -546,5 +595,61 @@ public sealed class AdvancedGraphicsTests
         };
         Assert.Throws<ArgumentOutOfRangeException>(description.Validate);
     }
+
+
+    private sealed class TestRayTracingPipelineLayout(IGraphicsDevice device)
+        : GraphicsDeviceObject(device), IGraphicsPipelineLayout
+    {
+        public ReadOnlyMemory<IGraphicsBindingLayout> BindingLayouts => ReadOnlyMemory<IGraphicsBindingLayout>.Empty;
+    }
+
+    private sealed class TestRayTracingPipeline(
+        IGraphicsDevice device,
+        IGraphicsPipelineLayout layout,
+        GraphicsRayTracingPipelineDescription description)
+        : GraphicsDeviceObject(device), IGraphicsRayTracingPipeline
+    {
+        public string? DebugName => null;
+        public IGraphicsPipelineLayout Layout { get; } = layout;
+        public GraphicsRayTracingPipelineDescription Description { get; } = description;
+    }
+
+    private sealed class TestRayTracingShaderTableDevice(
+        IGraphicsDevice device,
+        GraphicsShaderBindingTableProperties properties)
+        : IGraphicsRayTracingShaderTableDevice
+    {
+        public IGraphicsDevice Device { get; } = device;
+        public GraphicsShaderBindingTableProperties ShaderBindingTableProperties { get; } = properties;
+        public List<(uint FirstGroup, uint GroupCount)> RequestedRanges { get; } = [];
+
+        public GraphicsAccelerationStructureSizes GetAccelerationStructureSizes(
+            in GraphicsAccelerationStructureDescription description) =>
+            throw new NotSupportedException();
+
+        public IGraphicsAccelerationStructure CreateAccelerationStructure(
+            in GraphicsAccelerationStructureDescription description) =>
+            throw new NotSupportedException();
+
+        public IGraphicsRayTracingPipeline CreateRayTracingPipeline(
+            GraphicsRayTracingPipelineDescription description) =>
+            throw new NotSupportedException();
+
+        public void GetShaderGroupHandles(
+            IGraphicsRayTracingPipeline pipeline,
+            uint firstGroup,
+            Span<byte> destination)
+        {
+            int handleSize = checked((int)ShaderBindingTableProperties.ShaderGroupHandleSize);
+            if (destination.Length % handleSize != 0)
+                throw new ArgumentException("Handle retrieval must request a whole number of handles.", nameof(destination));
+            uint groupCount = (uint)(destination.Length / handleSize);
+            RequestedRanges.Add((firstGroup, groupCount));
+            for (uint group = 0; group < groupCount; group++)
+                destination.Slice(checked((int)group * handleSize), handleSize)
+                    .Fill(checked((byte)(firstGroup + group)));
+        }
+    }
+
 
 }
