@@ -87,7 +87,14 @@ public sealed class SparseResourceValidationTests
                 Aspect = GraphicsTextureAspect.Depth | GraphicsTextureAspect.Stencil
             }).Validate(texture.Description));
 
-        var singleLayerTexture = CreateTexture(GraphicsFormat.RGBA8UNorm);
+        var singleLayerTexture = new TestTexture(
+            CreateDevice(GraphicsFeature.SparseResources),
+            new GraphicsTextureDescription(
+                GraphicsTextureDimension.Texture2D,
+                GraphicsFormat.RGBA8UNorm,
+                256, 256, 1, 9, 1, 1,
+                GraphicsTextureUsage.Sampled,
+                GraphicsResourceCreationOptions.SparseResidency));
         var overflowingSingleTail = new GraphicsSparseTextureRequirements(
             64, 64, 1, 65536, 65536, 1, 16, ulong.MaxValue - 8, 0, true);
         Assert.Throws<ArgumentOutOfRangeException>(() =>
