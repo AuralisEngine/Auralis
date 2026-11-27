@@ -568,10 +568,10 @@ public sealed class GraphicsReviewRegressionTests
             new GraphicsBufferDescription(256, GraphicsBufferUsage.AccelerationStructureBuildInput));
         var destination = new TestAccelerationStructure(device, CreateBlasDescription(vertexBuffer, 3));
         var sizes = new GraphicsAccelerationStructureSizes(1024, 256, 128, 256, 256);
-        var missingAddress = new TestBuffer(device, new GraphicsBufferDescription(512, GraphicsBufferUsage.Storage), 0);
-        var misalignedAddress = new TestBuffer(device, new GraphicsBufferDescription(512, GraphicsBufferUsage.Storage), 0x10001);
-        var undersized = new TestBuffer(device, new GraphicsBufferDescription(255, GraphicsBufferUsage.Storage));
-        var valid = new TestBuffer(device, new GraphicsBufferDescription(256, GraphicsBufferUsage.Storage));
+        var missingAddress = new TestBuffer(device, new GraphicsBufferDescription(512, GraphicsBufferUsage.AccelerationStructureScratch), 0);
+        var misalignedAddress = new TestBuffer(device, new GraphicsBufferDescription(512, GraphicsBufferUsage.AccelerationStructureScratch), 0x10001);
+        var undersized = new TestBuffer(device, new GraphicsBufferDescription(255, GraphicsBufferUsage.AccelerationStructureScratch));
+        var valid = new TestBuffer(device, new GraphicsBufferDescription(256, GraphicsBufferUsage.AccelerationStructureScratch));
 
         Assert.Throws<ArgumentException>(() => GraphicsRayTracingCommandValidation.ValidateBuild(
             destination, null, missingAddress, 0, sizes, GraphicsAccelerationStructureBuildFlags.AllowUpdate,

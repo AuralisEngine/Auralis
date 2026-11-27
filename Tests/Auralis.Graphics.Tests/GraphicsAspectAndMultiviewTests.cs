@@ -124,7 +124,7 @@ public sealed class GraphicsAspectAndMultiviewTests
 
         GraphicsDeviceFactoryTests.TestDevice multiview = CreateDevice(
             GraphicsFeature.Multiview, maxMultiviewViews: 4);
-        TestTextureView multiviewArray = CreateColorArrayView(multiview, 4);
+        TestTextureView multiviewArray = CreateColorArrayView(multiview, 5);
         _ = CreateRendering(multiviewArray, viewMask: 0b0101);
         Assert.Throws<GraphicsException>(() => CreateRendering(multiviewArray, viewMask: 0b1_0000));
         Assert.Throws<ArgumentException>(() => new GraphicsRenderingDescription(
@@ -199,11 +199,12 @@ public sealed class GraphicsAspectAndMultiviewTests
         {
             MaxMultiviewViewCount = maxMultiviewViews
         };
+        GraphicsFeature effectiveFeatures = features | GraphicsFeature.DepthBoundsTest;
         var capabilities = new GraphicsDeviceCapabilities(
-            new GraphicsFeatureSet(features), GraphicsQueueCapabilities.Graphics,
+            new GraphicsFeatureSet(effectiveFeatures), GraphicsQueueCapabilities.Graphics,
             limits, formats);
         return new GraphicsDeviceFactoryTests.TestDevice(
-            GraphicsBackend.Vulkan, features, GraphicsQueueCapabilities.Graphics, capabilities);
+            GraphicsBackend.Vulkan, effectiveFeatures, GraphicsQueueCapabilities.Graphics, capabilities);
     }
 
     private sealed class TestPipelineLayout(IGraphicsDevice device)

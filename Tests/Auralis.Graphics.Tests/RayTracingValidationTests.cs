@@ -211,7 +211,7 @@ public sealed class RayTracingValidationTests
 
         Assert.Throws<ArgumentOutOfRangeException>(() =>
             new GraphicsRayTracingTriangleGeometry(buffer, 0, 5, 3, GraphicsFormat.RGBA16Float).Validate());
-        Assert.Throws<ArgumentOutOfRangeException>(() =>
+        Assert.Throws<ArgumentException>(() =>
             new GraphicsRayTracingTriangleGeometry(buffer, 2, 8, 3, GraphicsFormat.RG32Float).Validate());
         Assert.Throws<ArgumentOutOfRangeException>(() =>
             new GraphicsRayTracingTriangleGeometry(buffer, 248, 8, 3, GraphicsFormat.RG32Float).Validate());
