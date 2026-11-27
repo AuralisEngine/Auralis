@@ -781,11 +781,11 @@ public sealed class GraphicsRenderPipelineDescription
                 throw new GraphicsException(
                     $"The device does not support {format} as a {SampleCount}-sample color attachment.");
         }
+        GraphicsTextureAspect depthStencilAspects = GraphicsFormatInfo.GetAspects(DepthStencilFormat);
         if (DepthStencilFormat != GraphicsFormat.Unknown)
         {
             if (!Enum.IsDefined(DepthStencilFormat))
                 throw new ArgumentOutOfRangeException(nameof(DepthStencilFormat));
-            GraphicsTextureAspect depthStencilAspects = GraphicsFormatInfo.GetAspects(DepthStencilFormat);
             if ((depthStencilAspects & (GraphicsTextureAspect.Depth | GraphicsTextureAspect.Stencil)) == 0)
                 throw new ArgumentException(
                     $"Depth/stencil attachment format {DepthStencilFormat} must contain a depth or stencil aspect.",

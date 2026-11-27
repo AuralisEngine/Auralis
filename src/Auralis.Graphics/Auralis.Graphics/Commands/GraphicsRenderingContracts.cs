@@ -81,8 +81,8 @@ public sealed class GraphicsRenderingDescription
                 throw new ArgumentOutOfRangeException(nameof(ColorAttachments));
 
             GraphicsTextureDescription sourceTexture = attachment.View.Texture.Description;
-            if (IsDepthStencilFormat(GetViewFormat(attachment.View)))
-                throw new ArgumentException("Color attachments must use a color format.", nameof(ColorAttachments));
+            if (attachment.View.Description.GetEffectiveAspects(sourceTexture) != GraphicsTextureAspect.Color)
+                throw new ArgumentException("Color attachments must expose only the color aspect.", nameof(ColorAttachments));
             if (attachment.LoadOperation == GraphicsAttachmentLoadOperation.Clear &&
                 (!float.IsFinite(attachment.ClearValue.Red) || !float.IsFinite(attachment.ClearValue.Green) ||
                  !float.IsFinite(attachment.ClearValue.Blue) || !float.IsFinite(attachment.ClearValue.Alpha)))
