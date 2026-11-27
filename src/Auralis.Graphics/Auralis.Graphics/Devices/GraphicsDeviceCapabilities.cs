@@ -307,6 +307,39 @@ public sealed class GraphicsDeviceCapabilities
                 $"Compute dispatch {parameterName} count {requested} exceeds the reported device limit of {maximum}.");
     }
 
+    /// <summary>
+    /// Validates the local thread dimensions and total invocation count of a compute workgroup.
+    /// Zero device limits mean unreported and require additional backend-specific validation.
+    /// </summary>
+    public void ValidateComputeThreadGroupSize(in GraphicsComputeThreadGroupSize threadGroupSize)
+    {
+        threadGroupSize.Validate();
+
+        if (Limits.MaxComputeWorkGroupSizeX != 0 &&
+            threadGroupSize.X > Limits.MaxComputeWorkGroupSizeX)
+            throw new GraphicsException(
+                $"Compute workgroup X dimension {threadGroupSize.X} exceeds the reported device limit of {Limits.MaxComputeWorkGroupSizeX}.");
+        if (Limits.MaxComputeWorkGroupSizeY != 0 &&
+            threadGroupSize.Y > Limits.MaxComputeWorkGroupSizeY)
+            throw new GraphicsException(
+                $"Compute workgroup Y dimension {threadGroupSize.Y} exceeds the reported device limit of {Limits.MaxComputeWorkGroupSizeY}.");
+        if (Limits.MaxComputeWorkGroupSizeZ != 0 &&
+            threadGroupSize.Z > Limits.MaxComputeWorkGroupSizeZ)
+            throw new GraphicsException(
+                $"Compute workgroup Z dimension {threadGroupSize.Z} exceeds the reported device limit of {Limits.MaxComputeWorkGroupSizeZ}.");
+
+        ulong xy = (ulong)threadGroupSize.X * threadGroupSize.Y;
+        if (xy > ulong.MaxValue / threadGroupSize.Z)
+            throw new ArgumentOutOfRangeException(nameof(threadGroupSize),
+                "The total compute workgroup invocation count exceeds the addressable validation range.");
+
+        ulong invocations = xy * threadGroupSize.Z;
+        if (Limits.MaxComputeWorkGroupInvocations != 0 &&
+            invocations > Limits.MaxComputeWorkGroupInvocations)
+            throw new GraphicsException(
+                $"Compute workgroup invocation count {invocations} exceeds the reported device limit of {Limits.MaxComputeWorkGroupInvocations}.");
+    }
+
     /// <summary>Validates texture structure, implementation limits, and reported format/usage/sample support.</summary>
     public void ValidateTextureDescription(in GraphicsTextureDescription description)
     {

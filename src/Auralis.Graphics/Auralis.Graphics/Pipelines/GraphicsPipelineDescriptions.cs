@@ -882,19 +882,53 @@ public sealed class GraphicsRenderPipelineDescription
     }
 }
 
+/// <summary>Thread dimensions selected for each compute workgroup.</summary>
+public readonly record struct GraphicsComputeThreadGroupSize(uint X, uint Y, uint Z)
+{
+    /// <summary>Validates that every workgroup dimension is non-zero.</summary>
+    public void Validate()
+    {
+        if (X == 0)
+            throw new ArgumentOutOfRangeException(nameof(X), "Compute workgroup dimensions must be non-zero.");
+        if (Y == 0)
+            throw new ArgumentOutOfRangeException(nameof(Y), "Compute workgroup dimensions must be non-zero.");
+        if (Z == 0)
+            throw new ArgumentOutOfRangeException(nameof(Z), "Compute workgroup dimensions must be non-zero.");
+    }
+}
+
 /// <summary>Fixed state for a compute pipeline.</summary>
 public sealed class GraphicsComputePipelineDescription
 {
-    public GraphicsComputePipelineDescription(IGraphicsPipelineLayout layout, IGraphicsShader computeShader)
+    /// <summary>
+    /// Creates a compute pipeline description with an explicit threadgroup size. The dimensions
+    /// are pipeline state because the common dispatch command specifies only the number of groups.
+    /// </summary>
+    public GraphicsComputePipelineDescription(
+        IGraphicsPipelineLayout layout,
+        IGraphicsShader computeShader,
+        GraphicsComputeThreadGroupSize threadGroupSize)
     {
         Layout = layout ?? throw new ArgumentNullException(nameof(layout));
         ComputeShader = computeShader ?? throw new ArgumentNullException(nameof(computeShader));
+        ThreadGroupSize = threadGroupSize;
         Validate();
     }
 
+    /// <summary>Pipeline layout used by the compute shader.</summary>
     public IGraphicsPipelineLayout Layout { get; }
+
+    /// <summary>Compiled compute-stage shader.</summary>
     public IGraphicsShader ComputeShader { get; }
 
+    /// <summary>Number of shader threads in each workgroup along X, Y, and Z.</summary>
+    public GraphicsComputeThreadGroupSize ThreadGroupSize { get; }
+
+    /// <summary>
+    /// Validates ownership, shader stage, enabled compute support, pipeline layout limits,
+    /// and the device-reported workgroup dimensions and invocation count. Backend implementations
+    /// must additionally validate pipeline-specific native limits before creating the pipeline.
+    /// </summary>
     public void Validate()
     {
         if (!ReferenceEquals(Layout.Device, ComputeShader.Device))
@@ -909,5 +943,7 @@ public sealed class GraphicsComputePipelineDescription
             throw new GraphicsFeatureNotSupportedException(
                 GraphicsFeature.ComputeShaders,
                 GraphicsFeature.ComputeShaders);
+
+        Layout.Device.Capabilities.ValidateComputeThreadGroupSize(ThreadGroupSize);
     }
 }

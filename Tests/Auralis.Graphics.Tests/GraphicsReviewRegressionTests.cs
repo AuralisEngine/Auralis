@@ -216,6 +216,45 @@ public sealed class GraphicsReviewRegressionTests
     }
 
     [Fact]
+    public void ComputePipelineValidatesThreadgroupDimensionsAndTotalInvocationCount()
+    {
+        GraphicsDeviceLimits limits = default(GraphicsDeviceLimits) with
+        {
+            MaxComputeWorkGroupInvocations = 64,
+            MaxComputeWorkGroupSizeX = 32,
+            MaxComputeWorkGroupSizeY = 16,
+            MaxComputeWorkGroupSizeZ = 8
+        };
+        GraphicsDeviceFactoryTests.TestDevice device = CreateDevice(
+            GraphicsFeature.ComputeShaders,
+            [],
+            limits);
+        var layout = new TestPipelineLayout(device);
+        var shader = new TestShader(device, GraphicsShaderStage.Compute);
+
+        _ = new GraphicsComputePipelineDescription(
+            layout, shader, new GraphicsComputeThreadGroupSize(8, 4, 2));
+
+        Assert.Throws<GraphicsException>(() => new GraphicsComputePipelineDescription(
+            layout, shader, new GraphicsComputeThreadGroupSize(33, 1, 1)));
+        Assert.Throws<GraphicsException>(() => new GraphicsComputePipelineDescription(
+            layout, shader, new GraphicsComputeThreadGroupSize(1, 17, 1)));
+        Assert.Throws<GraphicsException>(() => new GraphicsComputePipelineDescription(
+            layout, shader, new GraphicsComputeThreadGroupSize(1, 1, 9)));
+        Assert.Throws<GraphicsException>(() => new GraphicsComputePipelineDescription(
+            layout, shader, new GraphicsComputeThreadGroupSize(8, 8, 2)));
+        Assert.Throws<ArgumentOutOfRangeException>(() => new GraphicsComputePipelineDescription(
+            layout, shader, new GraphicsComputeThreadGroupSize(0, 1, 1)));
+
+        GraphicsDeviceFactoryTests.TestDevice unreported = CreateDevice(GraphicsFeature.ComputeShaders);
+        var unreportedDescription = new GraphicsComputePipelineDescription(
+            new TestPipelineLayout(unreported),
+            new TestShader(unreported, GraphicsShaderStage.Compute),
+            new GraphicsComputeThreadGroupSize(1, 1, 1));
+        unreportedDescription.Validate();
+    }
+
+    [Fact]
     public void ComputeDispatchValidatesEachReportedDimensionIndependently()
     {
         GraphicsDeviceLimits limits = default(GraphicsDeviceLimits) with
@@ -476,7 +515,8 @@ public sealed class GraphicsReviewRegressionTests
         Assert.Throws<GraphicsFeatureNotSupportedException>(() =>
             new GraphicsComputePipelineDescription(
                 layout,
-                new TestShader(noOptionalFeatures, GraphicsShaderStage.Compute)));
+                new TestShader(noOptionalFeatures, GraphicsShaderStage.Compute),
+                new GraphicsComputeThreadGroupSize(1, 1, 1)));
 
         // Mesh and task shaders are separate device features, even though task stages require a mesh stage.
         var meshOnlyDevice = CreateDevice(GraphicsFeature.MeshShaders, renderFormats);
