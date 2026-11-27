@@ -220,6 +220,48 @@ public sealed class GraphicsDescriptorIndexingTests
             ReadOnlySpan<GraphicsFormatCapabilities>.Empty));
     }
 
+    [Fact]
+    public void ZeroVariableDescriptorCountIsStructurallyValidButRequiresAnEnabledCapability()
+    {
+        var layout = new GraphicsBindingLayoutDescription(
+        [
+            new GraphicsBindingLayoutEntry(
+                7, GraphicsDescriptorType.StorageBuffer, 16,
+                GraphicsShaderStages.Compute, GraphicsBindingFlags.VariableCount)
+        ]);
+
+        GraphicsVariableDescriptorCount[] zeroCount = [new(7, 0)];
+        GraphicsVariableDescriptorCount[] maximumCount = [new(7, 16)];
+        GraphicsVariableDescriptorCount[] excessiveCount = [new(7, 17)];
+
+        layout.ValidateVariableCounts(zeroCount);
+        layout.ValidateVariableCounts(maximumCount);
+        Assert.Throws<ArgumentOutOfRangeException>(() => layout.ValidateVariableCounts(excessiveCount));
+
+        var zeroEnabled = CreateCapabilities(new GraphicsDescriptorIndexingCapabilities(
+            PartiallyBound: false,
+            UpdateUnusedWhilePending: false,
+            VariableDescriptorCount: true,
+            UniformBufferUpdateAfterBind: false,
+            SampledImageUpdateAfterBind: false,
+            StorageImageUpdateAfterBind: false,
+            StorageBufferUpdateAfterBind: false,
+            ZeroVariableDescriptorCount: true));
+        layout.Validate(zeroEnabled);
+        layout.ValidateVariableCounts(zeroCount, zeroEnabled);
+
+        var zeroDisabled = CreateCapabilities(new GraphicsDescriptorIndexingCapabilities(
+            PartiallyBound: false,
+            UpdateUnusedWhilePending: false,
+            VariableDescriptorCount: true,
+            UniformBufferUpdateAfterBind: false,
+            SampledImageUpdateAfterBind: false,
+            StorageImageUpdateAfterBind: false,
+            StorageBufferUpdateAfterBind: false));
+        layout.Validate(zeroDisabled);
+        Assert.Throws<GraphicsException>(() => layout.ValidateVariableCounts(zeroCount, zeroDisabled));
+    }
+
     private static GraphicsDeviceCapabilities CreateCapabilities(
         GraphicsDescriptorIndexingCapabilities descriptorIndexing) =>
         new(

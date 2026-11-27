@@ -929,7 +929,7 @@ public static class GraphicsRayTracingCommandValidation
             scratchOffset,
             requiredSize,
             sizes.ScratchAlignment,
-            GraphicsBufferUsage.Storage | GraphicsBufferUsage.AccelerationStructureScratch,
+            GraphicsBufferUsage.AccelerationStructureScratch,
             nameof(scratchBuffer),
             allowEmpty: true);
     }
