@@ -409,6 +409,8 @@ public static class GraphicsSparseResourceValidation
         {
             IGraphicsTexture texture = bindings[i].Texture ??
                 throw new ArgumentException("Sparse texture bindings cannot contain a null texture.", nameof(bindings));
+            if (texture.IsDisposed || texture.Device.IsDisposed)
+                throw new ObjectDisposedException(nameof(bindings));
             if (!ReferenceEquals(texture.Device, sparseDevice.Device))
                 throw new ArgumentException("All sparse textures must belong to the sparse resource device.", nameof(bindings));
             if (!Enum.IsDefined(bindings[i].Region.Aspect) ||
@@ -437,6 +439,8 @@ public static class GraphicsSparseResourceValidation
         {
             IGraphicsBuffer buffer = bindings[i].Buffer ??
                 throw new ArgumentException("Sparse buffer bindings cannot contain a null buffer.", nameof(bindings));
+            if (buffer.IsDisposed || buffer.Device.IsDisposed)
+                throw new ObjectDisposedException(nameof(bindings));
             if (!ReferenceEquals(buffer.Device, sparseDevice.Device))
                 throw new ArgumentException("All sparse buffers must belong to the sparse resource device.", nameof(bindings));
             GraphicsSparseBufferRequirements requirements = sparseDevice.GetSparseBufferRequirements(buffer);
@@ -459,6 +463,8 @@ public static class GraphicsSparseResourceValidation
         {
             IGraphicsTexture texture = bindings[i].Texture ??
                 throw new ArgumentException("Sparse metadata bindings cannot contain a null texture.", nameof(bindings));
+            if (texture.IsDisposed || texture.Device.IsDisposed)
+                throw new ObjectDisposedException(nameof(bindings));
             if (!ReferenceEquals(texture.Device, sparseDevice.Device))
                 throw new ArgumentException("All metadata textures must belong to the sparse resource device.", nameof(bindings));
             GraphicsSparseTextureMetadataRequirements requirements =

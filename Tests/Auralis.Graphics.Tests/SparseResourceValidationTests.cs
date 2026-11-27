@@ -26,6 +26,45 @@ public sealed class SparseResourceValidationTests
     }
 
     [Fact]
+    public void SparseRequirementsAreNotQueriedForDisposedResources()
+    {
+        var device = CreateDevice(GraphicsFeature.SparseResources);
+        var sparseDevice = new TestSparseDevice(device);
+        var queue = new SparseQueue(device);
+
+        var texture = CreateTexture(GraphicsFormat.RGBA8UNorm, device);
+        texture.Dispose();
+        Assert.Throws<ObjectDisposedException>(() =>
+            GraphicsSparseResourceValidation.ValidateTextureBindings(
+                sparseDevice, queue,
+                [new GraphicsSparseTextureBinding(
+                    texture,
+                    new GraphicsSparseTextureRegion(0, 0, 0, 0, 0, 1, 1, 1),
+                    null, 0)]));
+        Assert.Equal(0, sparseDevice.TextureRequirementsQueryCount);
+
+        var buffer = new TestBuffer(device,
+            new GraphicsBufferDescription(
+                65536, GraphicsBufferUsage.Storage,
+                CreationOptions: GraphicsResourceCreationOptions.SparseResidency));
+        buffer.Dispose();
+        Assert.Throws<ObjectDisposedException>(() =>
+            GraphicsSparseResourceValidation.ValidateBufferBindings(
+                sparseDevice, queue,
+                [new GraphicsSparseBufferBinding(
+                    buffer, new GraphicsSparseBufferRegion(0, 65536), null, 0)]));
+        Assert.Equal(0, sparseDevice.BufferRequirementsQueryCount);
+
+        var metadataTexture = CreateTexture(GraphicsFormat.RGBA8UNorm, device);
+        metadataTexture.Dispose();
+        Assert.Throws<ObjectDisposedException>(() =>
+            GraphicsSparseResourceValidation.ValidateTextureMetadataBindings(
+                sparseDevice, queue,
+                [new GraphicsSparseTextureMetadataBinding(metadataTexture, 0, null, 0)]));
+        Assert.Equal(0, sparseDevice.MetadataRequirementsQueryCount);
+    }
+
+    [Fact]
     public void SparseFenceDependenciesValidateDeviceOwnershipLifetimeAndTimelineValues()
     {
         var device = CreateDevice(GraphicsFeature.SparseResources);
@@ -272,18 +311,30 @@ public sealed class SparseResourceValidationTests
     private sealed class TestSparseDevice(IGraphicsDevice device) : IGraphicsSparseTextureMetadataDevice
     {
         public IGraphicsDevice Device { get; } = device;
+        public int TextureRequirementsQueryCount { get; private set; }
+        public int BufferRequirementsQueryCount { get; private set; }
+        public int MetadataRequirementsQueryCount { get; private set; }
 
         public GraphicsSparseTextureRequirements GetSparseTextureRequirements(
-            IGraphicsTexture texture, GraphicsTextureAspect aspect) =>
-            new(64, 64, 1, 65536, 65536, texture.Description.MipLevels, 0, 0, 0, false, aspect);
+            IGraphicsTexture texture, GraphicsTextureAspect aspect)
+        {
+            TextureRequirementsQueryCount++;
+            return new(64, 64, 1, 65536, 65536, texture.Description.MipLevels, 0, 0, 0, false, aspect);
+        }
 
-        public GraphicsSparseBufferRequirements GetSparseBufferRequirements(IGraphicsBuffer buffer) =>
-            new(65536, 65536);
+        public GraphicsSparseBufferRequirements GetSparseBufferRequirements(IGraphicsBuffer buffer)
+        {
+            BufferRequirementsQueryCount++;
+            return new(65536, 65536);
+        }
 
-        public GraphicsSparseTextureMetadataRequirements GetSparseTextureMetadataRequirements(IGraphicsTexture texture) =>
-            texture.Description.ArrayLayers > 1
+        public GraphicsSparseTextureMetadataRequirements GetSparseTextureMetadataRequirements(IGraphicsTexture texture)
+        {
+            MetadataRequirementsQueryCount++;
+            return texture.Description.ArrayLayers > 1
                 ? new(1024, 4096, 2048, 256, false)
                 : new(4096, 0, 0, 256, true);
+        }
 
         public void BindSparseTextures(
             IGraphicsSparseBindingQueue queue,
