@@ -537,14 +537,6 @@ public readonly record struct GraphicsRayTracingInstanceBuffer(
         ArgumentNullException.ThrowIfNull(Buffer);
         if (!description.IsTopLevel)
             throw new ArgumentException("Instance buffers can only be used for top-level acceleration structures.", nameof(description));
-        if (Buffer.IsDisposed || Buffer.Device.IsDisposed)
-            throw new ObjectDisposedException(nameof(Buffer));
-        if (!ReferenceEquals(Buffer.Device, device))
-            throw new ArgumentException("The instance buffer and acceleration structure must belong to the same device.", nameof(Buffer));
-        if ((Buffer.Description.Usage & GraphicsBufferUsage.AccelerationStructureBuildInput) == 0)
-            throw new ArgumentException("TLAS instance buffers must declare AccelerationStructureBuildInput usage.", nameof(Buffer));
-        if (Buffer is not IGraphicsBufferDeviceAddress address || address.DeviceAddress == 0)
-            throw new ArgumentException("TLAS instance buffers must expose a non-zero GPU device address.", nameof(Buffer));
         if (InstanceCount > description.MaximumInstanceCount)
             throw new ArgumentOutOfRangeException(nameof(InstanceCount), "Instance count exceeds the TLAS maximum.");
         ulong byteCount = (ulong)InstanceCount * GraphicsRayTracingInstanceData.SizeInBytes;

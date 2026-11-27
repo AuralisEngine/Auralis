@@ -57,10 +57,6 @@ public readonly record struct GraphicsShaderBindingTableRegion(
             return;
         }
         IGraphicsBuffer buffer = Buffer ?? throw new ArgumentNullException(nameof(Buffer));
-        if (buffer.IsDisposed || buffer.Device.IsDisposed)
-            throw new ObjectDisposedException(nameof(Buffer));
-        if (buffer is not IGraphicsBufferDeviceAddress)
-            throw new ArgumentException("Shader binding table buffers must expose a GPU device address.");
         if (StrideInBytes < properties.ShaderGroupHandleSize ||
             StrideInBytes > properties.MaximumShaderGroupStride ||
             StrideInBytes % properties.ShaderGroupHandleAlignment != 0)
