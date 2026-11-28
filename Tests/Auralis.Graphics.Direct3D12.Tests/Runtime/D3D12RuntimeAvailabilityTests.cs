@@ -12,6 +12,7 @@ public sealed class D3D12RuntimeAvailabilityTests
 
         Assert.Equal(D3D12RuntimeStatus.UnsupportedPlatform, result.Status);
         Assert.False(result.IsAvailable);
+        Assert.NotNull(result.UnavailableReason);
         Assert.Contains("Windows", result.UnavailableReason);
     }
 
@@ -22,6 +23,7 @@ public sealed class D3D12RuntimeAvailabilityTests
             isWindows: true, dxgiAvailable: false, direct3D12Available: false);
 
         Assert.Equal(D3D12RuntimeStatus.MissingDxgi, result.Status);
+        Assert.NotNull(result.UnavailableReason);
         Assert.Contains("dxgi.dll", result.UnavailableReason);
     }
 
@@ -32,6 +34,7 @@ public sealed class D3D12RuntimeAvailabilityTests
             isWindows: true, dxgiAvailable: true, direct3D12Available: false);
 
         Assert.Equal(D3D12RuntimeStatus.MissingDirect3D12, result.Status);
+        Assert.NotNull(result.UnavailableReason);
         Assert.Contains("d3d12.dll", result.UnavailableReason);
     }
 
