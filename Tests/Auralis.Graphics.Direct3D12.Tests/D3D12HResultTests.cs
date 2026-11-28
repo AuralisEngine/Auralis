@@ -45,4 +45,11 @@ public sealed class D3D12HResultTests
         Assert.Contains("0x80070057", exception.Message);
         Assert.Equal(unchecked((uint)hresult), unchecked((uint)exception.HResultCode));
     }
+
+    [Fact]
+    public void NativeExceptionFactoryRejectsSuccessStatuses()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => D3D12NativeException.Create("ID3D12Device::CreateCommandQueue", 1));
+    }
 }

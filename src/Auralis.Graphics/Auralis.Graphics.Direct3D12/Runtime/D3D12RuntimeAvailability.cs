@@ -27,7 +27,7 @@ internal static class D3D12RuntimeAvailability
             return Evaluate(isWindows: true, hasDxgi: false, hasD3D12: false);
 
         bool hasD3D12 = CanLoadSystemLibrary(D3D12LibraryName);
-        return Evaluate(isWindows: true, hasDxgi: true, hasD3D12);
+        return Evaluate(isWindows: true, hasDxgi: true, hasD3D12: hasD3D12);
     }
 
     /// <summary>Pure decision logic, exposed internally for host-independent tests.</summary>

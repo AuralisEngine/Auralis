@@ -24,6 +24,10 @@ internal sealed class D3D12NativeException : GraphicsException
     public static D3D12NativeException Create(string operation, int hresultCode)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(operation);
+        if (hresultCode >= 0)
+            throw new ArgumentOutOfRangeException(
+                nameof(hresultCode),
+                "A native exception can only represent a failed HRESULT.");
 
         string message =
             $"{operation} failed with HRESULT 0x{unchecked((uint)hresultCode):X8}.";
