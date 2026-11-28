@@ -28,11 +28,11 @@
   <Folder Name="/src/Auralis.Tools/AssetPipeLine/">
     <Project Path="src/Auralis.Tools/AssetPipeline/Auralis.Tools.AssetPipeline.Interchange/Auralis.Tools.AssetPipeline.Interchange.csproj" Id="f4d7b0ef-3b06-44b9-a044-972e6b501a13" />
   </Folder>
-  <Folder Name="/src/Auralis.World/" />
   <Folder Name="/src/AuralisRuntime/">
     <Project Path="src/AuralisRuntime/Auralis.Engine/Auralis.Engine.csproj" Id="f73ad8e1-9bf3-4fc1-895d-51bec0e42b07" />
   </Folder>
   <Folder Name="/Tests/">
     <Project Path="Tests/Auralis.Graphics.Tests/Auralis.Graphics.Tests.csproj" Id="4bbcd83c-a959-4014-9bb0-47d28ffb5a20" />
+    <Project Path="Tests/Auralis.Graphics.Direct3D12.Tests/Auralis.Graphics.Direct3D12.Tests.csproj" Id="8b4df6ad-0e8c-47c6-bc2e-1edbf3f4b5a1" />
   </Folder>
 </Solution>
