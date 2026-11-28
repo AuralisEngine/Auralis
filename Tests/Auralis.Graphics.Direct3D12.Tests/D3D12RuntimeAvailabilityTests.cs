@@ -14,8 +14,9 @@ public sealed class D3D12RuntimeAvailabilityTests
             hasD3D12: true);
 
         Assert.False(status.IsAvailable);
-        Assert.NotNull(status.UnavailableReason);
-        Assert.Contains("only on Windows", status.UnavailableReason!);
+        Assert.Equal(
+            "The Direct3D 12 backend is available only on Windows.",
+            status.UnavailableReason);
     }
 
     [Fact]
@@ -27,7 +28,9 @@ public sealed class D3D12RuntimeAvailabilityTests
             hasD3D12: false);
 
         Assert.False(status.IsAvailable);
-        Assert.Contains("dxgi.dll", status.UnavailableReason!);
+        Assert.Equal(
+            "The DXGI system library (dxgi.dll) could not be loaded from System32.",
+            status.UnavailableReason);
     }
 
     [Fact]
@@ -39,11 +42,13 @@ public sealed class D3D12RuntimeAvailabilityTests
             hasD3D12: false);
 
         Assert.False(status.IsAvailable);
-        Assert.Contains("d3d12.dll", status.UnavailableReason!);
+        Assert.Equal(
+            "The Direct3D 12 system library (d3d12.dll) could not be loaded from System32.",
+            status.UnavailableReason);
     }
 
     [Fact]
-    public void BothNativeLibrariesProduceAvailableLoaderStatus()
+    public void BothNativeLibrariesProduceLoaderAvailableStatus()
     {
         D3D12RuntimeStatus status = D3D12RuntimeAvailability.Evaluate(
             isWindows: true,
@@ -61,6 +66,8 @@ public sealed class D3D12RuntimeAvailabilityTests
 
         Assert.Equal(status.IsAvailable, status.UnavailableReason is null);
         if (!OperatingSystem.IsWindows())
+        {
             Assert.False(status.IsAvailable);
+        }
     }
 }
