@@ -67,7 +67,14 @@ internal static unsafe class D3D12AdapterEnumerator
                 IDXGIAdapter1* adapter = null;
                 int enumerationResult = factory->EnumAdapters1(adapterIndex, &adapter);
                 if (enumerationResult == DxgiErrorNotFound)
+                {
+                    // The output should be null for the end-of-enumeration sentinel, but release
+                    // defensively if an implementation leaves a reference in the out parameter.
+                    if (adapter != null)
+                        adapter->Release();
+
                     break;
+                }
 
                 if (enumerationResult < 0)
                 {
