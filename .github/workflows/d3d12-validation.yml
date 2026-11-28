@@ -1,0 +1,69 @@
+name: Direct3D 12 validation
+
+on:
+  pull_request:
+    branches: [master]
+    paths:
+      - "Auralis.slnx"
+      - "src/Auralis.Graphics/Auralis.Graphics.Direct3D12/**"
+      - "src/Auralis.Graphics/Auralis.Graphics/**"
+      - "Tests/Auralis.Graphics.Direct3D12.Tests/**"
+      - "Tests/Auralis.Graphics.Tests/**"
+      - ".github/workflows/d3d12-validation.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Restore solution
+        run: dotnet restore Auralis.slnx
+
+      - name: Audit Direct3D 12 dependency graph
+        run: dotnet list src/Auralis.Graphics/Auralis.Graphics.Direct3D12/Auralis.Graphics.Direct3D12.csproj package --include-transitive
+
+      - name: Inspect restored backend project assets
+        shell: pwsh
+        run: |
+          $assetsPath = "src/Auralis.Graphics/Auralis.Graphics.Direct3D12/obj/project.assets.json"
+          $assets = Get-Content $assetsPath -Raw | ConvertFrom-Json
+          $libraries = @($assets.libraries.PSObject.Properties.Name | Sort-Object)
+          Write-Host "Resolved project.assets.json libraries:"
+          $libraries | ForEach-Object { Write-Host "  $_" }
+          $silkLibraries = @($libraries | Where-Object { $_.StartsWith("Silk.NET.", [StringComparison]::OrdinalIgnoreCase) })
+          $expectedSilkLibraries = @(
+            "Silk.NET.Core/2.23.0",
+            "Silk.NET.Direct3D12/2.23.0",
+            "Silk.NET.DXGI/2.23.0",
+            "Silk.NET.Maths/2.23.0"
+          )
+          $unexpected = @($silkLibraries | Where-Object { $_ -notin $expectedSilkLibraries })
+          $missing = @($expectedSilkLibraries | Where-Object { $_ -notin $silkLibraries })
+          if ($unexpected.Count -gt 0) {
+            throw "Unexpected Silk.NET packages in the backend dependency graph: $($unexpected -join ', ')"
+          }
+          if ($missing.Count -gt 0) {
+            throw "Expected Silk.NET packages are missing from project.assets.json: $($missing -join ', ')"
+          }
+
+      - name: Build Direct3D 12 backend
+        run: dotnet build src/Auralis.Graphics/Auralis.Graphics.Direct3D12/Auralis.Graphics.Direct3D12.csproj --configuration Release --no-restore
+
+      - name: Build Direct3D 12 backend tests
+        run: dotnet build Tests/Auralis.Graphics.Direct3D12.Tests/Auralis.Graphics.Direct3D12.Tests.csproj --configuration Release --no-restore
+
+      - name: Build common graphics contract tests
+        run: dotnet build Tests/Auralis.Graphics.Tests/Auralis.Graphics.Tests.csproj --configuration Release --no-restore
+
+      - name: Run Direct3D 12 backend tests
+        run: dotnet test Tests/Auralis.Graphics.Direct3D12.Tests/Auralis.Graphics.Direct3D12.Tests.csproj --configuration Release --no-build --no-restore
+
+      - name: Run common graphics contract tests
+        run: dotnet test Tests/Auralis.Graphics.Tests/Auralis.Graphics.Tests.csproj --configuration Release --no-build --no-restore
