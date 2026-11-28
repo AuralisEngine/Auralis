@@ -72,7 +72,7 @@ public sealed unsafe class D3D12GraphicsBackendProvider : IGraphicsBackendProvid
                 "The Direct3D 12 backend requires Windows 10 version 1507 (build 10240) or later.");
         }
 
-        // Debug facilities must be configured before creating this provider's native device.
+        // Debug facilities must be configured before creating the first native device in this process.
         D3D12DebugLayer.Configure(options.DebugOptions);
         cancellationToken.ThrowIfCancellationRequested();
 
@@ -147,14 +147,17 @@ public sealed unsafe class D3D12GraphicsBackendProvider : IGraphicsBackendProvid
                 DeviceId: selectedAdapter.DeviceId,
                 IsSoftware: selectedAdapter.Type == GraphicsAdapterType.Cpu);
 
+            // Check cancellation before transferring the COM reference. From this point onward
+            // the device wrapper owns the native pointer, so no cancellation path may leak it.
+            cancellationToken.ThrowIfCancellationRequested();
+
             D3D12GraphicsDevice graphicsDevice = new(
                 device,
                 logicalAdapter,
                 info,
                 capabilities);
 
-            device = null; // Ownership transferred to D3D12GraphicsDevice.
-            cancellationToken.ThrowIfCancellationRequested();
+            device = null;
             return ValueTask.FromResult<IGraphicsDevice>(graphicsDevice);
         }
         catch
@@ -187,7 +190,7 @@ public sealed unsafe class D3D12GraphicsBackendProvider : IGraphicsBackendProvid
                 $"The requested adapter ID 0x{requested.Low:X16} is not present in the current DXGI enumeration.");
         }
 
-        // Prefer a local hardware adapter. WARP and other software adapters are a fallback only.
+        // Prefer local hardware. WARP and other software adapters are a fallback only.
         for (int i = 0; i < adapters.Length; i++)
         {
             if (adapters[i].Type != GraphicsAdapterType.Cpu &&
