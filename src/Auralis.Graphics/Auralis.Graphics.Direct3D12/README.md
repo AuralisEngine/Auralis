@@ -101,3 +101,49 @@ dotnet test Tests/Auralis.Graphics.Tests/Auralis.Graphics.Tests.csproj --configu
 **Current repository-wide build note:** the first Windows CI attempt also ran `dotnet build Auralis.slnx --configuration Release` and was blocked by an unrelated existing compiler error `CS0161` in `src/Auralis.Tools/AssetPipeline/Auralis.Tools.AssetPipeline.Interchange/FBX/FBXReader.cs` (`FBXReader.GetFBXHeader(ReadOnlyMemory<byte>)` does not return on every path). That source is unchanged by this PR. The D3D12 project and its dedicated tests compiled before the unrelated solution build failed. The D3D12 workflow therefore restores the full solution and builds/tests the backend and common graphics test projects directly, avoiding unrelated projects while preserving the graphics contract baseline. The solution-wide issue should be fixed separately.
 
 Windows native integration tests will be added alongside the tasks that introduce native API execution.
+
+## Logical device creation and capability negotiation
+
+`CreateDeviceAsync` configures requested debug facilities before creating the logical device,
+resolves the requested adapter by its stable DXGI LUID, creates an `ID3D12Device` at the required
+feature-level 11.0 minimum, then queries the actual device before returning it. When no adapter is
+specified, local hardware is preferred; WARP/software is a fallback. A requested adapter is never
+silently replaced with another adapter.
+
+Adapter enumeration uses the D3D12 null-output device support probe. This confirms that an adapter
+can create a feature-level 11.0 device without creating a temporary device as a side effect.
+Consequently, the enumerated `GraphicsAdapterInfo` advertises only the guaranteed feature-level
+baseline. The returned logical device's `Adapter` snapshot is enriched from the actual created
+device's feature queries and includes the optional capabilities measured for that adapter. This
+keeps adapter enumeration from creating a device before a caller has had the opportunity to request
+the D3D12 debug layer.
+
+The capability query covers D3D12 options, feature level, shader model, root-signature version,
+GPU virtual-address width, format support and per-format sample-count support. Optional feature
+queries that the installed runtime does not recognize are treated as unsupported; unexpected
+native failures preserve their HRESULT and abort device creation. Format capabilities are emitted
+only for common formats with an exact DXGI representation and successful native support queries.
+Formats without a faithful DXGI equivalent are rejected rather than aliased.
+
+Resource Binding Tier 2 or higher is used for the common variable-descriptor-count capability.
+The backend does **not** claim partially-bound, zero-count, update-unused-while-pending or
+update-after-bind semantics: descriptor heaps must be kept valid for GPU work that may still read
+them. Tiled resources, DXR, VRS and mesh shaders are reported only when their respective native
+feature tiers are non-zero. Device-group and multiview features remain unsupported.
+
+Required features, queue capabilities and descriptor-indexing requirements are validated against
+the queried logical-device capability snapshot. A missing requirement fails creation with the
+corresponding common graphics exception and releases the native device. The device reports
+`GraphicsDeviceStatus.Operational`, polls `GetDeviceRemovedReason` when health is queried,
+transitions to `Lost` on native removal, and releases its COM reference exactly once on disposal.
+No finalizer is used.
+
+The maximum buffer-size limit is derived from the native GPU virtual-address bits per resource.
+If that optional query is unavailable, the limit is reported as zero/unknown rather than guessed.
+Driver name/version are currently reported as `Unknown`; retrieving driver metadata is not
+required for feature negotiation and will be added only with an authoritative DXGI query.
+
+The `D3D12GraphicsDevice` now represents an actual logical device and accurate capabilities, but
+queue retrieval, resources, descriptors, pipelines, fences and presentation still throw explicit
+task-specific `NotSupportedException` until their assigned implementation PRs land. They are not
+dummy objects and are not advertised as completed by this task.
