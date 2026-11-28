@@ -40,6 +40,32 @@ No second native binding is added. Re-evaluate this decision only if a required 
 
 This is deliberately not an adapter or feature-level probe. A successfully loaded system library does not prove that a usable adapter exists, that device creation will succeed, or that optional GPU features are supported. DXGI adapter enumeration and native device/feature negotiation are implemented in D3D12-02 and D3D12-03.
 
+## Provider and adapter discovery
+
+`D3D12GraphicsBackendProvider` implements the common `IGraphicsBackendProvider` contract.
+Its constructor caches the runtime loader result. `IsAvailable` means only that the required
+Windows system libraries can be loaded; it does not imply a D3D12-capable adapter exists.
+
+`EnumerateAdaptersAsync` creates an `IDXGIFactory1` and enumerates `IDXGIAdapter1` objects
+with `EnumAdapters1`. Each adapter is tested with the documented
+`D3D12CreateDevice(adapter, D3D_FEATURE_LEVEL_11_0, ..., ppDevice: null)` pattern. The
+successful `S_FALSE` result indicates support without creating or retaining a logical device.
+Adapters that fail this minimum D3D12 test are not returned by the D3D12 provider.
+
+Adapter identity uses the DXGI LUID, namespaced with a D3D12-specific high word; it is not based
+on adapter enumeration order or a mutable display name. Adapter metadata carries the DXGI name,
+vendor/device IDs and dedicated video memory. Software and remote flags map to `Cpu` and
+`Virtual`. Ordinary hardware is reported as `Unknown` because `DXGI_ADAPTER_DESC1` does not
+reliably distinguish integrated from discrete GPUs; the backend does not guess from memory size.
+
+The adapter's `SupportedFeatures` currently lists only the baseline semantics guaranteed by a
+successful feature-level 11.0 D3D12 support test: compute shaders, indirect drawing, tessellation,
+geometry shaders and fence-based timeline synchronization. Fine-grained descriptor indexing and
+optional DXR/VRS/sparse/device-group tiers remain unadvertised until their native feature queries
+and logical-device enablement are implemented. `CreateDeviceAsync` explicitly reports that
+logical device creation is not yet available until D3D12-03; it never returns a partially
+initialized device. The provider and adapter enumeration are usable independently in this stage.
+
 ## Native error handling
 
 Use `D3D12HResult.ThrowIfFailed` for HRESULT-returning D3D12/DXGI calls. It treats all non-negative values as success and throws `D3D12NativeException` for failed HRESULTs. The exception retains the signed HRESULT, operation name, hexadecimal representation and a `COMException` inner exception carrying the same HRESULT. The exception factory rejects non-failure HRESULTs to preserve this invariant.

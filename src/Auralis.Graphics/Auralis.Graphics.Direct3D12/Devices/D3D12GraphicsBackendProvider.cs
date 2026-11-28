@@ -1,5 +1,6 @@
 using Auralis.Graphics.Abstractions;
 using Auralis.Graphics.Direct3D12.Runtime;
+using Auralis.Graphics.Devices;
 
 namespace Auralis.Graphics.Direct3D12.Devices;
 
