@@ -486,8 +486,6 @@ All references below were consulted for this comparison on **2026-11-28**. Sourc
 - [HRESULT implementation at audited head](https://github.com/AuralisEngine/Auralis/blob/ebf45cff11a4afed14a939bacce6bd487f8ee135/src/Auralis.Graphics/Auralis.Graphics.Direct3D12/Interop/D3D12NativeException.cs)
 - [Runtime availability implementation at audited head](https://github.com/AuralisEngine/Auralis/blob/ebf45cff11a4afed14a939bacce6bd487f8ee135/src/Auralis.Graphics/Auralis.Graphics.Direct3D12/Runtime/D3D12RuntimeAvailability.cs)
 - [Compile-time binding test at audited head](https://github.com/AuralisEngine/Auralis/blob/ebf45cff11a4afed14a939bacce6bd487f8ee135/Tests/Auralis.Graphics.Direct3D12.Tests/SilkNetBindingIntegrationTests.cs)
-- [Initial PR infrastructure commit](https://github.com/AuralisEngine/Auralis/commit/e18e7c5a81a74f08ebf6b4c6675f724e57047d58)
-- [Commit that introduced the exclusive Silk.NET package references](https://github.com/AuralisEngine/Auralis/commit/d686befe0678ee023d9af2aa53b9f55f44153497)
 
 ### Silk.NET 2.23.0 pinned package and source
 
