@@ -97,16 +97,6 @@ The ten files in the audited PR are:
 
 The project configuration, implementation files, test sources, and build workflow were inspected directly. The PR does not change the common graphics contract project or the higher-level rendering project.
 
-### Binding decision provenance in the PR history
-
-The commit history records the native-binding change rather than leaving it implicit:
-
-- The initial infrastructure commit, `e18e7c5a81a74f08ebf6b4c6675f724e57047d58`, introduced the backend project with a Windows interop package reference.
-- Commit `d686befe0678ee023d9af2aa53b9f55f44153497`, titled **“Replace native interop dependency with exclusive Silk.NET bindings”**, replaced that package reference with the two pinned Silk.NET packages.
-- Subsequent commits hardened HRESULT preservation and runtime probing, expanded the test cases, scoped Windows CI to the graphics projects, audited the restored dependency graph, added compile-time checks for the generated D3D12 and DXGI interfaces, and documented the backend foundation.
-
-The current head is authoritative: its project file contains only the two Silk.NET native binding package references. The historical commit is relevant to the decision's provenance, not evidence that an earlier dependency remains in the current branch.
-
 ## What PR #15 Actually Uses
 
 This section describes actual source usage in the audited head—not the larger API surface that happens to exist in the referenced package.
@@ -122,7 +112,7 @@ The current `Auralis.Graphics.Direct3D12.csproj`:
 - Directly references `Silk.NET.DXGI` version `2.23.0`.
 - Exposes internals to the dedicated backend test assembly.
 
-There are no current TerraFX, Vortice, SharpDX, or other D3D12/DXGI binding package references in this project. The Windows validation workflow inspects the restored dependency graph and checks an allow-list of Silk.NET assets, including `Silk.NET.Core/2.23.0` and `Silk.NET.Maths/2.23.0` alongside the two direct packages.
+There is no second Direct3D 12/DXGI binding package reference in this project. The Windows validation workflow inspects the restored dependency graph and checks an allow-list of Silk.NET assets, including `Silk.NET.Core/2.23.0` and `Silk.NET.Maths/2.23.0` alongside the two direct packages.
 
 ### Silk.NET symbols referenced by current code
 
