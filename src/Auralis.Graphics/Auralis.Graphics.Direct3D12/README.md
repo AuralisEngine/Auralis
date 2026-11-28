@@ -104,7 +104,7 @@ The package metadata and source references are linked in [References and sources
 | Candidate | Evaluated package/release | Scope and package model | Framework evidence | License evidence |
 |---|---|---|---|---|
 | **Silk.NET** | **2.23.0**: Silk.NET.Direct3D12 and Silk.NET.DXGI | Separate low-level API binding packages; generated API surface | NuGet assets include netstandard2.0, netcoreapp3.1 and net5.0; newer frameworks such as net10.0 are computed compatible | MIT, as identified by the official NuGet package/repository |
-| TerraFX | TerraFX.Interop.Windows **10.0.28000** | SDK-aligned Windows/DirectX interop package including D3D12 and DXGI headers | Package targets net10.0 (and the current package page also lists net11.0) | MIT, stated in package README/repository |
+| TerraFX | TerraFX.Interop.Windows **10.0.28000** | SDK-aligned Windows/DirectX interop package including D3D12 and DXGI headers | Package contains a net10.0 asset; newer-framework compatibility is computed by NuGet | MIT, stated in package README/repository |
 | Vortice | Vortice.Direct3D12 **3.8.3** and Vortice.DXGI **3.8.3** | Separate API-specific packages using generated SharpGen-based bindings and managed wrapper APIs | Packages contain net8.0, net9.0 and net10.0 assets | MIT, stated by the project/package metadata |
 | SharpDX | SharpDX.Direct3D12 **4.2.0** and SharpDX.DXGI **4.2.0** | Managed DirectX wrapper family with COM object abstractions | D3D12 package assets include .NET Standard 1.1 and .NET Framework 4.0/4.5 (plus UAP); no net10.0-specific asset | MIT; repository is archived and read-only |
 
