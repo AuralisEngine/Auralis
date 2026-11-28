@@ -2,15 +2,14 @@ using System.Runtime.InteropServices;
 
 namespace Auralis.Graphics.Direct3D12.Runtime;
 
-/// <summary>Result of the inexpensive Direct3D 12 runtime-loader probe.</summary>
+/// <summary>Result of the Direct3D 12 runtime-loader availability probe.</summary>
 internal readonly record struct D3D12RuntimeStatus(
     bool IsAvailable,
     string? UnavailableReason);
 
 /// <summary>
-/// Detects whether the Windows DXGI and D3D12 system libraries can be loaded.
-/// This is a loader check only: it does not enumerate adapters or claim that any adapter supports
-/// a particular Direct3D feature level. Those checks belong to provider/device creation.
+/// Checks whether the Windows DXGI and Direct3D 12 system libraries can be loaded from System32.
+/// This is only a loader probe; it does not enumerate adapters or test device/feature support.
 /// </summary>
 internal static class D3D12RuntimeAvailability
 {
@@ -20,17 +19,21 @@ internal static class D3D12RuntimeAvailability
     public static D3D12RuntimeStatus Probe()
     {
         if (!OperatingSystem.IsWindows())
+        {
             return Evaluate(isWindows: false, hasDxgi: false, hasD3D12: false);
+        }
 
         bool hasDxgi = CanLoadSystemLibrary(DxgiLibraryName);
         if (!hasDxgi)
+        {
             return Evaluate(isWindows: true, hasDxgi: false, hasD3D12: false);
+        }
 
         bool hasD3D12 = CanLoadSystemLibrary(D3D12LibraryName);
         return Evaluate(isWindows: true, hasDxgi: true, hasD3D12: hasD3D12);
     }
 
-    /// <summary>Pure decision logic, exposed internally for host-independent tests.</summary>
+    /// <summary>Pure availability decision logic for deterministic, host-independent tests.</summary>
     internal static D3D12RuntimeStatus Evaluate(
         bool isWindows,
         bool hasDxgi,
@@ -71,7 +74,14 @@ internal static class D3D12RuntimeAvailability
             return false;
         }
 
-        NativeLibrary.Free(libraryHandle);
-        return true;
+        // The probe owns only this temporary loader reference. Release it deterministically.
+        try
+        {
+            return true;
+        }
+        finally
+        {
+            NativeLibrary.Free(libraryHandle);
+        }
     }
 }
