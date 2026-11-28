@@ -48,7 +48,7 @@ This is an engineering comparison, not legal advice.
 
 | Binding | Evaluated release | Versioned package scope | Framework/package evidence | Licence evidence |
 |---|---|---|---|---|
-| **Silk.NET** | **2.23.0** | `Silk.NET.Direct3D12` and `Silk.NET.DXGI` | NuGet packages contain .NET Standard 2.0, .NET Core 3.1 and .NET 5.0 assets. NuGet computes compatibility with `net10.0`; these are not dedicated .NET 10 assets. | MIT in package metadata and the repository licence. |
+| **Silk.NET** | **2.23.0** | `Silk.NET.Direct3D12` and `Silk.NET.DXGI` | NuGet package assets include .NET Standard 2.0 and 2.1, .NET Core 3.1 and .NET 5.0. NuGet computes compatibility with `net10.0`; these are not dedicated .NET 10 assets. | MIT in package metadata and the repository licence. |
 | TerraFX | **10.0.28000** | `TerraFX.Interop.Windows`, an aggregate Windows/DirectX interop package whose documented headers include D3D12 and DXGI. | Package contains `net10.0` and `net11.0` assets. NuGet reports no package dependencies for these assets. | MIT in package README and repository licence. |
 | Vortice | **3.8.3** | `Vortice.Direct3D12` and `Vortice.DXGI` | Both packages expose .NET 8, .NET 9 and .NET 10 assets. The D3D12 package depends on `Vortice.DXGI` and `SharpGen.Runtime`. | MIT in package metadata and repository licence. |
 | SharpDX | **4.2.0** | `SharpDX.Direct3D12` and `SharpDX.DXGI` | The D3D12 package lists .NET Standard 1.1 and .NET Framework assets; it has no dedicated .NET 10 asset. Its last stable package release is from 2018. | MIT in package metadata and repository licence. |
