@@ -84,7 +84,7 @@ public sealed class D3D12AdapterInfoMapperTests
         Assert.Equal(
             D3D12AdapterInfoMapper.CreateAdapterId(0x12345678, 0x10203040),
             adapter.Id);
-        Assert.Equal(GraphicsFeature.None, adapter.SupportedFeatures.Enabled);
+        Assert.Equal(D3D12AdapterInfoMapper.CoreSupportedFeatures, adapter.SupportedFeatures.Enabled);
         Assert.False(adapter.SupportedDescriptorIndexing.HasAny);
     }
 
@@ -94,6 +94,21 @@ public sealed class D3D12AdapterInfoMapperTests
         GraphicsAdapterInfo adapter = Create(name: " ");
 
         Assert.Equal("Unknown Direct3D 12 adapter", adapter.Name);
+    }
+
+    [Fact]
+    public void CoreCapabilitiesIncludeOnlyGuaranteedFeatureLevel11Semantics()
+    {
+        const GraphicsFeature expected =
+            GraphicsFeature.ComputeShaders |
+            GraphicsFeature.IndirectDrawing |
+            GraphicsFeature.TessellationShaders |
+            GraphicsFeature.GeometryShaders |
+            GraphicsFeature.TimelineSynchronization;
+
+        Assert.Equal(expected, D3D12AdapterInfoMapper.CoreSupportedFeatures);
+        Assert.False(D3D12AdapterInfoMapper.CoreSupportedFeatures.HasFlag(GraphicsFeature.RayTracing));
+        Assert.False(D3D12AdapterInfoMapper.CoreSupportedFeatures.HasFlag(GraphicsFeature.DescriptorIndexing));
     }
 
     private static GraphicsAdapterInfo Create(

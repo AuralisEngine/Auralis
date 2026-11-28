@@ -20,12 +20,20 @@ internal readonly record struct D3D12AdapterDescriptor(
 /// <summary>
 /// Converts DXGI adapter metadata into backend-independent information without guessing at
 /// integrated-versus-discrete classification (DXGI_ADAPTER_DESC1 does not provide that distinction).
+/// The mapper is used only after a D3D12 feature-level support probe has succeeded.
 /// </summary>
 internal static class D3D12AdapterInfoMapper
 {
     // "D3D12ADP" in ASCII. The high half namespaces these identifiers away from other providers;
     // the low half is the DXGI adapter LUID, not an enumeration index or display name.
     private const ulong AdapterIdentifierNamespace = 0x4433443132414450UL;
+
+    internal const GraphicsFeature CoreSupportedFeatures =
+        GraphicsFeature.ComputeShaders |
+        GraphicsFeature.IndirectDrawing |
+        GraphicsFeature.TessellationShaders |
+        GraphicsFeature.GeometryShaders |
+        GraphicsFeature.TimelineSynchronization;
 
     public static GraphicsAdapterInfo Create(in D3D12AdapterDescriptor descriptor)
     {
@@ -47,7 +55,10 @@ internal static class D3D12AdapterInfoMapper
             type,
             descriptor.VendorId,
             descriptor.DeviceId,
-            descriptor.DedicatedMemoryBytes);
+            descriptor.DedicatedMemoryBytes)
+        {
+            SupportedFeatures = new GraphicsFeatureSet(CoreSupportedFeatures)
+        };
     }
 
     public static GraphicsAdapterId CreateAdapterId(uint luidLowPart, int luidHighPart)

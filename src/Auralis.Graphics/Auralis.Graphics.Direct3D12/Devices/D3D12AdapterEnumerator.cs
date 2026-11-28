@@ -1,6 +1,7 @@
 using Auralis.Graphics.Abstractions;
 using Auralis.Graphics.Direct3D12.Interop;
 using TerraFX.Interop.DirectX;
+using TerraFX.Interop.Windows;
 using static TerraFX.Interop.DirectX.DirectX;
 
 namespace Auralis.Graphics.Direct3D12.Devices;
@@ -66,24 +67,36 @@ internal static unsafe class D3D12AdapterEnumerator
 
                 try
                 {
-                    DXGI_ADAPTER_DESC1 description = default;
-                    int descriptionResult = adapter->GetDesc1(&description);
-                    D3D12HResult.ThrowIfFailed(
-                        descriptionResult,
-                        $"IDXGIAdapter1::GetDesc1({adapterIndex})");
+                    // The null output pointer is intentional: the runtime performs its documented
+                    // adapter/feature-level support test without creating or retaining a device.
+                    // S_FALSE is the successful result for this probe.
+                    int supportResult = D3D12CreateDevice(
+                        (IUnknown*)adapter,
+                        D3D_FEATURE_LEVEL.D3D_FEATURE_LEVEL_11_0,
+                        __uuidof<ID3D12Device>(),
+                        null);
 
-                    D3D12AdapterDescriptor descriptor =
-                        D3D12AdapterInfoMapper.FromNative(description);
-                    GraphicsAdapterInfo info = D3D12AdapterInfoMapper.Create(descriptor);
-
-                    for (int previous = 0; previous < adapters.Count; previous++)
+                    if (supportResult >= 0)
                     {
-                        if (adapters[previous].Id == info.Id)
-                            throw new GraphicsException(
-                                $"DXGI returned duplicate adapter LUID 0x{info.Id.Low:X16}.");
-                    }
+                        DXGI_ADAPTER_DESC1 description = default;
+                        int descriptionResult = adapter->GetDesc1(&description);
+                        D3D12HResult.ThrowIfFailed(
+                            descriptionResult,
+                            $"IDXGIAdapter1::GetDesc1({adapterIndex})");
 
-                    adapters.Add(info);
+                        D3D12AdapterDescriptor descriptor =
+                            D3D12AdapterInfoMapper.FromNative(description);
+                        GraphicsAdapterInfo info = D3D12AdapterInfoMapper.Create(descriptor);
+
+                        for (int previous = 0; previous < adapters.Count; previous++)
+                        {
+                            if (adapters[previous].Id == info.Id)
+                                throw new GraphicsException(
+                                    $"DXGI returned duplicate adapter LUID 0x{info.Id.Low:X16}.");
+                        }
+
+                        adapters.Add(info);
+                    }
                 }
                 finally
                 {
