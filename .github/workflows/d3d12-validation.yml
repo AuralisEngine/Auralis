@@ -7,6 +7,7 @@ on:
       - "Auralis.slnx"
       - "src/Auralis.Graphics/Auralis.Graphics.Direct3D12/**"
       - "Tests/Auralis.Graphics.Direct3D12.Tests/**"
+      - "Tests/Auralis.Graphics.Tests/**"
       - ".github/workflows/d3d12-validation.yml"
 
 permissions:
@@ -22,7 +23,11 @@ jobs:
           dotnet-version: 10.0.x
       - name: Restore solution
         run: dotnet restore Auralis.slnx
-      - name: Build solution
-        run: dotnet build Auralis.slnx --configuration Release --no-restore
-      - name: Run solution tests
-        run: dotnet test Auralis.slnx --configuration Release --no-build
+      - name: Build Direct3D 12 backend and tests
+        run: dotnet build Tests/Auralis.Graphics.Direct3D12.Tests/Auralis.Graphics.Direct3D12.Tests.csproj --configuration Release --no-restore
+      - name: Build common graphics contract tests
+        run: dotnet build Tests/Auralis.Graphics.Tests/Auralis.Graphics.Tests.csproj --configuration Release --no-restore
+      - name: Run Direct3D 12 backend tests
+        run: dotnet test Tests/Auralis.Graphics.Direct3D12.Tests/Auralis.Graphics.Direct3D12.Tests.csproj --configuration Release --no-build --no-restore
+      - name: Run common graphics contract tests
+        run: dotnet test Tests/Auralis.Graphics.Tests/Auralis.Graphics.Tests.csproj --configuration Release --no-build --no-restore

@@ -42,7 +42,7 @@ This is deliberately not an adapter or feature-level probe. A successfully loade
 
 ## Native error handling
 
-Use `D3D12HResult.ThrowIfFailed` for HRESULT-returning D3D12/DXGI calls. It treats all non-negative values as success and throws `D3D12NativeException` for failed HRESULTs. The exception retains the signed HRESULT, operation name, hexadecimal representation and a `COMException` inner exception carrying the same HRESULT.
+Use `D3D12HResult.ThrowIfFailed` for HRESULT-returning D3D12/DXGI calls. It treats all non-negative values as success and throws `D3D12NativeException` for failed HRESULTs. The exception retains the signed HRESULT, operation name, hexadecimal representation and a `COMException` inner exception carrying the same HRESULT. The exception factory rejects non-failure HRESULTs to preserve this invariant.
 
 Do not discard HRESULTs or replace useful device-removed / DXGI diagnostics with generic exceptions.
 
@@ -63,8 +63,12 @@ Run from the repository root:
 
 ```powershell
 dotnet restore Auralis.slnx
-dotnet build Auralis.slnx --configuration Release
-dotnet test Auralis.slnx --configuration Release
+dotnet build Tests/Auralis.Graphics.Direct3D12.Tests/Auralis.Graphics.Direct3D12.Tests.csproj --configuration Release
+dotnet test Tests/Auralis.Graphics.Direct3D12.Tests/Auralis.Graphics.Direct3D12.Tests.csproj --configuration Release
+dotnet build Tests/Auralis.Graphics.Tests/Auralis.Graphics.Tests.csproj --configuration Release
+dotnet test Tests/Auralis.Graphics.Tests/Auralis.Graphics.Tests.csproj --configuration Release
 ```
+
+**Current repository-wide build note:** the first Windows CI attempt also ran `dotnet build Auralis.slnx --configuration Release` and was blocked by an unrelated existing compiler error `CS0161` in `src/Auralis.Tools/AssetPipeline/Auralis.Tools.AssetPipeline.Interchange/FBX/FBXReader.cs` (`FBXReader.GetFBXHeader(ReadOnlyMemory<byte>)` does not return on every path). That source is unchanged by this PR. The D3D12 project and its dedicated tests compiled before the unrelated solution build failed. The D3D12 workflow therefore restores the full solution and builds/tests the backend and common graphics test projects directly, avoiding unrelated projects while preserving the graphics contract baseline. The solution-wide issue should be fixed separately.
 
 Windows native integration tests will be added alongside the tasks that introduce native API execution.
