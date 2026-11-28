@@ -15,7 +15,7 @@ public sealed class D3D12RuntimeAvailabilityTests
 
         Assert.False(status.IsAvailable);
         Assert.NotNull(status.UnavailableReason);
-        Assert.Contains("only on Windows", status.UnavailableReason);
+        Assert.Contains("only on Windows", status.UnavailableReason!);
     }
 
     [Fact]
@@ -27,7 +27,7 @@ public sealed class D3D12RuntimeAvailabilityTests
             hasD3D12: false);
 
         Assert.False(status.IsAvailable);
-        Assert.Contains("dxgi.dll", status.UnavailableReason);
+        Assert.Contains("dxgi.dll", status.UnavailableReason!);
     }
 
     [Fact]
@@ -39,7 +39,7 @@ public sealed class D3D12RuntimeAvailabilityTests
             hasD3D12: false);
 
         Assert.False(status.IsAvailable);
-        Assert.Contains("d3d12.dll", status.UnavailableReason);
+        Assert.Contains("d3d12.dll", status.UnavailableReason!);
     }
 
     [Fact]

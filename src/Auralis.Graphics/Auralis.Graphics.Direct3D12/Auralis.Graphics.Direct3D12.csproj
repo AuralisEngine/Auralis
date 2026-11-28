@@ -8,7 +8,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\\Auralis.Graphics\\Auralis.Graphics.csproj" />
+    <ProjectReference Include="../Auralis.Graphics/Auralis.Graphics.csproj" />
     <PackageReference Include="TerraFX.Interop.Windows" Version="10.0.28000" />
   </ItemGroup>
 
