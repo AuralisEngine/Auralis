@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using System.Runtime.Versioning;
 using Auralis.Graphics.Abstractions;
 using Auralis.Graphics.Devices;
 using Auralis.Graphics.Direct3D12.Interop;
@@ -8,6 +9,7 @@ using TerraFX.Interop.DirectX;
 namespace Auralis.Graphics.Direct3D12.Devices;
 
 /// <summary>Native D3D12 feature and format capability queries.</summary>
+[SupportedOSPlatform("windows10.0.10240")]
 internal static unsafe class D3D12DeviceCapabilityQuery
 {
     private const int EInvalidArg = unchecked((int)0x80070057);

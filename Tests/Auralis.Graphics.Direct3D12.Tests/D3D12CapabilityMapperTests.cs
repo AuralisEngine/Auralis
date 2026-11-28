@@ -1,5 +1,6 @@
 using Auralis.Graphics.Abstractions;
 using Auralis.Graphics.Direct3D12.Devices;
+using Auralis.Graphics.Devices;
 using Xunit;
 
 namespace Auralis.Graphics.Direct3D12.Tests;

@@ -5,7 +5,6 @@ using Auralis.Graphics.Direct3D12.Interop;
 using Auralis.Graphics.Direct3D12.Runtime;
 using TerraFX.Interop.DirectX;
 using TerraFX.Interop.Windows;
-using static TerraFX.Interop.DirectX.DirectX;
 
 namespace Auralis.Graphics.Direct3D12.Devices;
 
@@ -61,9 +60,11 @@ public sealed unsafe class D3D12GraphicsBackendProvider : IGraphicsBackendProvid
             throw new GraphicsBackendUnavailableException(Backend, UnavailableReason);
 
         if (options.Backend is { } requestedBackend && requestedBackend != Backend)
+        {
             throw new ArgumentException(
                 $"The {Backend} provider cannot create a device for {requestedBackend}.",
                 nameof(options));
+        }
 
         if (!OperatingSystem.IsWindowsVersionAtLeast(10, 0, 10240))
         {
@@ -72,8 +73,6 @@ public sealed unsafe class D3D12GraphicsBackendProvider : IGraphicsBackendProvid
                 "The Direct3D 12 backend requires Windows 10 version 1507 (build 10240) or later.");
         }
 
-        // Debug facilities must be configured before creating the first native device in this process.
-        D3D12DebugLayer.Configure(options.DebugOptions);
         cancellationToken.ThrowIfCancellationRequested();
 
         ReadOnlyMemory<GraphicsAdapterInfo> adapterMemory =
@@ -87,16 +86,11 @@ public sealed unsafe class D3D12GraphicsBackendProvider : IGraphicsBackendProvid
 
         try
         {
-            Guid deviceIid = IID.IID_ID3D12Device;
-            int createResult = D3D12CreateDevice(
-                (IUnknown*)adapter,
-                D3D_FEATURE_LEVEL.D3D_FEATURE_LEVEL_11_0,
-                &deviceIid,
-                (void**)&device);
+            cancellationToken.ThrowIfCancellationRequested();
 
-            D3D12HResult.ThrowIfFailed(createResult, "D3D12CreateDevice");
-            if (device == null)
-                throw new GraphicsException("D3D12CreateDevice succeeded without returning ID3D12Device.");
+            // The debug layer configuration and first native device creation are serialized
+            // process-wide by this helper, so concurrent provider calls cannot enable validation late.
+            device = D3D12DebugLayer.CreateDevice((IUnknown*)adapter, options.DebugOptions);
 
             cancellationToken.ThrowIfCancellationRequested();
 
@@ -147,8 +141,6 @@ public sealed unsafe class D3D12GraphicsBackendProvider : IGraphicsBackendProvid
                 DeviceId: selectedAdapter.DeviceId,
                 IsSoftware: selectedAdapter.Type == GraphicsAdapterType.Cpu);
 
-            // Check cancellation before transferring the COM reference. From this point onward
-            // the device wrapper owns the native pointer, so no cancellation path may leak it.
             cancellationToken.ThrowIfCancellationRequested();
 
             D3D12GraphicsDevice graphicsDevice = new(
