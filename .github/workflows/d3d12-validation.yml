@@ -2,7 +2,7 @@ name: Direct3D 12 validation
 
 on:
   pull_request:
-    branches: [master]
+    branches: [master, feature/d3d12-01-backend-foundation]
     paths:
       - "Auralis.slnx"
       - "src/Auralis.Graphics/Auralis.Graphics.Direct3D12/**"
