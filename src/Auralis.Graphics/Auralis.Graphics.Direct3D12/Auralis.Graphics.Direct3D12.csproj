@@ -4,10 +4,16 @@
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\Auralis.Graphics\Auralis.Graphics.csproj" />
+    <ProjectReference Include="..\\Auralis.Graphics\\Auralis.Graphics.csproj" />
+    <PackageReference Include="TerraFX.Interop.Windows" Version="10.0.28000" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Auralis.Graphics.Direct3D12.Tests" />
   </ItemGroup>
 
 </Project>
