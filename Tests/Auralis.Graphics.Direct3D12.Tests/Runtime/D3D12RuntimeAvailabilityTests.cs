@@ -12,7 +12,7 @@ public sealed class D3D12RuntimeAvailabilityTests
 
         Assert.Equal(D3D12RuntimeStatus.UnsupportedPlatform, result.Status);
         Assert.False(result.IsAvailable);
-        Assert.NotNull(result.UnavailableReason);
+        Assert.NotNull(result.UnavailableReason!);
         Assert.Contains("Windows", result.UnavailableReason);
     }
 
