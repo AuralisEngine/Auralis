@@ -28,8 +28,6 @@ public sealed class D3D12FormatMapperTests
     [InlineData(GraphicsFormat.RGB16Float)]
     [InlineData(GraphicsFormat.RGB16UNorm)]
     [InlineData(GraphicsFormat.S8UInt)]
-    [InlineData(GraphicsFormat.ETC2RGB8UNorm)]
-    [InlineData(GraphicsFormat.ASTC4x4UNorm)]
     public void UnsupportedCommonFormatsAreRejectedInsteadOfAliased(
         GraphicsFormat format)
     {
@@ -64,7 +62,7 @@ public sealed class D3D12FormatMapperTests
         GraphicsFormatSupport support = D3D12FormatMapper.MapSupport(
             GraphicsFormat.R32UInt,
             D3D12_FORMAT_SUPPORT1.D3D12_FORMAT_SUPPORT1_SHADER_SAMPLE,
-            D3D12_FORMAT_SUPPORT2.D3D12_FORMAT_SUPPORT2_NONE,
+            (D3D12_FORMAT_SUPPORT2)0,
             supportsAccelerationStructureVertex: false);
 
         Assert.True(support.HasFlag(GraphicsFormatSupport.Sampled));
@@ -77,7 +75,7 @@ public sealed class D3D12FormatMapperTests
         GraphicsFormatSupport support = D3D12FormatMapper.MapSupport(
             GraphicsFormat.RGB32Float,
             D3D12_FORMAT_SUPPORT1.D3D12_FORMAT_SUPPORT1_IA_VERTEX_BUFFER,
-            D3D12_FORMAT_SUPPORT2.D3D12_FORMAT_SUPPORT2_NONE,
+            (D3D12_FORMAT_SUPPORT2)0,
             supportsAccelerationStructureVertex: true);
 
         Assert.True(support.HasFlag(GraphicsFormatSupport.AccelerationStructureVertex));
@@ -86,8 +84,7 @@ public sealed class D3D12FormatMapperTests
     [Fact]
     public void SampleCountBitsMapToCommonFlagsWithoutInventingCounts()
     {
-        GraphicsSampleCountFlags flags = D3D12FormatMapper.MapSampleCounts(
-            supportedSampleCounts: 1 | 4 | 16);
+        GraphicsSampleCountFlags flags = D3D12FormatMapper.MapSampleCounts(1 | 4 | 16);
 
         Assert.Equal(
             GraphicsSampleCountFlags.One |

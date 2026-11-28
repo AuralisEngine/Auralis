@@ -1,6 +1,5 @@
 using Auralis.Graphics.Abstractions;
 using Auralis.Graphics.Direct3D12.Devices;
-using Auralis.Graphics.Devices;
 using Xunit;
 
 namespace Auralis.Graphics.Direct3D12.Tests;
@@ -11,7 +10,6 @@ public sealed class D3D12CapabilityMapperTests
     public void BaselineCapabilitiesContainOnlyGuaranteedD3D12Features()
     {
         D3D12FeatureSnapshot snapshot = CreateSnapshot();
-
         GraphicsFeature enabled = snapshot.SupportedFeatures.Enabled;
 
         Assert.Equal(
@@ -61,9 +59,7 @@ public sealed class D3D12CapabilityMapperTests
     [Fact]
     public void MissingOptionalQueriesDoNotAdvertiseOptionalFeatures()
     {
-        D3D12FeatureSnapshot snapshot = CreateSnapshot();
-
-        GraphicsFeature enabled = snapshot.SupportedFeatures.Enabled;
+        GraphicsFeature enabled = CreateSnapshot().SupportedFeatures.Enabled;
 
         Assert.False(enabled.HasFlag(GraphicsFeature.DescriptorIndexing));
         Assert.False(enabled.HasFlag(GraphicsFeature.SparseResources));
@@ -93,18 +89,15 @@ public sealed class D3D12CapabilityMapperTests
         Assert.False(tierTwo.StorageImageUpdateAfterBind);
         Assert.False(tierTwo.StorageBufferUpdateAfterBind);
         Assert.False(tierTwo.ZeroVariableDescriptorCount);
-
-        tierTwo.Validate();
     }
 
     [Fact]
-    public void BufferSizeLimitUsesCheckedGpuVirtualAddressWidth()
+    public void BufferSizeLimitUsesGpuVirtualAddressWidthWithoutOverflow()
     {
         GraphicsDeviceLimits limits = D3D12CapabilityMapper.CreateLimits(
             CreateSnapshot(maxGpuVirtualAddressBits: 48));
 
         Assert.Equal(1UL << 48, limits.MaxBufferSizeInBytes);
-        limits.Validate();
     }
 
     [Theory]

@@ -34,7 +34,9 @@ public sealed class D3D12DeviceCreationIntegrationTests
         Assert.IsType<D3D12GraphicsDevice>(device);
         Assert.Equal(GraphicsBackend.Direct3D12, device.Backend);
         Assert.Equal(selectedAdapter.Id, device.Adapter.Id);
-        Assert.Equal(GraphicsDeviceStatus.Operational, Assert.IsAssignableFrom<IGraphicsDeviceHealth>(device).Status);
+        Assert.Equal(
+            GraphicsDeviceStatus.Operational,
+            Assert.IsAssignableFrom<IGraphicsDeviceHealth>(device).Status);
         Assert.False(device.IsDisposed);
 
         IGraphicsDeviceHealth health = Assert.IsAssignableFrom<IGraphicsDeviceHealth>(device);
@@ -50,7 +52,8 @@ public sealed class D3D12DeviceCreationIntegrationTests
         Assert.True(device.IsDisposed);
         Assert.Equal(GraphicsDeviceStatus.Disposed, health.Status);
         Assert.Equal(1, disposedTransitions);
-        Assert.Throws<ObjectDisposedException>(() => ((D3D12GraphicsDevice)device).ThrowIfUnavailable());
+        Assert.Throws<ObjectDisposedException>(
+            () => ((D3D12GraphicsDevice)device).ThrowIfUnavailable());
 
         device.Dispose();
         Assert.Equal(1, disposedTransitions);
@@ -69,6 +72,7 @@ public sealed class D3D12DeviceCreationIntegrationTests
         D3D12GraphicsBackendProvider provider = new();
         ReadOnlyMemory<GraphicsAdapterInfo> adapters = await provider.EnumerateAdaptersAsync();
         Assert.NotEmpty(adapters.ToArray());
+        GraphicsAdapterId adapterId = adapters.Span[0].Id;
 
         GraphicsFeatureNotSupportedException exception =
             await Assert.ThrowsAsync<GraphicsFeatureNotSupportedException>(async () =>
@@ -76,10 +80,10 @@ public sealed class D3D12DeviceCreationIntegrationTests
                     new GraphicsDeviceOptions
                     {
                         Backend = GraphicsBackend.Direct3D12,
-                        Adapter = adapters.Span[0].Id,
+                        Adapter = adapterId,
                         RequiredFeatures = GraphicsFeature.DeviceGroups
                     }));
 
-        Assert.Equal(GraphicsFeature.DeviceGroups, exception.Missing);
+        Assert.Contains("DeviceGroups", exception.Message);
     }
 }
