@@ -21,7 +21,6 @@ internal readonly record struct D3D12AdapterDescriptor(
 /// <summary>
 /// Converts DXGI adapter metadata into backend-independent information without guessing at
 /// integrated-versus-discrete classification (DXGI_ADAPTER_DESC1 does not provide that distinction).
-/// The mapper is used only after a D3D12 feature-level support probe has succeeded.
 /// </summary>
 internal static class D3D12AdapterInfoMapper
 {
@@ -62,6 +61,18 @@ internal static class D3D12AdapterInfoMapper
         };
     }
 
+    public static GraphicsAdapterInfo Create(
+        in D3D12AdapterDescriptor descriptor,
+        in D3D12FeatureSnapshot features)
+    {
+        GraphicsAdapterInfo adapter = Create(descriptor);
+        return adapter with
+        {
+            SupportedFeatures = features.SupportedFeatures,
+            SupportedDescriptorIndexing = features.SupportedDescriptorIndexing
+        };
+    }
+
     public static GraphicsAdapterId CreateAdapterId(uint luidLowPart, int luidHighPart)
     {
         ulong luid = ((ulong)unchecked((uint)luidHighPart) << 32) | luidLowPart;
@@ -70,6 +81,9 @@ internal static class D3D12AdapterInfoMapper
 
         return new GraphicsAdapterId(AdapterIdentifierNamespace, luid);
     }
+
+    internal static bool IsD3D12AdapterId(GraphicsAdapterId id) =>
+        id.High == AdapterIdentifierNamespace && id.Low != 0;
 
     [SupportedOSPlatform("windows10.0.10240")]
     public static D3D12AdapterDescriptor FromNative(in DXGI_ADAPTER_DESC1 description)
