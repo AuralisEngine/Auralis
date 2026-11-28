@@ -10,7 +10,7 @@ on:
       - ".github/workflows/d3d12-validation.yml"
   push:
     branches:
-      - "feature/d3d12-01-backend-foundation"
+      - "chore/d3d12-01-backend-infrastructure-placeholder"
 
 jobs:
   managed-and-native-backend-tests:
