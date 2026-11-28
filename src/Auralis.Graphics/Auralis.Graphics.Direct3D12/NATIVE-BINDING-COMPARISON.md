@@ -296,7 +296,7 @@ The inspected TerraFX declarations use unsafe structs with an `lpVtbl` pointer, 
 
 Its `ComPtr<T>` is also a value type, but it provides a more extensive COM smart-pointer API: pointer constructors and explicit copies increment references; `As<U>` and `AsIID` use `QueryInterface`; `Attach` adopts a pointer without adding a reference; `Detach` transfers it out; `CopyTo` increments before copying; `Reset` releases and clears; and `Dispose` clears the pointer before releasing. The implementation is explicitly intended to model ownership transfers and deterministic release.
 
-The same value-type warning still applies: ordinary struct assignment does not execute a custom reference-incrementing copy constructor. The library itself warns users to track reference counts correctly when `ComPtr<T>` instances are stored in heap fields. Raw interface structs still do not magically distinguish borrowed from owned references.
+The same value-type warning still applies: ordinary struct assignment does not execute a custom reference-incrementing copy constructor. Code that stores or copies `ComPtr<T>` values must therefore account explicitly for reference ownership; an ordinary struct assignment does not acquire a new COM reference. Raw interface structs still do not magically distinguish borrowed from owned references.
 
 ### Vortice: generated bindings with managed COM wrappers
 
