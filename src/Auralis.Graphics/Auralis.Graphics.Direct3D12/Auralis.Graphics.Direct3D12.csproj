@@ -8,6 +8,12 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Auralis.Graphics\Auralis.Graphics.csproj" />
+    <PackageReference Include="Silk.NET.Direct3D12" Version="2.23.0" />
+    <PackageReference Include="Silk.NET.DXGI" Version="2.23.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Auralis.Graphics.Direct3D12.Tests" />
   </ItemGroup>
 
 </Project>
