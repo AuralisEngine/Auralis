@@ -8,10 +8,6 @@ on:
       - "src/Auralis.Graphics/**"
       - "Tests/Auralis.Graphics.Direct3D12.Tests/**"
       - ".github/workflows/d3d12-validation.yml"
-  push:
-    branches:
-      - "chore/d3d12-01-backend-infrastructure-placeholder"
-
 jobs:
   managed-and-native-backend-tests:
     runs-on: windows-latest
