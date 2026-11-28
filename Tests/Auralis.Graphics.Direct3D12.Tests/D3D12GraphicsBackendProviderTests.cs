@@ -54,16 +54,27 @@ public sealed class D3D12GraphicsBackendProviderTests
     }
 
     [Fact]
-    public async Task DeviceCreationDoesNotReturnPartiallyInitializedDevice()
+    public async Task DeviceCreationRejectsARequestForAnotherBackendBeforeNativeCalls()
     {
         D3D12GraphicsBackendProvider provider = new(
             D3D12RuntimeAvailability.Evaluate(true, true, true));
 
-        GraphicsBackendUnavailableException exception =
-            await Assert.ThrowsAsync<GraphicsBackendUnavailableException>(async () =>
-                await provider.CreateDeviceAsync(
-                    new GraphicsDeviceOptions { Backend = GraphicsBackend.Direct3D12 }));
+        await Assert.ThrowsAsync<ArgumentException>(async () =>
+            await provider.CreateDeviceAsync(
+                new GraphicsDeviceOptions { Backend = GraphicsBackend.Vulkan }));
+    }
 
-        Assert.Contains("D3D12-03", exception.Message);
+    [Fact]
+    public async Task DeviceCreationHonorsPreCancelledRequestsBeforeNativeCalls()
+    {
+        D3D12GraphicsBackendProvider provider = new(
+            D3D12RuntimeAvailability.Evaluate(true, true, true));
+        using CancellationTokenSource cancellation = new();
+        cancellation.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () =>
+            await provider.CreateDeviceAsync(
+                new GraphicsDeviceOptions { Backend = GraphicsBackend.Direct3D12 },
+                cancellation.Token));
     }
 }
