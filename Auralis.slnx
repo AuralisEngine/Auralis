@@ -28,6 +28,7 @@
   <Folder Name="/src/Auralis.Tools/AssetPipeLine/">
     <Project Path="src/Auralis.Tools/AssetPipeline/Auralis.Tools.AssetPipeline.Interchange/Auralis.Tools.AssetPipeline.Interchange.csproj" Id="f4d7b0ef-3b06-44b9-a044-972e6b501a13" />
   </Folder>
+  <Folder Name="/src/Auralis.World/" />
   <Folder Name="/src/AuralisRuntime/">
     <Project Path="src/AuralisRuntime/Auralis.Engine/Auralis.Engine.csproj" Id="f73ad8e1-9bf3-4fc1-895d-51bec0e42b07" />
   </Folder>
