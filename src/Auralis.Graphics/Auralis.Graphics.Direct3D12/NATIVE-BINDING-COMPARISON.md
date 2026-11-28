@@ -546,11 +546,12 @@ All references below were consulted for this comparison on **2026-11-28**. Sourc
 
 ### Native API and COM semantics
 
-- [Microsoft Direct3D 12 programming guide](https://learn.microsoft.com/windows/win32/direct3d12/direct3d-12-programming-guide)
+- [Microsoft Direct3D 12 programming guide](https://learn.microsoft.com/windows/win32/direct3d12/directx-12-programming-guide)
 - [Microsoft Direct3D 12 reference](https://learn.microsoft.com/windows/win32/direct3d12/direct3d-12-reference)
-- [Microsoft DXGI reference](https://learn.microsoft.com/windows/win32/api/_dxgi/)
+- [Microsoft DXGI reference](https://learn.microsoft.com/windows/win32/direct3ddxgi/d3d10-graphics-reference-dxgi)
 - [Microsoft COM rules for managing reference counts](https://learn.microsoft.com/windows/win32/com/rules-for-managing-reference-counts)
 - [Microsoft COM rules for implementing QueryInterface](https://learn.microsoft.com/windows/win32/com/rules-for-implementing-queryinterface)
-- [Microsoft Direct3D 12 Enhanced Barriers overview](https://learn.microsoft.com/windows/win32/direct3d12/enhanced-barriers)
+- [Microsoft Direct3D 12 Enhanced Barriers overview](https://learn.microsoft.com/windows/win32/api/d3d12/nf-d3d12-id3d12graphicscommandlist7-barrier)
+- [Microsoft D3D12 Enhanced Barriers support query (`D3D12_FEATURE_DATA_D3D12_OPTIONS12`)](https://learn.microsoft.com/windows/win32/api/d3d12/ns-d3d12-d3d12_feature_data_d3d12_options12)
 - [Microsoft Direct3D 12 raytracing](https://learn.microsoft.com/windows/win32/direct3d12/direct3d-12-raytracing)
 - [Microsoft DXGI flip-model presentation](https://learn.microsoft.com/windows/win32/direct3ddxgi/dxgi-flip-model)
