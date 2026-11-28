@@ -8,7 +8,6 @@ public sealed class D3D12HResultTests
     [Theory]
     [InlineData(0)]
     [InlineData(1)]
-    [InlineData(0x00000001)]
     public void ThrowIfFailed_AcceptsNonNegativeStatusCodes(int hresult)
     {
         D3D12HResult.ThrowIfFailed(hresult, "Test operation");
@@ -25,8 +24,8 @@ public sealed class D3D12HResultTests
         Assert.Equal(hresult, exception.NativeHResult);
         Assert.Equal("Create device", exception.Operation);
         Assert.Contains("0x887A0005", exception.Message);
-        Assert.IsType<COMException>(exception.InnerException);
-        Assert.Equal(hresult, exception.InnerException.HResult);
+        COMException innerException = Assert.IsType<COMException>(exception.InnerException);
+        Assert.Equal(hresult, innerException.HResult);
     }
 
     [Fact]
