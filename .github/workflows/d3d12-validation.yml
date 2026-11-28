@@ -26,6 +26,9 @@ jobs:
       - name: Restore solution
         run: dotnet restore Auralis.slnx
 
+      - name: Audit Direct3D 12 dependency graph
+        run: dotnet list src/Auralis.Graphics/Auralis.Graphics.Direct3D12/Auralis.Graphics.Direct3D12.csproj package --include-transitive
+
       - name: Build Direct3D 12 backend
         run: dotnet build src/Auralis.Graphics/Auralis.Graphics.Direct3D12/Auralis.Graphics.Direct3D12.csproj --configuration Release --no-restore
 
