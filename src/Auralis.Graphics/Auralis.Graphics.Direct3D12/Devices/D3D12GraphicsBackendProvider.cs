@@ -1,4 +1,3 @@
-using System.Runtime.Versioning;
 using Auralis.Graphics.Abstractions;
 using Auralis.Graphics.Direct3D12.Runtime;
 using Auralis.Graphics.Devices;
@@ -6,8 +5,8 @@ using Auralis.Graphics.Devices;
 namespace Auralis.Graphics.Direct3D12.Devices;
 
 /// <summary>
-/// Direct3D 12 backend provider. It reports Windows runtime availability and enumerates physical
-/// DXGI adapters; logical-device construction is supplied by the next implementation phase.
+/// Direct3D 12 backend provider. It reports Windows runtime availability and enumerates D3D12-capable
+/// DXGI adapters, including WARP when available; logical-device construction is supplied later.
 /// </summary>
 public sealed class D3D12GraphicsBackendProvider : IGraphicsBackendProvider
 {
