@@ -60,7 +60,9 @@ reliably distinguish integrated from discrete GPUs; the backend does not guess f
 
 The adapter's `SupportedFeatures` currently lists only the baseline semantics guaranteed by a
 successful feature-level 11.0 D3D12 support test: compute shaders, indirect drawing, tessellation,
-geometry shaders and fence-based timeline synchronization. Fine-grained descriptor indexing and
+geometry shaders and fence-based timeline synchronization. The provider uses the optional
+`IDXGIFactory4::EnumWarpAdapter` entry point when available to include WARP as a software adapter;
+if the factory4 interface or WARP device is unavailable, hardware enumeration still succeeds. Fine-grained descriptor indexing and
 optional DXR/VRS/sparse/device-group tiers remain unadvertised until their native feature queries
 and logical-device enablement are implemented. `CreateDeviceAsync` explicitly reports that
 logical device creation is not yet available until D3D12-03; it never returns a partially
