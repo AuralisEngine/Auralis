@@ -1,3 +1,4 @@
+using System.Runtime.Versioning;
 using Auralis.Graphics.Abstractions;
 using Auralis.Graphics.Direct3D12.Runtime;
 using Auralis.Graphics.Devices;
@@ -39,6 +40,13 @@ public sealed class D3D12GraphicsBackendProvider : IGraphicsBackendProvider
 
         if (!IsAvailable)
             throw new GraphicsBackendUnavailableException(Backend, UnavailableReason);
+
+        if (!OperatingSystem.IsWindowsVersionAtLeast(10, 0, 10240))
+        {
+            throw new GraphicsBackendUnavailableException(
+                Backend,
+                "The Direct3D 12 backend requires Windows 10 version 1507 (build 10240) or later.");
+        }
 
         ReadOnlyMemory<GraphicsAdapterInfo> adapters =
             D3D12AdapterEnumerator.Enumerate(cancellationToken);

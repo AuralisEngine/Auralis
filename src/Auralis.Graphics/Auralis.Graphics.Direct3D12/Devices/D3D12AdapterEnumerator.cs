@@ -1,3 +1,4 @@
+using System.Runtime.Versioning;
 using Auralis.Graphics.Abstractions;
 using Auralis.Graphics.Direct3D12.Interop;
 using TerraFX.Interop.DirectX;
@@ -7,6 +8,7 @@ using static TerraFX.Interop.DirectX.DirectX;
 namespace Auralis.Graphics.Direct3D12.Devices;
 
 /// <summary>DXGI adapter enumeration for the Direct3D 12 provider.</summary>
+[SupportedOSPlatform("windows10.0.10240")]
 internal static unsafe class D3D12AdapterEnumerator
 {
     private const int DxgiErrorNotFound = unchecked((int)0x887A0002);
@@ -17,17 +19,11 @@ internal static unsafe class D3D12AdapterEnumerator
     public static ReadOnlyMemory<GraphicsAdapterInfo> Enumerate(
         CancellationToken cancellationToken)
     {
-        if (!OperatingSystem.IsWindows())
-        {
-            throw new GraphicsBackendUnavailableException(
-                GraphicsBackend.Direct3D12,
-                "DXGI adapter enumeration is available only on Windows.");
-        }
-
         cancellationToken.ThrowIfCancellationRequested();
 
+        Guid factoryIid = IID.IID_IDXGIFactory1;
         IDXGIFactory1* factory = null;
-        int createResult = CreateDXGIFactory1(__uuidof<IDXGIFactory1>(), (void**)&factory);
+        int createResult = CreateDXGIFactory1(&factoryIid, (void**)&factory);
         if (createResult < 0)
         {
             if (factory != null)
@@ -42,7 +38,8 @@ internal static unsafe class D3D12AdapterEnumerator
         IDXGIFactory4* factory4 = null;
         try
         {
-            int queryResult = factory->QueryInterface(__uuidof<IDXGIFactory4>(), (void**)&factory4);
+            Guid factory4Iid = IID.IID_IDXGIFactory4;
+            int queryResult = factory->QueryInterface(&factory4Iid, (void**)&factory4);
             if (queryResult < 0)
             {
                 if (factory4 != null)
@@ -107,9 +104,10 @@ internal static unsafe class D3D12AdapterEnumerator
             {
                 cancellationToken.ThrowIfCancellationRequested();
 
+                Guid adapterIid = IID.IID_IDXGIAdapter1;
                 IDXGIAdapter1* warpAdapter = null;
                 int warpResult = factory4->EnumWarpAdapter(
-                    __uuidof<IDXGIAdapter1>(),
+                    &adapterIid,
                     (void**)&warpAdapter);
 
                 if (warpResult >= 0)
@@ -159,10 +157,11 @@ internal static unsafe class D3D12AdapterEnumerator
         // The null output pointer is intentional: the runtime performs its documented
         // adapter/feature-level support test without creating or retaining a logical device.
         // S_FALSE is the successful result for this probe.
+        Guid deviceIid = IID.IID_ID3D12Device;
         int supportResult = D3D12CreateDevice(
             (IUnknown*)adapter,
             D3D_FEATURE_LEVEL.D3D_FEATURE_LEVEL_11_0,
-            __uuidof<ID3D12Device>(),
+            &deviceIid,
             null);
 
         if (supportResult < 0)

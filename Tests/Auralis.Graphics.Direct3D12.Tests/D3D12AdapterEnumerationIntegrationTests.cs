@@ -9,7 +9,7 @@ public sealed class D3D12AdapterEnumerationIntegrationTests
     [Fact]
     public void WindowsEnumerationReturnsOnlyUniqueD3D12CapableAdapterIdentities()
     {
-        if (!OperatingSystem.IsWindows())
+        if (!OperatingSystem.IsWindowsVersionAtLeast(10, 0, 10240))
             return;
 
         D3D12RuntimeStatus runtime = D3D12RuntimeAvailability.Probe();

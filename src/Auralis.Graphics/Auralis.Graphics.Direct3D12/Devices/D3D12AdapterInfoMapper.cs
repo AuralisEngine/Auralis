@@ -1,5 +1,6 @@
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using System.Runtime.Versioning;
 using Auralis.Graphics.Abstractions;
 using TerraFX.Interop.DirectX;
 using TerraFX.Interop.Windows;
@@ -70,6 +71,7 @@ internal static class D3D12AdapterInfoMapper
         return new GraphicsAdapterId(AdapterIdentifierNamespace, luid);
     }
 
+    [SupportedOSPlatform("windows10.0.10240")]
     public static D3D12AdapterDescriptor FromNative(in DXGI_ADAPTER_DESC1 description)
     {
         ref char firstCharacter = ref Unsafe.AsRef(in description.Description.e0);
