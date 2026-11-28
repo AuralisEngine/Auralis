@@ -1,0 +1,31 @@
+name: Direct3D 12 backend validation
+
+on:
+  pull_request:
+    branches: [master]
+    paths:
+      - "Auralis.slnx"
+      - "src/Auralis.Graphics/**"
+      - "Tests/Auralis.Graphics.Direct3D12.Tests/**"
+      - ".github/workflows/d3d12-validation.yml"
+  push:
+    branches:
+      - "chore/d3d12-01-backend-infrastructure-placeholder"
+jobs:
+  managed-and-native-backend-tests:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Restore solution
+        run: dotnet restore Auralis.slnx
+      - name: Build Direct3D 12 backend
+        run: dotnet build src/Auralis.Graphics/Auralis.Graphics.Direct3D12/Auralis.Graphics.Direct3D12.csproj --configuration Release --no-restore
+      - name: Build common graphics contracts and tests
+        run: dotnet build Tests/Auralis.Graphics.Tests/Auralis.Graphics.Tests.csproj --configuration Release --no-restore
+      - name: Test Direct3D 12 backend
+        run: dotnet test Tests/Auralis.Graphics.Direct3D12.Tests/Auralis.Graphics.Direct3D12.Tests.csproj --configuration Release --no-restore
+      - name: Test common graphics contracts
+        run: dotnet test Tests/Auralis.Graphics.Tests/Auralis.Graphics.Tests.csproj --configuration Release --no-build
