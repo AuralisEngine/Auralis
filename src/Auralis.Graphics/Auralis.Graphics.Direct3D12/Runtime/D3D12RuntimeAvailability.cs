@@ -53,7 +53,7 @@ internal readonly record struct D3D12RuntimeAvailability(
             return Evaluate(isWindows: true, dxgiAvailable: false, direct3D12Available: false);
 
         bool direct3D12Available = TryLoadSystemLibrary("d3d12.dll");
-        return Evaluate(isWindows: true, dxgiAvailable: true, direct3D12Available);
+        return Evaluate(isWindows: true, dxgiAvailable: true, direct3D12Available: direct3D12Available);
     }
 
     private static bool TryLoadSystemLibrary(string libraryName)
